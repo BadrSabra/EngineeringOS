@@ -185,6 +185,8 @@ export default function Events() {
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground font-medium">المشروع</span>
             <select
+              aria-label="تصفية حسب المشروع"
+              data-testid="select-event-project"
               value={projectId}
                onChange={(e) => {
                  setProjectId(e.target.value);
@@ -367,19 +369,36 @@ export default function Events() {
                             </Link>
                           )}
                         </div>
-                        <div className="w-48 opacity-60 shrink-0 truncate">
+                        <div className="flex w-48 shrink-0 items-center gap-1">
                           {eventProject ? (
-                            <Link
-                              href={`/projects/${encodeURIComponent(evt.projectId)}/workspace`}
-                              aria-label={`فتح مساحة المشروع: ${eventProject.name}`}
-                              data-testid={`link-event-project-${evt.id}`}
-                              title={evt.projectId}
-                              className="hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary rounded"
-                            >
-                              <bdi dir="auto">{eventProject.name}</bdi>
-                            </Link>
+                            <>
+                              <Link
+                                href={`/projects/${encodeURIComponent(evt.projectId)}/workspace`}
+                                aria-label={`فتح مساحة المشروع: ${eventProject.name}`}
+                                data-testid={`link-event-project-${evt.id}`}
+                                title={evt.projectId}
+                                className="min-w-0 flex-1 truncate text-muted-foreground hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary rounded"
+                              >
+                                <bdi dir="auto">{eventProject.name}</bdi>
+                              </Link>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setProjectId(evt.projectId);
+                                  setCorrelationId('');
+                                  setPage(1);
+                                  setShowFilters(true);
+                                }}
+                                aria-label={`اعرض أحداث المشروع: ${eventProject.name}`}
+                                title="اعرض أحداث هذا المشروع"
+                                data-testid={`button-event-project-filter-${evt.id}`}
+                                className="shrink-0 rounded p-1 text-muted-foreground hover:bg-secondary hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                              >
+                                <Filter className="h-3.5 w-3.5" aria-hidden="true" />
+                              </button>
+                            </>
                           ) : evt.projectId ? (
-                            <bdi dir="ltr" data-testid={`text-event-project-${evt.id}`}>{evt.projectId}</bdi>
+                            <bdi dir="ltr" className="truncate text-muted-foreground" data-testid={`text-event-project-${evt.id}`}>{evt.projectId}</bdi>
                           ) : (
                             <span data-testid={`text-event-project-${evt.id}`}>-</span>
                           )}

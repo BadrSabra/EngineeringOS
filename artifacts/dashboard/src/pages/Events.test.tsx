@@ -148,6 +148,39 @@ describe("Events", () => {
     expect(params.get("search")).toBe("Task");
   });
 
+  it("filters by the clicked project without losing other compatible filters", () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/events?correlationId=run-42&severity=error&search=Task&page=3",
+    );
+    render(<Events />);
+
+    fireEvent.click(screen.getByTestId("button-event-project-filter-event-1"));
+
+    expect(screen.getByTestId("select-event-project")).toHaveValue("project-alpha");
+    expect(screen.getByTestId("select-event-severity")).toHaveValue("error");
+    expect(screen.getByTestId("input-event-correlation")).toHaveValue("");
+    expect(screen.getByRole("textbox", { name: "ابحث في سجل الأحداث" })).toHaveValue("Task");
+    expect(screen.getByTestId("link-event-project-event-1")).toHaveAttribute(
+      "href",
+      "/projects/project-alpha/workspace",
+    );
+    expect(vi.mocked(useListEvents).mock.calls.at(-1)?.[0]).toEqual({
+      limit: 50,
+      page: 1,
+      projectId: "project-alpha",
+      severity: "error",
+      search: "Task",
+    });
+    const params = new URLSearchParams(window.location.search);
+    expect(params.get("projectId")).toBe("project-alpha");
+    expect(params.get("correlationId")).toBeNull();
+    expect(params.get("severity")).toBe("error");
+    expect(params.get("search")).toBe("Task");
+    expect(params.get("page")).toBeNull();
+  });
+
   it("filters the whole event log by a clicked correlation id in one step", () => {
     window.history.replaceState(
       {},
