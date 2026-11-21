@@ -28,7 +28,10 @@ import {
   recordModelSuccess,
   _resetCircuitsForTest,
 } from "../openrouter/circuit-breaker.js";
-import { _setModelCooldownPersistenceForTest } from "../openrouter/model-cooldown-store.js";
+import {
+  _setModelCooldownPersistenceForTest,
+  type ModelCooldownPersistence,
+} from "../openrouter/model-cooldown-store.js";
 import {
   _resetOpenRouterCredentialCooldownsForTest,
   _setOpenRouterCredentialCooldownPersistenceForTest,
@@ -378,6 +381,43 @@ function fetchResponse(status: number, body: unknown): Response {
     status,
     headers: { "content-type": "application/json" },
   });
+}
+
+function createModelCooldownFixture(): ModelCooldownPersistence {
+  const entries = new Map<string, {
+    coolingUntil: number;
+    updatedAt: number;
+    cooldownMs: number;
+  }>();
+  const key = (provider: string, model: string) => provider + "\u0000" + model;
+
+  return {
+    async readActive(provider, models) {
+      const now = Date.now();
+      return models.flatMap((model) => {
+        const entry = entries.get(key(provider, model));
+        return entry && entry.coolingUntil > now
+          ? [{ model, remainingMs: entry.coolingUntil - now }]
+          : [];
+      });
+    },
+    async write(provider, model, cooldownMs) {
+      const now = Date.now();
+      entries.set(key(provider, model), {
+        coolingUntil: now + cooldownMs,
+        updatedAt: now,
+        cooldownMs,
+      });
+    },
+    async clear(provider, model) {
+      entries.delete(key(provider, model));
+    },
+    async readRecentCooldownMs(provider, model, maxAgeMs) {
+      const entry = entries.get(key(provider, model));
+      if (!entry || Date.now() - entry.updatedAt > maxAgeMs) return undefined;
+      return entry.cooldownMs;
+    },
+  };
 }
 
 function createSharedCatalogFixture(
@@ -2364,6 +2404,61 @@ describe("openrouterCompleteWithFallback — model removed (PR-02)", () => {
     expect(result.content).toBe("Hello!");
     expect(callCount).toBeGreaterThan(1);
   });
+
+  it.each([
+    [404, { error: { code: "model_not_found" } }],
+    [402, { error: { message: "requires payment" } }],
+    [410, { error: { message: "model retired" } }],
+    [422, { error: { message: "model temporarily unavailable" } }],
+  ] as const)(
+    "does not probe the same candidate on the next request after HTTP %s",
+    async (status, errorBody) => {
+      const firstModel = "nvidia/nemotron-3.5-lightning:free";
+      const secondModel = FREE_MODELS.find((candidate) =>
+        candidate.id !== firstModel && candidate.capabilities.includes("chat")
+      )!.id;
+      const cooldownStore = createModelCooldownFixture();
+      const attemptedModels: string[] = [];
+
+      global.fetch = vi.fn(async (url: string | URL, init?: RequestInit) => {
+        if (String(url).endsWith("/models")) {
+          return fetchResponse(200, {
+            data: [firstModel, secondModel].map((id) => ({
+              id,
+              pricing: { prompt: "0", completion: "0" },
+              supported_parameters: ["response_format"],
+            })),
+          });
+        }
+        const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+        const model = body.model ?? "";
+        attemptedModels.push(model);
+        if (model === firstModel) return fetchResponse(status, errorBody);
+        return fetchResponse(200, okResponse(model));
+      }) as typeof fetch;
+
+      const options = {
+        apiKey: "candidate-cooldown-fixture",
+        model: firstModel,
+        maxFallbackModels: 2,
+        modelCooldownPersistence: cooldownStore,
+      };
+      const first = await openrouterCompleteWithFallback(
+        [{ role: "user", content: "hello" }],
+        options,
+      );
+      expect(first.content).toBe("Hello!");
+
+      const second = await openrouterCompleteWithFallback(
+        [{ role: "user", content: "hello again" }],
+        options,
+      );
+      expect(second.content).toBe("Hello!");
+      expect(attemptedModels.filter((model) => model === firstModel)).toHaveLength(1);
+      expect(attemptedModels[1]).toBe(secondModel);
+      expect(attemptedModels[2]).toBe(secondModel);
+    },
+  );
 
   it("uses full resolver chain when no model specified", async () => {
     const { openrouterCompleteWithFallback } = await import(
