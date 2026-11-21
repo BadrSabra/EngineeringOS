@@ -161,6 +161,13 @@ describe('ProjectDetail Arabic presentation', () => {
     expect(screen.getByText('نشط')).toBeInTheDocument();
     expect(screen.getByText('اللغة:')).toBeInTheDocument();
     expect(screen.getByText(/آخر فحص:/)).toBeInTheDocument();
+    expect(screen.getByTestId('link-project-metrics')).toHaveAttribute(
+      'href',
+      '/metrics?projectId=project-1',
+    );
+    expect(screen.getByTestId('link-project-metrics')).toHaveAccessibleName(
+      'افتح قياسات مشروع مشروع تجريبي',
+    );
 
     fireEvent.click(screen.getByRole('button', { name: 'معلومات المشروع' }));
     expect(screen.getByText('الحالة')).toBeInTheDocument();
@@ -254,6 +261,10 @@ describe('ProjectDetail Arabic presentation', () => {
     rerender(<ProjectDetail />);
 
     expect(screen.getByRole('heading', { name: 'مشروع آخر' })).toBeInTheDocument();
+    expect(screen.getByTestId('link-project-metrics')).toHaveAttribute(
+      'href',
+      '/metrics?projectId=project-2',
+    );
     expect(screen.queryByRole('switch', {
       name: 'السماح بتسجيل حالات جديدة لإعادة تشغيل الاستراتيجية',
     })).not.toBeInTheDocument();
