@@ -190,6 +190,90 @@ afterEach(async () => {
 });
 
 describe("Task dependency wake", () => {
+  it("does not wake a child until every direct prerequisite is completed", async () => {
+    const projectId = await createProject();
+    const firstPrerequisiteId = randomUUID();
+    const secondPrerequisiteId = randomUUID();
+    const childId = randomUUID();
+    const correlationId = "child-multi-prerequisite-correlation";
+    const oldNextAttemptAt = new Date(Date.now() + 60_000).toISOString();
+
+    await db.insert(tasksTable).values([
+      {
+        id: firstPrerequisiteId,
+        projectId,
+        title: "First completed prerequisite",
+        status: "completed",
+        prompt: "produce the first accepted output",
+        dependsOn: [],
+      },
+      {
+        id: secondPrerequisiteId,
+        projectId,
+        title: "Second pending prerequisite",
+        status: "queued",
+        prompt: "produce the second accepted output",
+        dependsOn: [],
+      },
+      {
+        id: childId,
+        projectId,
+        title: "Task with two prerequisites",
+        status: "verifying",
+        prompt: "continue only after both prerequisites",
+        retryCount: 4,
+        correlationId,
+        dependsOn: [firstPrerequisiteId, secondPrerequisiteId],
+      },
+    ]);
+    await db.insert(eventsTable).values({
+      id: taskAutoExecutionIntentId(childId),
+      type: TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE,
+      projectId,
+      taskId: childId,
+      message: "Waiting for all prerequisites",
+      payload: deferredPayload({
+        retryCount: 4,
+        correlationId,
+        nextAttemptAt: oldNextAttemptAt,
+      }),
+      timestamp: new Date(),
+    });
+
+    const earlyTargets = await db.transaction((tx) => wakeDeferredTaskDependencyIntents(tx, {
+      completedTaskId: firstPrerequisiteId,
+      projectId,
+    }));
+    expect(earlyTargets).toEqual([]);
+
+    const [stillDeferred] = await db.select({ payload: eventsTable.payload })
+      .from(eventsTable)
+      .where(eq(eventsTable.id, taskAutoExecutionIntentId(childId)));
+    expect(stillDeferred?.payload?.nextAttemptAt).toBe(oldNextAttemptAt);
+
+    await db.update(tasksTable)
+      .set({ status: "completed" })
+      .where(eq(tasksTable.id, secondPrerequisiteId));
+
+    const readyTargets = await db.transaction((tx) => wakeDeferredTaskDependencyIntents(tx, {
+      completedTaskId: secondPrerequisiteId,
+      projectId,
+    }));
+    expect(readyTargets).toEqual([{
+      taskId: childId,
+      userId: "task-dependency-wake-test",
+      retryCount: 4,
+      correlationId,
+    }]);
+
+    const [woken] = await db.select({ payload: eventsTable.payload })
+      .from(eventsTable)
+      .where(eq(eventsTable.id, taskAutoExecutionIntentId(childId)));
+    expect(Date.parse(String(woken?.payload?.nextAttemptAt))).toBeLessThan(
+      Date.parse(oldNextAttemptAt),
+    );
+  });
+
   it("releases only current-generation intents deferred for incomplete dependencies", async () => {
     const fixture = await createFixture();
 

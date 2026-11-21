@@ -3,7 +3,7 @@ import { useWorkspaceEventStream } from '@/pages/project-workspace/use-workspace
 import PreviewAgentPanel from '@/pages/project-workspace/PreviewAgentPanel';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useRoute } from 'wouter';
-import { Activity, AlertTriangle, ArrowRight, Check, Clock3, Code2, GitBranch, Layers3, Plus, RefreshCw, ShieldCheck, Sparkles, Terminal } from 'lucide-react';
+import { Activity, AlertTriangle, ArrowRight, Check, Clock3, Code2, GitBranch, GitMerge, Layers3, Plus, RefreshCw, ShieldCheck, Sparkles, Terminal } from 'lucide-react';
 import { useGetProjectWorkspaceSnapshot, getGetProjectWorkspaceSnapshotQueryKey, getGetAiExecutionQueryKey, useGetTask, getGetTaskQueryKey, useGetTaskLogs, getGetTaskLogsQueryKey, useGetAiExecution } from '@workspace/api-client-react';
 import { executionChatHref } from '@/lib/execution-chat-link';
 import AiChat from '@/pages/AiChat';
@@ -612,6 +612,15 @@ export default function ProjectWorkspace() {
                 className="inline-flex items-center rounded-md border border-slate-700 px-2.5 py-1.5 text-xs font-medium text-cyan-200 transition hover:border-cyan-300/40 hover:bg-cyan-300/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
               >
                 تفاصيل المشروع
+              </Link>
+              <Link
+                href={`/workflows?projectId=${encodeURIComponent(project.id)}`}
+                className="workspace-meta transition hover:border-cyan-300/40 hover:bg-cyan-300/10 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
+                aria-label={`فتح مسارات العمل لمشروع ${project.name}`}
+                data-testid="link-project-workflows"
+              >
+                <GitMerge className="h-3.5 w-3.5" />
+                مسارات العمل
               </Link>
               <Link
                 href={`/metrics?projectId=${encodeURIComponent(project.id)}`}

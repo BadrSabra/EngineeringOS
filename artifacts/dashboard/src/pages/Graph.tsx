@@ -526,6 +526,7 @@ export default function Graph() {
               <Network className="w-10 h-10 opacity-20" />
                <p>لا توجد بيانات رسم بياني موثوقة لهذا المشروع.</p>
                <p className="text-xs opacity-70">شغّل فحصًا ثم حدّث الصفحة بعد اكتماله لاستخراج رسم المعرفة.</p>
+                <GraphAssistantHandoff projectId={effectiveProjectId} emptyState />
             </div>
           ) : (
             <svg
