@@ -803,6 +803,50 @@ describe('project-scoped task list contracts', () => {
     expect(screen.getByRole('status')).toHaveTextContent('لا توجد مهام في هذا العرض');
   });
 
+  it('turns an unmatched search into an editable quick-create title without starting work', () => {
+    window.history.replaceState({}, '', '/tasks?projectId=project-1');
+    renderPage();
+
+    const searchInput = screen.getByRole('textbox', { name: 'ابحث عن مهمة' });
+    fireEvent.change(searchInput, { target: { value: 'Draft onboarding checklist' } });
+    fireEvent.click(screen.getByTestId('button-create-task-from-search'));
+
+    const quickTitle = screen.getByTestId('input-quick-create-task-title');
+    expect(quickTitle).toHaveValue('Draft onboarding checklist');
+    expect(quickTitle).toHaveFocus();
+    expect(searchInput).toHaveValue('Draft onboarding checklist');
+    expect(screen.queryByText('Repair provider authentication')).not.toBeInTheDocument();
+    expect(createTaskMutate).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog', { name: 'إضافة مهمة' })).not.toBeInTheDocument();
+
+    fireEvent.submit(screen.getByTestId('form-quick-create-task'));
+
+    expect(createTaskMutate).toHaveBeenCalledWith(
+      {
+        data: {
+          projectId: 'project-1',
+          title: 'Draft onboarding checklist',
+          priority: 'p2',
+        },
+      },
+      expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
+    );
+    expect(vi.mocked(useExecuteTask).mock.results.at(-1)!.value.mutate).not.toHaveBeenCalled();
+  });
+
+  it('does not offer task creation from search when another task filter is active', () => {
+    window.history.replaceState({}, '', '/tasks?projectId=project-1&status=running');
+    renderPage();
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'ابحث عن مهمة' }), {
+      target: { value: 'Draft onboarding checklist' },
+    });
+
+    expect(screen.getByRole('status')).toHaveTextContent('لا توجد مهام تطابق بحثك');
+    expect(screen.queryByTestId('button-create-task-from-search')).not.toBeInTheDocument();
+    expect(createTaskMutate).not.toHaveBeenCalled();
+  });
+
   it('opens the scoped project assistant from an empty task list without creating a task', () => {
     window.history.replaceState({}, '', '/tasks?projectId=project-1');
     vi.mocked(useListTasks).mockReturnValue({
