@@ -1635,6 +1635,34 @@ describe("PR-C — AI auto-trigger on verifying", () => {
     });
   });
 
+  it("keeps the committed Task execute result when the local queue wake fails", async () => {
+    const { projectId, taskId } = await createTaskWithPrompt(
+      "Run after the durable dispatcher wakes the queue.",
+    );
+    mockScheduleAiTaskExecution.mockClear();
+    mockScheduleAiTaskExecution.mockRejectedValueOnce(
+      new Error("simulated queue wake failure"),
+    );
+
+    const response = await request(app).post(`/api/tasks/${taskId}/execute`);
+
+    expect(response.status).toBe(202);
+    expect(response.body.status).toBe("verifying");
+    const [task] = await db.select({ status: tasksTable.status })
+      .from(tasksTable)
+      .where(eq(tasksTable.id, taskId));
+    expect(task?.status).toBe("verifying");
+
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(intent).toMatchObject({
+      type: "TaskAutoExecutionDispatchRequested",
+      projectId,
+      taskId,
+      payload: { userId: "test-user", taskRetryCount: 0 },
+    });
+  });
+
   it("execute route: does NOT schedule AI when task enters verifying without a prompt", async () => {
     const { taskId } = await createTaskWithPrompt(null);
 
@@ -1675,6 +1703,36 @@ describe("PR-C — AI auto-trigger on verifying", () => {
       userId: "test-user",
       taskRetryCount: 0,
       taskCorrelationId: taskGeneration!.correlationId,
+    });
+  });
+
+  it("keeps the committed Task status update when the local queue wake fails", async () => {
+    const { projectId, taskId } = await createTaskWithPrompt(
+      "Continue this Task through the durable dispatcher.",
+    );
+    mockScheduleAiTaskExecution.mockClear();
+    mockScheduleAiTaskExecution.mockRejectedValueOnce(
+      new Error("simulated queue wake failure"),
+    );
+
+    const response = await request(app)
+      .patch(`/api/tasks/${taskId}`)
+      .send({ status: "verifying" });
+
+    expect(response.status).toBe(200);
+    expect(response.body.status).toBe("verifying");
+    const [task] = await db.select({ status: tasksTable.status })
+      .from(tasksTable)
+      .where(eq(tasksTable.id, taskId));
+    expect(task?.status).toBe("verifying");
+
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+    expect(intent).toMatchObject({
+      type: "TaskAutoExecutionDispatchRequested",
+      projectId,
+      taskId,
+      payload: { userId: "test-user", taskRetryCount: 0 },
     });
   });
 
