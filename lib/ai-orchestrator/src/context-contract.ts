@@ -11,6 +11,14 @@ export const CONTEXT_SCHEMA_VERSION = "1" as const;
 export const ContextIntentSchema = z.object({
   kind: z.string().min(1).max(80),
   classification: z.string().min(1).max(80).optional(),
+  executionTaskType: z.enum([
+    "chat",
+    "tool_chat",
+    "analysis",
+    "task_execution",
+    "code_review",
+    "workflow",
+  ]).optional(),
   operationMode: z.string().min(1).max(80).optional(),
   contextMode: z.enum(["light", "project"]).optional(),
   phases: z.array(z.string().min(1).max(80)).max(16),
