@@ -350,6 +350,39 @@ export function createProjectAnalysisToolRunner(
     const work = (async (): Promise<AnalysisToolResult> => {
       check(controller.signal);
       check(controller.signal, attemptDeadline);
+      if (name === "discover_project_apis") {
+        const query = (args.query ?? "").trim();
+        const conditions = [
+          eq(graphEntitiesTable.projectId, projectsTable.id),
+          eq(graphEntitiesTable.type, "api" as never),
+        ];
+        if (query) conditions.push(ilike(graphEntitiesTable.name, `%${query}%`));
+        const rows = await db
+          .select({
+            projectUpdatedAt: projectsTable.updatedAt,
+            entity: graphEntitiesTable,
+          })
+          .from(projectsTable)
+          .leftJoin(graphEntitiesTable, and(...conditions))
+          .where(eq(projectsTable.id, projectId))
+          .limit(100);
+        check(controller.signal, attemptDeadline);
+        const projectUpdatedAt = rows[0]?.projectUpdatedAt?.toISOString();
+        if (projectUpdatedAt && projectUpdatedAt !== correlationSnapshot.projectRevision) {
+          throw new Error("analysis revision is stale");
+        }
+        const apis = rows.flatMap((row) => row.entity ? [row.entity] : []);
+        await assertRevision();
+        check(controller.signal, attemptDeadline);
+        return {
+          status: "complete",
+          source: "analysis:api-discovery",
+          output: bounded({ status: "complete", count: apis.length, apis: apis.map(entityView) }),
+          correlation: { ...(authoritativeCorrelation ?? correlationSnapshot), evidenceProvenance: "persisted-api-discovery" },
+          ...(advancedRevision ? { trustedRevisionAdvance: true } : {}),
+        };
+      }
+
       await assertRevision();
       if (name === "refresh_project_scan") {
         const result = await performScan(projectId, controller.signal);
@@ -390,23 +423,6 @@ export function createProjectAnalysisToolRunner(
             ...(authoritativeCorrelation ?? correlationSnapshot),
             evidenceProvenance: "project-scan",
           },
-          ...(advancedRevision ? { trustedRevisionAdvance: true } : {}),
-        };
-      }
-
-      if (name === "discover_project_apis") {
-        const query = (args.query ?? "").trim();
-        const conditions = [eq(graphEntitiesTable.projectId, projectId), eq(graphEntitiesTable.type, "api" as never)];
-        if (query) conditions.push(ilike(graphEntitiesTable.name, `%${query}%`));
-        const rows = await db.select().from(graphEntitiesTable).where(and(...conditions)).limit(100);
-        check(controller.signal, attemptDeadline);
-        await assertRevision();
-        check(controller.signal, attemptDeadline);
-        return {
-          status: "complete",
-          source: "analysis:api-discovery",
-          output: bounded({ status: "complete", count: rows.length, apis: rows.map(entityView) }),
-          correlation: { ...(authoritativeCorrelation ?? correlationSnapshot), evidenceProvenance: "persisted-api-discovery" },
           ...(advancedRevision ? { trustedRevisionAdvance: true } : {}),
         };
       }
