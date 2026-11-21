@@ -3182,6 +3182,11 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       columns: ["project_id", "created_at"],
     },
     {
+      name: "idx_ai_agent_episodes_mission_goal",
+      tableName: "ai_agent_episodes",
+      columns: ["mission_id", "goal_id", "project_id"],
+    },
+    {
       name: "idx_ai_agent_episodes_worker_lease",
       tableName: "ai_agent_episodes",
       columns: ["worker_id", "lease_until"],

@@ -73,6 +73,7 @@ export const aiAgentEpisodesTable = pgTable("ai_agent_episodes", {
   uniqueIndex("uq_ai_agent_episodes_execution_attempt").on(t.executionId, t.attempt),
   uniqueIndex("uq_ai_agent_episodes_idempotency").on(t.executionId, t.idempotencyKey),
   index("idx_ai_agent_episodes_project_created").on(t.projectId, t.createdAt),
+  index("idx_ai_agent_episodes_mission_goal").on(t.missionId, t.goalId, t.projectId),
   index("idx_ai_agent_episodes_worker_lease").on(t.workerId, t.leaseUntil),
   foreignKey({
     columns: [t.parentEpisodeId],
