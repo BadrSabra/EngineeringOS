@@ -306,6 +306,53 @@ describe("plugin-docs", () => {
     expect(analysis!.message).toMatch(/3 documentable/);
   });
 
+  it("uses the advisory heuristic when documentation metadata is only partially available", async () => {
+    const ctx = baseCtx({
+      sourceFiles: 10,
+      entities: [
+        { ...entity("function", "documented"), isDocumented: true },
+        { ...entity("function", "undocumented"), isDocumented: false },
+        entity("class", "unknown"),
+        { ...entity("class", "legacy-null"), isDocumented: null },
+      ],
+    });
+
+    const result = await hook.onScanComplete(ctx);
+    const analysis = result.events?.find((event) => event.type === "DocsPluginAnalysis");
+
+    expect(analysis?.message).toContain("Documentation heuristic (advisory)");
+    expect(analysis?.message).toContain("documentation metadata unavailable for 2 entity/entities");
+    expect(analysis?.payload).toMatchObject({
+      documentableCount: 4,
+      documentedCount: null,
+      unknownDocumentableCount: 2,
+      coverageRatio: 0.4,
+      isHeuristic: true,
+    });
+  });
+
+  it("reports exact coverage when every documentable entity has a boolean result", async () => {
+    const ctx = baseCtx({
+      sourceFiles: 10,
+      entities: [
+        { ...entity("function", "documented"), isDocumented: true },
+        { ...entity("class", "undocumented"), isDocumented: false },
+      ],
+    });
+
+    const result = await hook.onScanComplete(ctx);
+    const analysis = result.events?.find((event) => event.type === "DocsPluginAnalysis");
+
+    expect(analysis?.message).toContain("Documentation coverage: 1/2");
+    expect(analysis?.payload).toMatchObject({
+      documentableCount: 2,
+      documentedCount: 1,
+      unknownDocumentableCount: 0,
+      coverageRatio: 0.5,
+      isHeuristic: false,
+    });
+  });
+
   it("severity is warning when entity density < 0.5 per source file", async () => {
     // 2 entities / 20 source files = 0.1 < 0.5
     const ctx = baseCtx({

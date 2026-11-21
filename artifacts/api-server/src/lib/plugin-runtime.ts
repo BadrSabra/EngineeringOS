@@ -46,8 +46,8 @@ export interface ExtractedEntity {
   type: string;
   name: string;
   path?: string | null;
-  /** True when the entity has a JSDoc/docstring doc comment — set by the scanner's AST extractor. */
-  isDocumented?: boolean;
+  /** True/false when documentation was inspected; null/undefined means the extractor could not determine it. */
+  isDocumented?: boolean | null;
 }
 
 export interface RuleViolationSummary {
@@ -332,39 +332,42 @@ export const PLUGIN_HOOKS: Record<string, PluginHook> = {
       const events: PluginEvent[] = [];
 
       if (documentable.length > 0) {
-        // Use real JSDoc/docstring coverage extracted by the scanner's AST
-        // pipeline. `isDocumented` is set on entities that have a leading
-        // JSDoc block (`/** ... */`) for TS/JS or a docstring for Python.
-        // Fall back to the old entity-density heuristic only when the scanner
-        // hasn't populated `isDocumented` on any entity (legacy scan data).
-        const hasDocData = documentable.some((e) => e.isDocumented !== undefined);
+        // A precise coverage percentage is valid only when every documentable
+        // entity has an explicit true/false extraction result. Partial metadata
+        // (including persisted NULL values) must not turn unknown entities into
+        // undocumented entities or make a mixed snapshot look authoritative.
+        const unknownDocumentableCount = documentable.filter(
+          (entity) => typeof entity.isDocumented !== "boolean",
+        ).length;
+        const hasCompleteDocData = unknownDocumentableCount === 0;
         let coverageRatio: number;
         let isHeuristic: boolean;
+        let documentedCount: number | null;
 
-        if (hasDocData) {
-          const documentedCount = documentable.filter((e) => e.isDocumented).length;
+        if (hasCompleteDocData) {
+          documentedCount = documentable.filter((entity) => entity.isDocumented === true).length;
           coverageRatio = documentedCount / documentable.length;
           isHeuristic = false;
         } else {
-          // Legacy fallback: entity density relative to source files.
+          // Legacy/degraded fallback: entity density relative to source files.
+          // It is explicitly advisory, not a measured documentation percentage.
+          documentedCount = null;
           coverageRatio = ctx.sourceFiles > 0 ? documentable.length / ctx.sourceFiles : 0;
           isHeuristic = true;
         }
 
         const severity: EventSeverity = coverageRatio < 0.5 ? "warning" : "info";
-        const documentedCount = hasDocData
-          ? documentable.filter((e) => e.isDocumented).length
-          : null;
 
         events.push({
           type: "DocsPluginAnalysis",
           message: isHeuristic
-            ? `Documentation heuristic (advisory): ${documentable.length} documentable entity/entities across ${ctx.sourceFiles} source file(s) — entity density only, not real doc coverage`
+            ? `Documentation heuristic (advisory): ${documentable.length} documentable entity/entities across ${ctx.sourceFiles} source file(s) — entity density only, not real doc coverage; documentation metadata unavailable for ${unknownDocumentableCount} entity/entities`
             : `Documentation coverage: ${documentedCount}/${documentable.length} documentable entities have JSDoc/docstrings (${Math.round(coverageRatio * 100)}%)`,
           severity,
           payload: {
             documentableCount: documentable.length,
             documentedCount,
+            unknownDocumentableCount,
             sourceFiles: ctx.sourceFiles,
             coverageRatio: Math.round(coverageRatio * 100) / 100,
             isHeuristic,
