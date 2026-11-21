@@ -173,6 +173,13 @@ describe('ProjectDetail Arabic presentation', () => {
     expect(screen.getByText('active')).toBeInTheDocument();
   });
 
+  it('opens the knowledge graph with the current project selected', () => {
+    render(<ProjectDetail />);
+
+    expect(screen.getByRole('link', { name: 'استكشف خريطة المشروع: مشروع تجريبي' }))
+      .toHaveAttribute('href', '/graph?projectId=project-1');
+  });
+
   it('opens a connected entity in the graph with the project and search preserved', () => {
     mocks.graphSummary.topConnected = [{
       entityId: 'entity/auth',
