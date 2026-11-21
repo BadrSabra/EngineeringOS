@@ -15,6 +15,7 @@ import {
   getAiProjectBudgetSummary,
   getDatabaseUtcClock,
   reconcileAiBudgetReservation,
+  usageForDay,
 } from "./ai-budget.js";
 import { emitLedgerProviderAttempts } from "./ai-route-helpers.js";
 import { recordAiUsageAttempt } from "./ai-telemetry.js";
@@ -531,5 +532,40 @@ describe("AI project budget admission", () => {
         admissionTotal: 0,
       },
     });
+  });
+});
+
+describe("AI project budget usage aggregation", () => {
+  it("reads all daily usage counters in one PostgreSQL statement", async () => {
+    const execute = vi.fn().mockResolvedValue({
+      rows: [{
+        unreservedUsageAttempts: "1",
+        consumedReservations: "2",
+        reservedAttempts: "3",
+        tokenTotals: { prompt: "11", completion: "5" },
+        unreservedEventTokens: "6",
+        reservedKnownTokens: "7",
+        reservedTokenTotal: "8",
+        chargedTokenTotal: "9",
+        eventUsageStatus: { unknown: "1", partial: "2" },
+        unreportedReservations: "1",
+      }],
+    });
+    const executor = { execute } as unknown as Parameters<typeof usageForDay>[0];
+
+    await expect(usageForDay(executor, "project-aggregate-test", "2026-11-21"))
+      .resolves.toEqual({
+        consumed: 3,
+        reserved: 3,
+        projected: 6,
+        promptTokens: 11,
+        completionTokens: 5,
+        tokenTotal: 16,
+        reservedTokens: 8,
+        chargedTokens: 9,
+        tokenAdmissionTotal: 30,
+        usageStatus: "unknown",
+      });
+    expect(execute).toHaveBeenCalledTimes(1);
   });
 });
