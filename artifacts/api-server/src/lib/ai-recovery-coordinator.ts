@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import {
   aiExecutionAcceptancesTable,
   aiExecutionsTable,
@@ -22,6 +22,7 @@ import {
   runChatExecutionRecovery,
 } from "./chat-recovery-runner.js";
 import { insertTaskAutoExecutionIntent } from "./task-auto-execution-outbox.js";
+import { getTaskDependencyBlockers } from "./task-dependencies.js";
 import { taskTransitionConflict, type TaskStatus } from "./task-state.js";
 
 const SAFE_CHAT_RECOVERY_FAILURE_CODES = new Set([
@@ -64,6 +65,7 @@ const RECOVERY_ACTIONS = [
 const RECOVERY_TASK_STATUSES = ["pending", "queued", "verifying"] as const;
 const RECOVERY_EXECUTION_STATUSES = ["paused", "failed"] as const;
 const MAX_RECOVERY_CANDIDATES = 64;
+const TASK_RECOVERY_DEPENDENCY_RECHECK_MS = 30_000;
 const MAX_AUTOMATIC_CHAT_PARSER_RECOVERY_ATTEMPTS = 2;
 const MAX_AUTOMATIC_CHAT_PROVIDER_RECOVERY_ATTEMPTS = 3;
 const PROVIDER_LIMIT_FAILURE_KINDS = new Set([
@@ -84,6 +86,7 @@ type RecoveryDisposition = {
   retryAfterSource?: unknown;
   rateLimitScope?: unknown;
   automaticRecoveryBlocked?: unknown;
+  dependencyRetryAt?: unknown;
 };
 
 export type TaskRecoveryCandidate = {
@@ -146,6 +149,7 @@ export type TaskRecoveryPlan =
       | "execution_not_recoverable"
       | "revision_changed"
       | "retry_not_due"
+      | "dependencies_pending"
       | "rate_limit_window_unavailable"
       | "provider_rate_limit_requires_manual_action"
       | "unknown_action";
@@ -458,6 +462,10 @@ export function planTaskRecovery(
   if (retryAtMs !== undefined && retryAtMs > nowMs) {
     return { kind: "skip", reason: "retry_not_due" };
   }
+  const dependencyRetryAtMs = parseRetryAt(disposition.dependencyRetryAt);
+  if (dependencyRetryAtMs !== undefined && dependencyRetryAtMs > nowMs) {
+    return { kind: "skip", reason: "dependencies_pending" };
+  }
   if (requiresManualProviderLimitAction(action, disposition)) {
     return { kind: "skip", reason: "provider_rate_limit_requires_manual_action" };
   }
@@ -649,6 +657,14 @@ async function findRecoveryCandidates(scope: {
       eq(aiExecutionAcceptancesTable.attempt, aiExecutionsTable.attempt),
       inArray(aiExecutionAcceptancesTable.nextActionCode, [...RECOVERY_ACTIONS]),
       eq(aiExecutionAcceptancesTable.outcome, "FAILED"),
+      sql`(
+        ${aiExecutionAcceptancesTable.disposition}->>'dependencyRetryAt' IS NULL
+        OR NOT pg_input_is_valid(
+          ${aiExecutionAcceptancesTable.disposition}->>'dependencyRetryAt',
+          'timestamp with time zone'
+        )
+        OR (${aiExecutionAcceptancesTable.disposition}->>'dependencyRetryAt')::timestamptz <= clock_timestamp()
+      )`,
       inArray(aiExecutionsTable.status, [...RECOVERY_EXECUTION_STATUSES]),
       inArray(tasksTable.status, [...RECOVERY_TASK_STATUSES]),
       isNotNull(aiExecutionsTable.correlationId),
@@ -731,6 +747,153 @@ async function writeRecoveryLog(
   } catch (error) {
     logger.warn({ error, taskId: candidate.taskId }, "AI recovery log write failed");
   }
+}
+
+
+type TaskRecoveryDependencyPreflight =
+  | { status: "ready" }
+  | { status: "stale" }
+  | {
+      status: "deferred";
+      retryAt: string;
+      blockerReasons: string[];
+    };
+
+/**
+ * Reject dependency-blocked automatic retries before provider admission or
+ * retry-budget consumption. This is only a scheduling optimization:
+ * executeTaskLifecycle still performs the authoritative dependency check
+ * inside its Task/Execution claim transaction.
+ */
+async function preflightTaskRecoveryDependencies(
+  candidate: TaskRecoveryCandidate,
+  plan: Extract<TaskRecoveryPlan, { kind: "retry" }>,
+): Promise<TaskRecoveryDependencyPreflight> {
+  return db.transaction(async (tx) => {
+    // Match the Task-first lock order used by retry admission and lifecycle
+    // claims. The generation checks fence a queued recovery snapshot.
+    const [task] = await tx
+      .select({
+        id: tasksTable.id,
+        projectId: tasksTable.projectId,
+        status: tasksTable.status,
+        prompt: tasksTable.prompt,
+        retryCount: tasksTable.retryCount,
+        maxRetries: tasksTable.maxRetries,
+        correlationId: tasksTable.correlationId,
+        dependsOn: tasksTable.dependsOn,
+      })
+      .from(tasksTable)
+      .where(eq(tasksTable.id, candidate.taskId))
+      .for("update")
+      .limit(1);
+
+    if (
+      !task
+      || task.projectId !== candidate.taskProjectId
+      || task.status !== candidate.taskStatus
+      || task.retryCount !== plan.expectedRetryCount
+      || task.retryCount !== candidate.retryCount
+      || task.maxRetries !== candidate.maxRetries
+      || task.correlationId !== candidate.executionCorrelationId
+      || !task.prompt?.trim()
+    ) {
+      return { status: "stale" };
+    }
+
+    if (!task.dependsOn?.length) return { status: "ready" };
+
+    const blockers = await getTaskDependencyBlockers(tx, {
+      id: task.id,
+      projectId: task.projectId,
+      dependsOn: task.dependsOn,
+    });
+    if (blockers.length === 0) return { status: "ready" };
+
+    // Do not persist a cooldown against a superseded acceptance or execution.
+    // These locks follow claimTaskRetry's Task -> Execution -> Acceptance order.
+    const [execution] = await tx
+      .select({
+        id: aiExecutionsTable.id,
+        projectId: aiExecutionsTable.projectId,
+        linkedTaskId: aiExecutionsTable.linkedTaskId,
+        correlationId: aiExecutionsTable.correlationId,
+        attempt: aiExecutionsTable.attempt,
+        status: aiExecutionsTable.status,
+      })
+      .from(aiExecutionsTable)
+      .where(and(
+        eq(aiExecutionsTable.id, candidate.executionId),
+        eq(aiExecutionsTable.projectId, candidate.taskProjectId),
+        eq(aiExecutionsTable.linkedTaskId, candidate.taskId),
+        eq(aiExecutionsTable.correlationId, candidate.executionCorrelationId),
+        eq(aiExecutionsTable.attempt, candidate.executionAttempt),
+        inArray(aiExecutionsTable.status, [...RECOVERY_EXECUTION_STATUSES]),
+      ))
+      .for("update")
+      .limit(1);
+    if (!execution) return { status: "stale" };
+
+    const [acceptance] = await tx
+      .select({
+        id: aiExecutionAcceptancesTable.id,
+        finalizationKey: aiExecutionAcceptancesTable.finalizationKey,
+        outcome: aiExecutionAcceptancesTable.outcome,
+        nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+        resumable: aiExecutionAcceptancesTable.resumable,
+        disposition: aiExecutionAcceptancesTable.disposition,
+      })
+      .from(aiExecutionAcceptancesTable)
+      .where(and(
+        eq(aiExecutionAcceptancesTable.executionId, candidate.executionId),
+        eq(aiExecutionAcceptancesTable.attempt, candidate.executionAttempt),
+      ))
+      .for("update")
+      .limit(1);
+    const disposition = asDisposition(acceptance?.disposition);
+    if (
+      !acceptance
+      || acceptance.id !== candidate.acceptanceId
+      || acceptance.finalizationKey !== candidate.acceptanceFinalizationKey
+      || acceptance.outcome !== "FAILED"
+      || acceptance.nextActionCode !== plan.action
+      || acceptance.nextActionCode !== candidate.action
+      || acceptance.resumable !== 0
+      || disposition.recoveryState !== "REQUIRED"
+    ) {
+      return { status: "stale" };
+    }
+
+    const clockResult = await tx.execute(sql`SELECT clock_timestamp() AS now`);
+    const clockValue = (clockResult.rows as Array<{ now: Date | string }>)[0]?.now;
+    const databaseNow = clockValue instanceof Date
+      ? clockValue
+      : new Date(String(clockValue ?? ""));
+    if (!clockValue || !Number.isFinite(databaseNow.getTime())) {
+      throw new Error("task_recovery_dependency_preflight_clock_unavailable");
+    }
+
+    const retryAt = new Date(
+      databaseNow.getTime() + TASK_RECOVERY_DEPENDENCY_RECHECK_MS,
+    ).toISOString();
+    const blockerReasons = [...new Set(blockers.map((blocker) => blocker.reason))].sort();
+    await tx
+      .update(aiExecutionAcceptancesTable)
+      .set({
+        disposition: {
+          ...asRecord(acceptance.disposition),
+          dependencyRetryAt: retryAt,
+          dependencyBlockerReasons: blockerReasons,
+        },
+      })
+      .where(eq(aiExecutionAcceptancesTable.id, acceptance.id));
+
+    return {
+      status: "deferred",
+      retryAt,
+      blockerReasons,
+    };
+  });
 }
 
 async function claimTaskRetry(
@@ -881,6 +1044,24 @@ async function runRecovery(candidate: TaskRecoveryCandidate, plan: Extract<TaskR
     ) {
       await writeRecoveryLog(candidate, "Automatic resume skipped because the Task changed after recovery was planned.", "info", {
         reason: "task_generation_changed",
+      });
+      return;
+    }
+  }
+
+  if (plan.kind === "retry") {
+    const preflight = await preflightTaskRecoveryDependencies(candidate, plan);
+    if (preflight.status === "stale") {
+      await writeRecoveryLog(candidate, "Automatic retry skipped because its Task generation or recovery acceptance changed before dependency preflight.", "info", {
+        reason: "dependency_preflight_stale",
+      });
+      return;
+    }
+    if (preflight.status === "deferred") {
+      await writeRecoveryLog(candidate, "Automatic retry deferred until Task prerequisites are ready.", "info", {
+        reason: "dependencies_pending",
+        blockerReasons: preflight.blockerReasons,
+        retryAt: preflight.retryAt,
       });
       return;
     }
