@@ -421,8 +421,10 @@ function ProjectDetailSession({ projectId }: { projectId: string }) {
               <Network className="w-4 h-4 text-primary" /> خريطة العلاقات
             </h2>
             <Link
-              href="/graph"
+              href={`/graph?projectId=${encodeURIComponent(project.id)}`}
               className="text-xs text-primary hover:underline flex items-center gap-1"
+              aria-label={`استكشف خريطة المشروع: ${project.name}`}
+              data-testid="link-project-graph"
             >
               استكشف الخريطة <ExternalLink className="w-3 h-3" />
             </Link>
