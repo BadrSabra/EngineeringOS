@@ -111,6 +111,123 @@ describe("provider lifecycle", () => {
     expect(lifecycle.roles.every((role) => role.status === "missing")).toBe(true);
   });
 
+  it("keeps OpenRouter selectable when one known free-model role is not found", async () => {
+    const apiKey = "openrouter-single-model-not-found-key";
+    const liveFreeModels = [
+      "nvidia/nemotron-3.5-lightning:free",
+      "cohere/north-mini-code:free",
+    ];
+    setDynamicCatalogSnapshotForTest(liveFreeModels);
+
+    const healthy = await getProviderLifecycleSnapshot({
+      provider: "openrouter",
+      apiKey,
+      source: "user",
+      check: true,
+      requirements: { requireTools: true, requireJson: true },
+    });
+    const failedModel = healthy.roles[0]!.modelId;
+
+    recordProviderLifecycleOutcome({
+      provider: "openrouter",
+      apiKey,
+      source: "user",
+      model: failedModel,
+      code: "MODEL_NOT_FOUND",
+    });
+
+    const degraded = await getProviderLifecycleSnapshot({
+      provider: "openrouter",
+      apiKey,
+      source: "user",
+      check: false,
+      requirements: { requireTools: true, requireJson: true },
+    });
+
+    expect(degraded.selectable).toBe(true);
+    expect(degraded.overallStatus).toBe("degraded");
+    // Fast/powerful are representative candidates, not the full free catalog.
+    // A rejected runtime candidate must not rewrite catalog-derived role health.
+    expect(degraded.modelStatus).toBe("model_healthy");
+    expect(degraded.roles.every((role) => role.status === "healthy")).toBe(true);
+    expect(degraded.reasonCodes).toContain("runtime_model_not_found");
+  });
+
+  it("keeps OpenRouter selectable after a candidate-only MODEL_UNAVAILABLE outcome", async () => {
+    const apiKey = "openrouter-model-unavailable-key";
+    setDynamicCatalogSnapshotForTest([
+      "nvidia/nemotron-3.5-lightning:free",
+      "cohere/north-mini-code:free",
+    ]);
+
+    const healthy = await getProviderLifecycleSnapshot({
+      provider: "openrouter",
+      apiKey,
+      source: "user",
+      check: true,
+      requirements: { requireTools: true },
+    });
+
+    recordProviderLifecycleOutcome({
+      provider: "openrouter",
+      apiKey,
+      source: "user",
+      model: healthy.roles[0]!.modelId,
+      code: "MODEL_UNAVAILABLE",
+    });
+
+    const degraded = await getProviderLifecycleSnapshot({
+      provider: "openrouter",
+      apiKey,
+      source: "user",
+      check: false,
+      requirements: { requireTools: true },
+    });
+
+    expect(degraded.selectable).toBe(true);
+    expect(degraded.overallStatus).toBe("degraded");
+    expect(degraded.modelStatus).toBe("model_healthy");
+    expect(degraded.reasonCodes).toContain("runtime_capability_mismatch");
+  });
+
+  it("does not infer catalog exhaustion from failures of representative roles", async () => {
+    const apiKey = "openrouter-representative-model-failures-key";
+    setDynamicCatalogSnapshotForTest([
+      "nvidia/nemotron-3.5-lightning:free",
+      "cohere/north-mini-code:free",
+    ]);
+
+    const healthy = await getProviderLifecycleSnapshot({
+      provider: "openrouter",
+      apiKey,
+      source: "user",
+      check: true,
+      requirements: { requireTools: true },
+    });
+
+    for (const role of healthy.roles) {
+      recordProviderLifecycleOutcome({
+        provider: "openrouter",
+        apiKey,
+        source: "user",
+        model: role.modelId,
+        code: "MODEL_NOT_FOUND",
+      });
+    }
+
+    const stillEligible = await getProviderLifecycleSnapshot({
+      provider: "openrouter",
+      apiKey,
+      source: "user",
+      check: false,
+      requirements: { requireTools: true },
+    });
+
+    expect(stillEligible.selectable).toBe(true);
+    expect(stillEligible.overallStatus).toBe("degraded");
+    expect(stillEligible.modelStatus).toBe("model_healthy");
+    expect(stillEligible.roles.every((role) => role.status === "healthy")).toBe(true);
+  });
   it("deduplicates checks and refreshes after the TTL", async () => {
     const first = await getProviderLifecycleSnapshot({
       provider: "groq",
@@ -299,6 +416,39 @@ describe("provider lifecycle", () => {
     expect(rejected.reasonCodes).toContain("runtime_request_rejected");
     expect(rejected.reasonCodes).not.toContain("runtime_transient_failure");
     expect(capabilityMismatch.reasonCodes).toContain("runtime_capability_mismatch");
+    expect(capabilityMismatch.selectable).toBe(true);
+    expect(capabilityMismatch.overallStatus).toBe("degraded");
+  });
+
+  it("keeps a runtime authentication failure credential-scoped and non-selectable", async () => {
+    const apiKey = "groq-runtime-auth-failure-key";
+    const healthy = await getProviderLifecycleSnapshot({
+      provider: "groq",
+      apiKey,
+      source: "user",
+      check: true,
+    });
+
+    recordProviderLifecycleOutcome({
+      provider: "groq",
+      apiKey,
+      source: "user",
+      model: healthy.roles[0]!.modelId,
+      code: "AUTH_ERROR",
+    });
+
+    const rejected = await getProviderLifecycleSnapshot({
+      provider: "groq",
+      apiKey,
+      source: "user",
+      check: false,
+    });
+
+    expect(rejected.selectable).toBe(false);
+    expect(rejected.overallStatus).toBe("unavailable");
+    expect(rejected.credentialStatus).toBe("credentials_invalid");
+    expect(rejected.modelStatus).toBe("model_healthy");
+    expect(rejected.reasonCodes).toContain("runtime_auth_failed");
   });
 
   it("keeps transient request failures selectable and degraded", async () => {

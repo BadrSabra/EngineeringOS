@@ -487,6 +487,8 @@ export function recordProviderLifecycleOutcome(input: {
   const key = cacheKey(input.provider, input.source, fingerprint(input.apiKey));
   const entry = cache.get(key);
   if (!entry) return;
+
+  const snapshot = entry.snapshot;
   const reason: ProviderLifecycleReasonCode =
     input.code === "MODEL_NOT_FOUND" ? "runtime_model_not_found" :
       input.code === "AUTH_ERROR" ? "runtime_auth_failed" :
@@ -494,26 +496,38 @@ export function recordProviderLifecycleOutcome(input: {
           input.code === "INVALID_TOOL_CALL" || input.code === "MODEL_UNAVAILABLE"
             ? "runtime_capability_mismatch"
             : "runtime_transient_failure";
-  const modelMissing = input.code === "MODEL_NOT_FOUND" || input.code === "AUTH_ERROR";
-  const snapshot = entry.snapshot;
-  const roles = input.model
-    ? snapshot.roles.map((role) => role.modelId === input.model && modelMissing ? { ...role, status: "missing" as const } : role)
-    : snapshot.roles;
+
+  // Runtime model/tool failures describe an attempted candidate or request,
+  // not the provider's whole free catalog. The fast/powerful roles are
+  // representative resolver choices, not an exhaustive inventory; only a
+  // fresh catalog/capability check may decide that no eligible model remains.
+  // Keep the exact failure reason for diagnostics without poisoning cached
+  // provider-wide readiness. Per-model cooldowns are enforced by the resolver.
+  const preservesEligibility =
+    reason === "runtime_model_not_found"
+    || reason === "runtime_capability_mismatch"
+    || reason === "runtime_transient_failure";
+  const credentialStatus = input.code === "AUTH_ERROR"
+    ? "credentials_invalid" as const
+    : snapshot.credentialStatus;
+  const selectable = preservesEligibility
+    ? snapshot.selectable
+    : false;
+
   cache.set(key, {
     ...entry,
     snapshot: completedSnapshot(snapshot, {
       revision: nextRevision(key),
-      roles,
-      modelStatus: modelMissing ? "model_missing" : snapshot.modelStatus,
-      credentialStatus: input.code === "AUTH_ERROR" ? "credentials_invalid" : snapshot.credentialStatus,
-      // A transient upstream failure does not invalidate the credential or
-      // catalog. Keep the last-known configuration selectable so a later
-      // request can retry or fall back instead of becoming INVALID_CONFIG.
-      overallStatus: reason === "runtime_transient_failure" ? "degraded" : "unavailable",
-      selectable: reason === "runtime_transient_failure",
+      roles: snapshot.roles,
+      modelStatus: snapshot.modelStatus,
+      credentialStatus,
+      // A late candidate failure cannot override a catalog/credential failure,
+      // while a healthy cached catalog remains eligible for other candidates.
+      overallStatus: selectable ? "degraded" : "unavailable",
+      selectable,
       reasonCodes: [...new Set([...snapshot.reasonCodes, reason])],
     }),
-    lastKnownGood: modelMissing ? entry.lastKnownGood : entry.lastKnownGood,
+    lastKnownGood: entry.lastKnownGood,
   });
 }
 
