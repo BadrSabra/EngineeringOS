@@ -402,4 +402,40 @@ describe("POST /rules/:ruleId/evaluate", () => {
     const evalAudit = audits.find((a) => a.action === "evaluated");
     expect(evalAudit).toBeDefined();
   });
+  it("keeps concurrent evaluation counters and evidence snapshots in sync", async () => {
+    const id = await insertRule({ pattern: "console\\.log" });
+    ruleCleanup.push(id);
+
+    const projectId = await insertProject();
+    projectCleanup.push(projectId);
+    await createProjectSource(projectId, "index.ts", 'console.log("one match");\\n');
+
+    const responses = await Promise.all([
+      request(app).post(`/api/rules/${id}/evaluate`).send({ projectId }),
+      request(app).post(`/api/rules/${id}/evaluate`).send({ projectId }),
+    ]);
+    expect(responses.map((response) => response.status)).toEqual([200, 200]);
+
+    const [rule] = await db.select().from(rulesTable).where(eq(rulesTable.id, id));
+    expect(rule?.hitCount).toBe(2);
+
+    const events = await db.select().from(eventsTable).where(eq(eventsTable.projectId, projectId));
+    const evaluationEvents = events.filter((event) => event.type === "RuleEvaluated");
+    const audits = await db.select().from(auditLogsTable).where(eq(auditLogsTable.entityId, id));
+    const evaluationAudits = audits.filter((audit) => audit.action === "evaluated");
+
+    expect(evaluationEvents).toHaveLength(2);
+    expect(evaluationAudits).toHaveLength(2);
+    expect(
+      evaluationAudits
+        .map((audit) => (audit.stateAfter as { hitCount: number }).hitCount)
+        .sort((a, b) => a - b),
+    ).toEqual([1, 2]);
+    expect(
+      evaluationAudits.map((audit) => audit.correlationId).sort(),
+    ).toEqual(
+      evaluationEvents.map((event) => event.correlationId).sort(),
+    );
+  });
+
 });
