@@ -45,6 +45,7 @@ import {
   finalizeApplyChangesTransition,
   finalizeRuntimeStartTransition,
   dispatchPendingMaterializedMissionTransitionWakes,
+  dispatchMissionWorldTransitionWakeIntent,
   retryPendingRuntimeStartTransitions,
 } from "./runtime-start-transition.js";
 import { wakeApplyChangesMissionGoals, wakeRuntimeTransitionMissionGoals } from "../mission-runtime.js";
@@ -3968,6 +3969,155 @@ describe("Materialized Mission World Transition wake outbox", () => {
       ));
     expect(dispatches).toHaveLength(1);
     expect(enqueue).toHaveBeenCalledOnce();
+  });
+  it("excludes a second dispatcher while another replica holds the wake lease", async () => {
+    const fixture = await transitionFixture({ missionHandoff: true });
+    const mission = fixture.missionHandoff;
+    if (!mission) throw new Error("Mission handoff fixture was not created.");
+    await insertValidRuntimeStartObservations(fixture);
+
+    const wake = vi.spyOn(missionRuntimeModule, "wakeRuntimeTransitionMissionGoals")
+      .mockRejectedValueOnce(new Error("synthetic_immediate_wake_loss"));
+    await expect(finalizeRuntimeStartTransition({
+      projectId: fixture.projectId,
+      executionId: fixture.executionId,
+      attempt: 0,
+      episodeId: fixture.episodeId,
+      actionId: fixture.transitionInput.actionId,
+      effectBundleId: fixture.effectBundleId,
+    })).resolves.toMatchObject({ status: "materialized" });
+
+    const [intent] = await db.select().from(eventsTable).where(and(
+      eq(eventsTable.projectId, fixture.projectId),
+      eq(eventsTable.goalId, mission.sourceGoalId),
+      eq(eventsTable.type, "AiMissionWorldTransitionWakeRequested"),
+    )).limit(1);
+    expect(intent?.payload?.attemptCount).toBe(1);
+    await db.update(eventsTable).set({
+      payload: sql`jsonb_set(
+        ${eventsTable.payload},
+        '{nextAttemptAt}',
+        to_jsonb(to_char(
+          (clock_timestamp() - interval '1 second') AT TIME ZONE 'UTC',
+          'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+        )),
+        true
+      )`,
+    }).where(eq(eventsTable.id, intent!.id));
+
+    let releaseWake!: () => void;
+    let announceWake!: () => void;
+    const wakeEntered = new Promise<void>((resolve) => {
+      announceWake = resolve;
+    });
+    const wakeRelease = new Promise<void>((resolve) => {
+      releaseWake = resolve;
+    });
+    wake.mockImplementationOnce(async () => {
+      announceWake();
+      await wakeRelease;
+      return 1;
+    });
+
+    const firstDispatch = dispatchMissionWorldTransitionWakeIntent(intent!.id);
+    await wakeEntered;
+    await expect(dispatchMissionWorldTransitionWakeIntent(intent!.id)).resolves.toBe(false);
+    expect(wake).toHaveBeenCalledTimes(2);
+
+    releaseWake();
+    await expect(firstDispatch).resolves.toBe(true);
+    const [delivered] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, intent!.id)).limit(1);
+    expect(typeof delivered?.payload?.processedAt).toBe("string");
+    expect(delivered?.payload?.wakeLeaseToken).toBeNull();
+    expect(delivered?.payload?.wakeLeaseUntil).toBeNull();
+  });
+
+  it("fences a stale wake owner after another replica takes over an expired lease", async () => {
+    const fixture = await transitionFixture({ missionHandoff: true });
+    const mission = fixture.missionHandoff;
+    if (!mission) throw new Error("Mission handoff fixture was not created.");
+    await insertValidRuntimeStartObservations(fixture);
+
+    const wake = vi.spyOn(missionRuntimeModule, "wakeRuntimeTransitionMissionGoals")
+      .mockRejectedValueOnce(new Error("synthetic_immediate_wake_loss"));
+    await expect(finalizeRuntimeStartTransition({
+      projectId: fixture.projectId,
+      executionId: fixture.executionId,
+      attempt: 0,
+      episodeId: fixture.episodeId,
+      actionId: fixture.transitionInput.actionId,
+      effectBundleId: fixture.effectBundleId,
+    })).resolves.toMatchObject({ status: "materialized" });
+
+    const [intent] = await db.select().from(eventsTable).where(and(
+      eq(eventsTable.projectId, fixture.projectId),
+      eq(eventsTable.goalId, mission.sourceGoalId),
+      eq(eventsTable.type, "AiMissionWorldTransitionWakeRequested"),
+    )).limit(1);
+    await db.update(eventsTable).set({
+      payload: sql`jsonb_set(
+        ${eventsTable.payload},
+        '{nextAttemptAt}',
+        to_jsonb(to_char(
+          (clock_timestamp() - interval '1 second') AT TIME ZONE 'UTC',
+          'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+        )),
+        true
+      )`,
+    }).where(eq(eventsTable.id, intent!.id));
+
+    let releaseFirstWake!: () => void;
+    let announceFirstWake!: () => void;
+    const firstWakeEntered = new Promise<void>((resolve) => {
+      announceFirstWake = resolve;
+    });
+    const firstWakeRelease = new Promise<void>((resolve) => {
+      releaseFirstWake = resolve;
+    });
+    let deliveryCalls = 0;
+    wake.mockImplementation(async () => {
+      deliveryCalls += 1;
+      if (deliveryCalls === 1) {
+        announceFirstWake();
+        await firstWakeRelease;
+      }
+      return 1;
+    });
+
+    const staleDispatch = dispatchMissionWorldTransitionWakeIntent(intent!.id);
+    await firstWakeEntered;
+    const [leased] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, intent!.id)).limit(1);
+    expect(typeof leased?.payload?.wakeLeaseToken).toBe("string");
+    await db.update(eventsTable).set({
+      payload: sql`jsonb_set(
+        ${eventsTable.payload},
+        '{wakeLeaseUntil}',
+        to_jsonb(to_char(
+          (clock_timestamp() - interval '1 second') AT TIME ZONE 'UTC',
+          'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+        )),
+        true
+      )`,
+    }).where(eq(eventsTable.id, intent!.id));
+
+    await expect(dispatchMissionWorldTransitionWakeIntent(intent!.id)).resolves.toBe(true);
+    const [replacementDelivered] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, intent!.id)).limit(1);
+    const processedAt = replacementDelivered?.payload?.processedAt;
+    expect(typeof processedAt).toBe("string");
+    expect(replacementDelivered?.payload?.dispatchOutcome).toBe("delivered");
+    expect(replacementDelivered?.payload?.wakeLeaseToken).toBeNull();
+
+    releaseFirstWake();
+    await expect(staleDispatch).resolves.toBe(false);
+    const [finalIntent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, intent!.id)).limit(1);
+    expect(finalIntent?.payload?.processedAt).toBe(processedAt);
+    expect(finalIntent?.payload?.dispatchOutcome).toBe("delivered");
+    expect(finalIntent?.payload?.wakeLeaseToken).toBeNull();
+    expect(deliveryCalls).toBe(2);
   });
 });
 
