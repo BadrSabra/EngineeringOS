@@ -288,6 +288,20 @@ describe("Events", () => {
     );
   });
 
+  it("shows each event's full local date and time with a machine-readable timestamp", () => {
+    render(<Events />);
+
+    const eventTime = screen.getByTestId("event-time-event-1");
+    const expectedLocalDateTime = new Intl.DateTimeFormat("ar-EG", {
+      dateStyle: "medium",
+      timeStyle: "medium",
+    }).format(mockEvents[0].timestamp);
+
+    expect(screen.getByText("التاريخ والوقت المحلي")).toBeInTheDocument();
+    expect(eventTime).toHaveAttribute("dateTime", "2026-08-22T12:00:00.000Z");
+    expect(eventTime).toHaveTextContent(expectedLocalDateTime);
+  });
+
   it("keeps malformed event timestamps visible without crashing the event list", () => {
     vi.mocked(useListEvents).mockReturnValue({
       data: {

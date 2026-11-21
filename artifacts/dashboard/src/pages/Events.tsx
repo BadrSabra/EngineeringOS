@@ -9,10 +9,19 @@ import { eventTypeLabel } from '@/lib/event-copy';
 const SEVERITIES = ['info', 'warning', 'error', 'success'] as const;
 const PAGE_SIZE = 50;
 
-function formatEventTime(timestamp: Date | string | number): string {
+function eventDate(timestamp: Date | string | number): Date | null {
   const date = timestamp instanceof Date ? timestamp : new Date(timestamp);
-  if (!Number.isFinite(date.getTime())) return 'وقت غير صالح';
-  return date.toISOString().slice(11, 19);
+  return Number.isFinite(date.getTime()) ? date : null;
+}
+
+function formatEventTime(timestamp: Date | string | number): string {
+  const date = eventDate(timestamp);
+  if (!date) return 'وقت غير صالح';
+  return formatEventReadAt(date.getTime());
+}
+
+function eventDateTime(timestamp: Date | string | number): string | undefined {
+  return eventDate(timestamp)?.toISOString();
 }
 
 function severityLabel(severity?: string): string {
@@ -247,7 +256,7 @@ export default function Events() {
         >
           <div className="min-w-[900px]">
             <div className="p-2 border-b border-border bg-card/50 flex gap-4 text-xs text-muted-foreground sticky top-0 z-10 shadow-sm backdrop-blur-md">
-              <div className="w-32">الوقت</div>
+              <div className="w-32">التاريخ والوقت المحلي</div>
               <div className="w-16">المستوى</div>
               <div className="w-40">ماذا حدث</div>
               <div className="w-48 truncate">المشروع</div>
@@ -309,7 +318,12 @@ export default function Events() {
                         className={`flex gap-4 p-1.5 rounded hover:bg-white/5 transition-colors ${color}`}
                       >
                         <div className="w-32 opacity-70 shrink-0">
+                          <time
+                            data-testid={`event-time-${evt.id}`}
+                            dateTime={eventDateTime(evt.timestamp)}
+                          >
                           {formatEventTime(evt.timestamp)}
+                          </time>
                         </div>
                         <div className="w-16 font-bold uppercase shrink-0">
                           {SEVERITIES.includes(evt.severity as (typeof SEVERITIES)[number]) ? (
