@@ -62,6 +62,10 @@ export const eventsTable = pgTable("events", {
   index("idx_events_mission_goal_wake_pending")
     .on(t.timestamp, t.id)
     .where(sql`${t.type} IN ('MissionGoalWakeRequested', 'MissionGoalWakeDeferred')`),
+  // Bounded global scan for durable Mission replan requests and retries.
+  index("idx_events_mission_replan_pending")
+    .on(t.timestamp, t.id)
+    .where(sql`${t.type} IN ('MissionReplanRequested', 'MissionReplanDeferred')`),
   // Bounded recovery for approval-triggered Mission Goal dispatch.
   index("idx_events_mission_goal_approval_pending")
     .on(t.timestamp, t.id)
