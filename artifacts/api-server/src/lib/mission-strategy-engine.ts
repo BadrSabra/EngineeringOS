@@ -51,7 +51,8 @@ type MissionRecoveryDecisionCost = {
   estimatedWorkUnits: number;
 };
 
-type CandidateEvaluation = CandidateEvaluationDraft & {
+type CandidateEvaluation = Omit<CandidateEvaluationDraft, "criteria"> & {
+  criteria: CandidateEvaluationDraft["criteria"] & { extraReadOnlyGoals: number };
   utilityScore: number;
   decisionCost: MissionRecoveryDecisionCost;
 };
@@ -287,6 +288,10 @@ function rankCandidatesByDecisionCost(
     };
     return {
       ...candidate,
+      criteria: {
+        ...candidate.criteria,
+        extraReadOnlyGoals: addedReadOnlyGoalCount,
+      },
       decisionCost,
       utilityScore: candidate.qualityScore - estimatedWorkUnits,
     };
