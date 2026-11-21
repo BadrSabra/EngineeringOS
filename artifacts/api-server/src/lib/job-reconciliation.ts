@@ -89,7 +89,6 @@ import { databaseNow } from "./job-lease.js";
 import {
   dispatchPendingMissionRecipes,
   reconcileCompletedMissionRecipeAcceptances,
-  wakeDueMissionGoals,
   wakeReadyMissionGoals,
   wakeRuntimeTransitionMissionGoals,
 } from "./mission-runtime.js";
@@ -1610,14 +1609,12 @@ export function startDurableJobDispatcher(): NodeJS.Timeout {
 
   void dispatchPersistedPendingJobs();
   void dispatchPendingMaterializedMissionTransitionWakes();
-  void wakeDueMissionGoals();
   void wakeReadyMissionGoals();
   void retryTransitionsAndReconcileApplyGoals();
   return setInterval(() => {
     void dispatchPersistedPendingJobs();
     void dispatchPendingMaterializedMissionTransitionWakes();
-    void wakeDueMissionGoals();
-    void wakeReadyMissionGoals();
+      void wakeReadyMissionGoals();
     void retryTransitionsAndReconcileApplyGoals();
   }, DURABLE_JOB_DISPATCH_INTERVAL_MS);
 }
@@ -1644,7 +1641,6 @@ export function startScopedMissionLifecycleDispatcher(
       await dispatchPendingShadowReplays(32, projectId);
       await dispatchPendingMissionChatHandoffs(32, projectId);
       await dispatchPendingMaterializedMissionTransitionWakes(32, projectId);
-      await wakeDueMissionGoals(32, projectId);
       await wakeReadyMissionGoals(32, projectId);
     } catch (err) {
       logger.error(
@@ -1694,7 +1690,6 @@ export function startStaleJobSweep(): NodeJS.Timeout {
       requeued,
       reconciledDiscoveries,
       expiredUploads,
-      wokenGoals,
       wokenDependencyGoals,
       wokenRuntimeTransitionGoals,
     ] = await Promise.all([
@@ -1702,7 +1697,6 @@ export function startStaleJobSweep(): NodeJS.Timeout {
       requeueStalePendingJobs(),
       failStaleDiscoverySessions(),
       sweepExpiredUploads(),
-      wakeDueMissionGoals(),
       wakeReadyMissionGoals(),
       wakeRuntimeTransitionMissionGoals(),
       retryTransitionsAndReconcileApplyGoals(),
@@ -1729,9 +1723,9 @@ export function startStaleJobSweep(): NodeJS.Timeout {
     if (expiredUploads > 0) {
       logger.info({ expiredUploads }, "stale-job sweep: expired upload entries removed");
     }
-    if (wokenGoals > 0 || wokenDependencyGoals > 0 || wokenRuntimeTransitionGoals > 0) {
+    if (wokenDependencyGoals > 0 || wokenRuntimeTransitionGoals > 0) {
       logger.info(
-        { wokenGoals, wokenDependencyGoals, wokenRuntimeTransitionGoals },
+        { wokenDependencyGoals, wokenRuntimeTransitionGoals },
         "stale-job sweep: Mission Goals woken",
       );
     }

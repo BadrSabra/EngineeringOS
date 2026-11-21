@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import {
   aiGoalsTable,
@@ -356,6 +356,65 @@ describe("Mission event wake dispatch lease", () => {
 
   it("fences a late failure from deferring the replacement owner's wake", async () => {
     await assertLateWorkerCannotOverwriteNewerOwner("failure");
+  });
+
+  it("backfills a due legacy scheduled Goal wait through the durable Outbox", async () => {
+    const fixture = await createWakeFixture({ includeInbox: false });
+    const wakeAt = new Date("2020-01-01T00:00:00.000Z");
+    const generationAt = new Date();
+    await db.update(aiGoalsTable).set({
+      nextWakeAt: wakeAt,
+      updatedAt: generationAt,
+      nextAction: { kind: "wait", reason: "event", wakeAt: wakeAt.toISOString() },
+    }).where(eq(aiGoalsTable.id, fixture.goalId));
+
+    const replanSpy = vi.spyOn(missionAutoReplanModule, "autoReplanMission")
+      .mockResolvedValue({
+        status: "skipped",
+        missionId: fixture.missionId,
+        reason: "automatic_replan_not_enabled",
+      });
+
+    expect(await dispatchPendingMissionEventWakes(10, fixture.projectId)).toBe(1);
+    expect(replanSpy).toHaveBeenCalledOnce();
+    expect(replanSpy).toHaveBeenCalledWith(fixture.missionId);
+
+    const intentId = "mission-event-timer-wake:" + createHash("sha256")
+      .update(fixture.goalId + ":" + wakeAt.toISOString() + ":" + generationAt.toISOString())
+      .digest("hex");
+    const [intent] = await db.select({
+      type: eventsTable.type,
+      payload: eventsTable.payload,
+    }).from(eventsTable).where(eq(eventsTable.id, intentId)).limit(1);
+    expect(intent?.type).toBe(MISSION_EVENT_WAKE_DISPATCHED);
+    expect(intent?.payload).toMatchObject({
+      source: "scheduled_wake",
+      goalId: fixture.goalId,
+      wakeAt: wakeAt.toISOString(),
+      generationAt: generationAt.toISOString(),
+      wokenEvents: 1,
+    });
+
+    // The dispatched marker prevents a second backfill or duplicate replan.
+    expect(await dispatchPendingMissionEventWakes(10, fixture.projectId)).toBe(0);
+    expect(replanSpy).toHaveBeenCalledOnce();
+  });
+
+  it("does not materialize a legacy scheduled Goal wait before its deadline", async () => {
+    const fixture = await createWakeFixture({ includeInbox: false });
+    const wakeAt = new Date(Date.now() + 60 * 60_000);
+    const generationAt = new Date();
+    await db.update(aiGoalsTable).set({
+      nextWakeAt: wakeAt,
+      updatedAt: generationAt,
+      nextAction: { kind: "wait", reason: "event", wakeAt: wakeAt.toISOString() },
+    }).where(eq(aiGoalsTable.id, fixture.goalId));
+
+    expect(await dispatchPendingMissionEventWakes(10, fixture.projectId)).toBe(0);
+    const intents = await db.select({ id: eventsTable.id })
+      .from(eventsTable)
+      .where(eq(eventsTable.projectId, fixture.projectId));
+    expect(intents).toHaveLength(0);
   });
 
   it("dispatches a due scheduled Goal wait through the existing Outbox and replan coordinator", async () => {
