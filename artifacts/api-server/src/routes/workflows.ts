@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type RequestHandler } from "express";
 import { db } from "@workspace/db";
 import {
   aiGoalsTable,
@@ -20,6 +20,7 @@ import {
 import { eq, desc, and, inArray, isNull } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { recordAudit } from "../lib/audit.js";
+import { logger } from "../lib/logger.js";
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { loadProjectByIdForUser } from "../middlewares/requireProjectAccess.js";
@@ -41,6 +42,65 @@ const router = Router();
 router.use(requireAuth);
 
 class WorkflowStateConflictError extends Error {}
+
+/**
+ * Serialize every workflow state mutation across API-server instances.
+ * Keep the lock for the complete handler lifetime, not merely until the HTTP
+ * socket closes: a disconnected client does not cancel server-side work.
+ */
+function readSinglePathParam(value: string | string[] | undefined): string | undefined {
+  if (typeof value === "string" && value.length > 0) return value;
+  if (Array.isArray(value) && value.length === 1 && typeof value[0] === "string" && value[0].length > 0) {
+    return value[0];
+  }
+  return undefined;
+}
+
+type WorkflowMutationHandler = (
+  req: Parameters<RequestHandler>[0],
+  res: Parameters<RequestHandler>[1],
+  next: Parameters<RequestHandler>[2],
+) => unknown;
+
+function withWorkflowTransitionLock(handler: WorkflowMutationHandler): RequestHandler {
+  return async (req, res, next) => {
+    const workflowId = readSinglePathParam(req.params.workflowId);
+    if (!workflowId) {
+      res.status(400).json({ error: "invalid_workflow_id" });
+      return;
+    }
+    let transitionLock: Awaited<ReturnType<typeof tryAdvisoryLock>>;
+    try {
+      transitionLock = await tryAdvisoryLock(LockNamespace.WORKFLOW_TRANSITION, workflowId);
+    } catch (error) {
+      return next(error);
+    }
+
+    if (!transitionLock.acquired) {
+      res.status(409).json({
+        error: "A workflow transition is already in progress",
+        code: "WORKFLOW_TRANSITION_IN_PROGRESS",
+      });
+      return;
+    }
+
+    try {
+      await handler(req, res, next);
+    } catch (error) {
+      return next(error);
+    } finally {
+      try {
+        await transitionLock.release();
+      } catch (error) {
+        logger.warn(
+          { err: error, workflowId },
+          "failed to release workflow transition lock",
+        );
+      }
+    }
+  };
+}
+
 
 const CreateWorkflowRequest = CreateWorkflowBody.extend({
   goalId: z.string().min(1).optional(),
@@ -135,7 +195,7 @@ router.get("/workflows/:workflowId", async (req, res) => {
 });
 
 // Delete workflow
-router.delete("/workflows/:workflowId", async (req, res) => {
+router.delete("/workflows/:workflowId", withWorkflowTransitionLock(async (req, res) => {
   const { workflowId } = DeleteWorkflowParams.parse(req.params);
 
   const existing = await db
@@ -215,10 +275,10 @@ router.delete("/workflows/:workflowId", async (req, res) => {
   invalidateContextCache(result.workflow.projectId);
 
   return res.status(204).send();
-});
+}));
 
 // Start workflow
-router.post("/workflows/:workflowId/start", async (req, res) => {
+router.post("/workflows/:workflowId/start", withWorkflowTransitionLock(async (req, res) => {
   const { workflowId } = StartWorkflowParams.parse(req.params);
   const workflow = await db
     .select()
@@ -347,10 +407,10 @@ router.post("/workflows/:workflowId/start", async (req, res) => {
         : {}),
     } : {}),
   });
-});
+}));
 
 // Stop workflow
-router.post("/workflows/:workflowId/stop", async (req, res) => {
+router.post("/workflows/:workflowId/stop", withWorkflowTransitionLock(async (req, res) => {
   const { workflowId } = StopWorkflowParams.parse(req.params);
   const workflow = await db
     .select()
@@ -450,7 +510,7 @@ router.post("/workflows/:workflowId/stop", async (req, res) => {
 
   invalidateContextCache(workflow[0].projectId);
   return res.json(updatedExecution);
-});
+}));
 
 // List workflow executions
 router.get("/workflows/:workflowId/executions", async (req, res) => {
@@ -499,8 +559,9 @@ async function loadRunningExecution(workflowId: string) {
 
 // Advance the current running execution to the next phase (or to
 // "completed" if the current phase was the last one).
-router.post("/workflows/:workflowId/advance", async (req, res) => {
-  const { workflowId } = req.params;
+router.post("/workflows/:workflowId/advance", withWorkflowTransitionLock(async (req, res) => {
+  const workflowId = readSinglePathParam(req.params.workflowId);
+  if (!workflowId) return res.status(400).json({ error: "invalid_workflow_id" });
   const workflow = await db.select().from(workflowsTable).where(eq(workflowsTable.id, workflowId)).limit(1);
   if (!workflow[0]) return res.status(404).json({ error: "Workflow not found" });
 
@@ -512,14 +573,7 @@ router.post("/workflows/:workflowId/advance", async (req, res) => {
     return res.status(409).json({ error: "Workflow has no running execution to advance" });
   }
 
-  // Serialize the read/check/claim sequence so a competing request cannot
-  // observe the same phase and then advance again after the first request.
-  const transitionLock = await tryAdvisoryLock(LockNamespace.WORKFLOW_TRANSITION, workflowId);
-  if (!transitionLock.acquired) {
-    return res.status(409).json({ error: "A workflow transition is already in progress" });
-  }
-
-  try {
+  // The shared route wrapper serializes this read/check/claim sequence.
   // Evaluate the current phase's advance condition using the safe evaluator
   // (replaces the previous `new Function` approach — audit finding R-001/W-001).
   // An empty/absent condition means "always advance".
@@ -689,14 +743,12 @@ router.post("/workflows/:workflowId/advance", async (req, res) => {
         : {}),
     } : {}),
   });
-  } finally {
-    await transitionLock.release();
-  }
-});
+}));
 
 // Mark the running execution's current phase as failed, stopping the run.
-router.post("/workflows/:workflowId/fail-phase", async (req, res) => {
-  const { workflowId } = req.params;
+router.post("/workflows/:workflowId/fail-phase", withWorkflowTransitionLock(async (req, res) => {
+  const workflowId = readSinglePathParam(req.params.workflowId);
+  if (!workflowId) return res.status(400).json({ error: "invalid_workflow_id" });
   const errorMessage = typeof req.body?.error === "string" ? req.body.error : "Phase failed";
 
   const workflow = await db.select().from(workflowsTable).where(eq(workflowsTable.id, workflowId)).limit(1);
@@ -766,12 +818,16 @@ router.post("/workflows/:workflowId/fail-phase", async (req, res) => {
   invalidateContextCache(workflow[0].projectId);
 
   return res.json(updatedExecution);
-});
+}));
 
 // Retry a failed execution's phase in place: puts the same phase back into
 // "running" rather than restarting the whole workflow from phase one.
-router.post("/workflows/:workflowId/executions/:executionId/retry-phase", async (req, res) => {
-  const { workflowId, executionId } = req.params;
+router.post("/workflows/:workflowId/executions/:executionId/retry-phase", withWorkflowTransitionLock(async (req, res) => {
+  const workflowId = readSinglePathParam(req.params.workflowId);
+  const executionId = readSinglePathParam(req.params.executionId);
+  if (!workflowId || !executionId) {
+    return res.status(400).json({ error: "invalid_workflow_or_execution_id" });
+  }
 
   const workflow = await db.select().from(workflowsTable).where(eq(workflowsTable.id, workflowId)).limit(1);
   if (!workflow[0]) return res.status(404).json({ error: "Workflow not found" });
@@ -936,13 +992,17 @@ router.post("/workflows/:workflowId/executions/:executionId/retry-phase", async 
       ? { phaseExecutionFailureCode: phaseExecution.failureCode }
       : {}),
   });
-});
+}));
 
 // Roll a running, failed, or completed execution back to one of its already
 // completed phases. The phase becomes active again and all later completion
 // markers are removed, so the execution cannot appear to have skipped work.
-router.post("/workflows/:workflowId/executions/:executionId/rollback-phase", async (req, res) => {
-  const { workflowId, executionId } = req.params;
+router.post("/workflows/:workflowId/executions/:executionId/rollback-phase", withWorkflowTransitionLock(async (req, res) => {
+  const workflowId = readSinglePathParam(req.params.workflowId);
+  const executionId = readSinglePathParam(req.params.executionId);
+  if (!workflowId || !executionId) {
+    return res.status(400).json({ error: "invalid_workflow_or_execution_id" });
+  }
   const targetPhase = typeof req.body?.targetPhase === "string" ? req.body.targetPhase.trim() : "";
   if (!targetPhase) {
     return res.status(400).json({
@@ -1122,6 +1182,6 @@ router.post("/workflows/:workflowId/executions/:executionId/rollback-phase", asy
   invalidateContextCache(workflow[0].projectId);
 
   return res.json(updatedExecution);
-});
+}));
 
 export default router;
