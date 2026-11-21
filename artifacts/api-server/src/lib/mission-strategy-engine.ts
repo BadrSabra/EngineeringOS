@@ -10,7 +10,7 @@ import {
   type WorldStateFailureDiagnosis,
 } from "./world-state-failure-diagnosis.js";
 
-const POLICY_VERSION = "mission-recovery-strategy-v1";
+const POLICY_VERSION = "mission-recovery-strategy-v2";
 const MAX_STRATEGY_PATHS = 24;
 
 type FailureSummary = {
@@ -533,8 +533,17 @@ function validatorStrategy(input: StrategyInput): MissionStrategySelection {
   );
   const selected = eligibleCandidates[0]!;
   const inspection = input.preview.plan.steps.find((step) => step.id === "inspect");
+  const executeIndexInSource = input.preview.plan.steps.findIndex((step) => step.id === executeStep.id);
   const buildValidatorPlan = (strategyId: string) => {
     const targeted = strategyId === "code.targeted-repair";
+    // A new recovery plan already has a safe read-only inspection step in the
+    // common case. Rebind that step to the current accepted failure evidence
+    // rather than adding a second, redundant inspection Goal. Only reuse it
+    // when it is explicitly read-only and already ordered before execution.
+    const reuseInspection = targeted
+      && inspection?.kind === "inspect"
+      && inspection.readOnly
+      && input.preview.plan.steps.findIndex((step) => step.id === inspection.id) < executeIndexInSource;
     const insertedStep: GeneralTaskPlanStep = targeted
       ? {
           id: targetedStepId,
@@ -556,10 +565,24 @@ function validatorStrategy(input: StrategyInput): MissionStrategySelection {
           readOnly: true,
           approvalRequired: false,
         };
-    const changedStepIds = targeted
-      ? [executeStep.id]
-      : [executeStep.id, validateStep.id];
+    const evidenceStepIdForExecution = reuseInspection && inspection
+      ? inspection.id
+      : insertedStep.id;
+    const addedStepIds = reuseInspection ? [] : [insertedStep.id];
+    const changedStepIds = [
+      ...(reuseInspection && inspection ? [inspection.id] : []),
+      ...(targeted ? [executeStep.id] : [executeStep.id, validateStep.id]),
+    ];
     const steps = input.preview.plan.steps.map((step) => {
+      if (reuseInspection && inspection && step.id === inspection.id) {
+        return {
+          ...step,
+          title: "Re-inspect the exact validator failure scope",
+          objective: `${step.objective} Re-read only the evidence-bound files ${paths.join(", ")} and reproduce the accepted validator failure ${validationRefs.join(", ")} before repair.`,
+          files: [...new Set([...step.files, ...paths])],
+          readOnly: true,
+        };
+      }
       if (step.id === executeStep.id) {
         return {
           ...step,
@@ -568,7 +591,7 @@ function validatorStrategy(input: StrategyInput): MissionStrategySelection {
             : "Repair after reconstructing validator evidence",
           objective: "Make the smallest repair justified by the accepted failure evidence; retain the existing approval and validation requirements.",
           files: paths,
-          dependencies: [...new Set([...step.dependencies, insertedStep.id])],
+          dependencies: [...new Set([...step.dependencies, evidenceStepIdForExecution])],
         };
       }
       if (!targeted && step.id === validateStep.id) {
@@ -580,14 +603,16 @@ function validatorStrategy(input: StrategyInput): MissionStrategySelection {
       }
       return step;
     });
-    const executeIndex = steps.findIndex((step) => step.id === executeStep.id);
-    steps.splice(executeIndex, 0, insertedStep);
-    return { steps, insertedStep, changedStepIds };
+    if (!reuseInspection) {
+      const executeIndex = steps.findIndex((step) => step.id === executeStep.id);
+      steps.splice(executeIndex, 0, insertedStep);
+    }
+    return { steps, addedStepIds, changedStepIds };
   };
   const candidatePlanProjections = candidates.map((candidate) => {
     const candidatePlan = buildValidatorPlan(candidate.strategyId);
     return projectCandidatePlan(candidate, candidatePlan.steps, {
-      addedStepIds: [candidatePlan.insertedStep.id],
+      addedStepIds: candidatePlan.addedStepIds,
       changedStepIds: candidatePlan.changedStepIds,
       expectedObservationCodes: validationRefs,
     });
@@ -598,7 +623,7 @@ function validatorStrategy(input: StrategyInput): MissionStrategySelection {
     selectedStrategyId: selected.strategyId,
     candidates,
     candidatePlanProjections,
-    addedStepIds: [selectedPlan.insertedStep.id],
+    addedStepIds: selectedPlan.addedStepIds,
     changedStepIds: selectedPlan.changedStepIds,
     reasonCode: failure.reasonCode,
     steps: selectedPlan.steps,
