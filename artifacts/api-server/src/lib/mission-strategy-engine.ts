@@ -258,7 +258,7 @@ function rankCandidatesByDecisionCost(
   const projectionByStrategy = new Map(projections.map((projection) => [
     projection.strategyId,
     projection,
-  ]));
+  ] as const));
   return candidates.map((candidate) => {
     const projection = projectionByStrategy.get(candidate.strategyId);
     if (!projection) {
@@ -496,7 +496,7 @@ function runtimeStrategy(input: StrategyInput): MissionStrategySelection {
   const candidateRank = new Map(rankedCandidates.map((candidate, index) => [
     candidate.strategyId,
     index,
-  ]));
+  ] as const));
   candidatePlanProjections.sort((left, right) =>
     (candidateRank.get(left.strategyId) ?? Number.MAX_SAFE_INTEGER)
     - (candidateRank.get(right.strategyId) ?? Number.MAX_SAFE_INTEGER),
@@ -666,7 +666,7 @@ function validatorStrategy(input: StrategyInput): MissionStrategySelection {
   const candidateRank = new Map(rankedCandidates.map((candidate, index) => [
     candidate.strategyId,
     index,
-  ]));
+  ] as const));
   candidatePlanProjections.sort((left, right) =>
     (candidateRank.get(left.strategyId) ?? Number.MAX_SAFE_INTEGER)
     - (candidateRank.get(right.strategyId) ?? Number.MAX_SAFE_INTEGER),
