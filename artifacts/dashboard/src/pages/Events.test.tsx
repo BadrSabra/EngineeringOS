@@ -112,17 +112,19 @@ describe("Events", () => {
     window.history.replaceState(
       {},
       "",
-      "/events?projectId=project-alpha&severity=error&correlationId=run-42",
+      "/events?projectId=project-alpha&severity=error&type=TaskFailed&correlationId=run-42",
     );
 
     render(<Events />);
 
     expect(screen.getByTestId("select-event-severity")).toHaveValue("error");
     expect(screen.getByTestId("input-event-correlation")).toHaveValue("run-42");
+    expect(screen.getByTestId("text-event-type-filter")).toHaveTextContent("تعثر تنفيذ الخطوة");
     expect(vi.mocked(useListEvents).mock.calls.at(-1)?.[0]).toEqual({
       limit: 50,
       page: 1,
       projectId: "project-alpha",
+      type: "TaskFailed",
       correlationId: "run-42",
       severity: "error",
     });
@@ -146,6 +148,38 @@ describe("Events", () => {
     expect(params.get("severity")).toBe("error");
     expect(params.get("page")).toBeNull();
     expect(params.get("search")).toBe("Task");
+  });
+
+  it("filters by the clicked event type, keeps compatible filters, and can clear the type alone", () => {
+    window.history.replaceState({}, "", "/events?severity=error&search=Task&page=3");
+    render(<Events />);
+
+    fireEvent.click(screen.getByTestId("button-event-type-filter-event-2"));
+
+    expect(screen.getByTestId("button-event-type-filter-event-2")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("text-event-type-filter")).toHaveTextContent("تعثر تنفيذ الخطوة");
+    expect(screen.getByTestId("text-event-type-filter")).toHaveAttribute("title", "TaskFailed");
+    expect(vi.mocked(useListEvents).mock.calls.at(-1)?.[0]).toEqual({
+      limit: 50,
+      page: 1,
+      type: "TaskFailed",
+      severity: "error",
+      search: "Task",
+    });
+    expect(new URLSearchParams(window.location.search).get("type")).toBe("TaskFailed");
+    expect(new URLSearchParams(window.location.search).get("page")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("button-clear-event-type"));
+
+    expect(screen.getByTestId("button-event-type-filter-event-2")).toHaveAttribute("aria-pressed", "false");
+    expect(vi.mocked(useListEvents).mock.calls.at(-1)?.[0]).toEqual({
+      limit: 50,
+      page: 1,
+      severity: "error",
+      search: "Task",
+    });
+    expect(new URLSearchParams(window.location.search).get("type")).toBeNull();
+    expect(new URLSearchParams(window.location.search).get("search")).toBe("Task");
   });
 
   it("filters by the clicked project without losing other compatible filters", () => {
@@ -438,7 +472,7 @@ describe("Events", () => {
     window.history.replaceState(
       {},
       "",
-      "/events?projectId=project-beta&severity=error&correlationId=trace-123&search=missing&page=3",
+      "/events?projectId=project-beta&severity=error&type=TaskFailed&correlationId=trace-123&search=missing&page=3",
     );
     vi.mocked(useListEvents).mockReturnValue({
       data: { events: [], total: 0 },

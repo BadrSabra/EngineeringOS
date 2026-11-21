@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { readGoalDrafts, storeHomeGoalDraft } from '@/lib/home-goal-handoff';
+import { useListRules } from '@workspace/api-client-react';
 import Rules from './Rules';
 
 const mocks = vi.hoisted(() => {
@@ -50,15 +51,17 @@ vi.mock('@workspace/api-client-react', () => ({
     params ? ['/api/rules', params] : ['/api/rules'],
   getListProjectsQueryKey: (params?: unknown) =>
     params ? ['/api/projects', params] : ['/api/projects'],
-  useListRules: () => ({
-    data: mocks.rules,
+  useListRules: vi.fn((params?: { severity?: string }) => ({
+    data: params?.severity
+      ? mocks.rules.filter((rule) => rule.severity === params.severity)
+      : mocks.rules,
     isLoading: false,
     isError: false,
     error: null,
     refetch: vi.fn(),
     isRefetching: false,
     dataUpdatedAt: 1,
-  }),
+  })),
   useListProjects: () => ({
     data: mocks.projects,
     isLoading: false,
@@ -193,6 +196,40 @@ describe('Rules actions', () => {
     } finally {
       mocks.rules = savedRules;
     }
+  });
+
+  it('filters rules by clicking the severity badge without losing the search', () => {
+    renderRulesPage();
+    const search = screen.getByRole('textbox', { name: 'ابحث في القواعد' });
+    fireEvent.change(search, { target: { value: 'unsafe' } });
+
+    fireEvent.click(screen.getByTestId('button-rule-severity-filter-rule-1'));
+
+    expect(screen.getByRole('combobox')).toHaveValue('high');
+    expect(search).toHaveValue('unsafe');
+    expect(screen.getByTestId('button-rule-severity-filter-rule-1')).toHaveAttribute('aria-pressed', 'true');
+    expect(useListRules).toHaveBeenLastCalledWith(
+      { severity: 'high' },
+      expect.objectContaining({
+        query: expect.objectContaining({
+          queryKey: ['/api/rules', { severity: 'high' }],
+        }),
+      }),
+    );
+
+    fireEvent.click(screen.getByTestId('button-rule-severity-filter-rule-1'));
+
+    expect(screen.getByRole('combobox')).toHaveValue('');
+    expect(search).toHaveValue('unsafe');
+    expect(screen.getByTestId('button-rule-severity-filter-rule-1')).toHaveAttribute('aria-pressed', 'false');
+    expect(useListRules).toHaveBeenLastCalledWith(
+      { severity: undefined },
+      expect.objectContaining({
+        query: expect.objectContaining({
+          queryKey: ['/api/rules', { severity: undefined }],
+        }),
+      }),
+    );
   });
 
   it('makes the read-only behavior clear when no rules have been added', () => {

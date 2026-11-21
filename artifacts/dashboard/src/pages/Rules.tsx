@@ -32,6 +32,14 @@ import RulePatternInput, {
 
 type RuleSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info';
 
+const SEVERITY_LABELS: Record<RuleSeverity, string> = {
+  critical: 'حرج',
+  high: 'مرتفع',
+  medium: 'متوسط',
+  low: 'منخفض',
+  info: 'معلومة',
+};
+
 const SEVERITY_ORDER: Record<string, number> = {
   critical: 0,
   high: 1,
@@ -462,52 +470,66 @@ export default function Rules() {
               key={rule.id}
               className="bg-card border border-border rounded-xl overflow-hidden hover:border-primary/30 transition-colors"
             >
-              <div
-                role="button"
-                tabIndex={0}
-                className="p-4 flex items-start gap-4 cursor-pointer"
-                onClick={() => setExpandedRule(expandedRule === rule.id ? null : rule.id)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    setExpandedRule(expandedRule === rule.id ? null : rule.id);
-                  }
-                }}
-                aria-expanded={expandedRule === rule.id}
-                aria-label={`${expandedRule === rule.id ? 'طيّ' : 'توسيع'} القاعدة ${rule.title}`}
-              >
-                <SeverityIcon severity={rule.severity} />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <span className="font-mono text-xs bg-secondary px-2 py-0.5 rounded border border-border">
-                      {rule.code}
-                    </span>
-                    <span className="font-semibold text-sm">{rule.title}</span>
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${severityColors[rule.severity] ?? severityColors.info}`}>
-                      {({ critical: 'حرج', high: 'مرتفع', medium: 'متوسط', low: 'منخفض', info: 'معلومة' } as const)[rule.severity]}
-                    </span>
-                    {!rule.enabled && (
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border border-border text-muted-foreground">
-                        معطّلة
+              <div className="p-4 flex items-start gap-4">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  className="flex min-w-0 flex-1 items-start gap-4 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  onClick={() => setExpandedRule(expandedRule === rule.id ? null : rule.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      setExpandedRule(expandedRule === rule.id ? null : rule.id);
+                    }
+                  }}
+                  aria-expanded={expandedRule === rule.id}
+                  aria-label={`${expandedRule === rule.id ? 'طيّ' : 'توسيع'} القاعدة ${rule.title}`}
+                >
+                  <SeverityIcon severity={rule.severity} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <span className="font-mono text-xs bg-secondary px-2 py-0.5 rounded border border-border">
+                        {rule.code}
                       </span>
+                      <span className="font-semibold text-sm">{rule.title}</span>
+                      {!rule.enabled && (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border border-border text-muted-foreground">
+                          معطّلة
+                        </span>
+                      )}
+                    </div>
+                    {rule.description && (
+                      <p className="text-sm text-muted-foreground line-clamp-1">{rule.description}</p>
                     )}
                   </div>
-                  {rule.description && (
-                    <p className="text-sm text-muted-foreground line-clamp-1">{rule.description}</p>
-                  )}
+                  <div className="flex items-center gap-3 shrink-0">
+                    {(rule.hitCount ?? 0) > 0 && (
+                      <span className="text-xs font-mono font-bold text-primary bg-primary/10 px-2 py-1 rounded">
+                        {rule.hitCount} مرات رصد
+                      </span>
+                    )}
+                    {expandedRule === rule.id ? (
+                      <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                    ) : (
+                      <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                    )}
+                  </div>
                 </div>
-                <div className="flex items-center gap-3 shrink-0">
-                  {(rule.hitCount ?? 0) > 0 && (
-                    <span className="text-xs font-mono font-bold text-primary bg-primary/10 px-2 py-1 rounded">
-                      {rule.hitCount} مرات رصد
-                    </span>
-                  )}
-                  {expandedRule === rule.id ? (
-                    <ChevronDown className="w-4 h-4 text-muted-foreground" />
-                  ) : (
-                    <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                  )}
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setFilterSeverity((current) => current === rule.severity ? '' : rule.severity as RuleSeverity)}
+                  aria-pressed={filterSeverity === rule.severity}
+                  aria-label={
+                    filterSeverity === rule.severity
+                      ? `أزل تصفية مستوى الخطورة: ${SEVERITY_LABELS[rule.severity]}`
+                      : `صفِّ القواعد حسب مستوى الخطورة: ${SEVERITY_LABELS[rule.severity]}`
+                  }
+                  title="اعرض القواعد من مستوى الخطورة هذا"
+                  data-testid={`button-rule-severity-filter-${rule.id}`}
+                  className={`shrink-0 rounded border px-2 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${severityColors[rule.severity] ?? severityColors.info}`}
+                >
+                  {SEVERITY_LABELS[rule.severity]}
+                </button>
               </div>
 
               {expandedRule === rule.id && (

@@ -44,6 +44,7 @@ function initialEventViewState() {
   return {
     projectId: params.get('projectId') ?? '',
     severity: params.get('severity') ?? '',
+    eventType: params.get('type') ?? '',
     correlationId: params.get('correlationId') ?? '',
     searchTerm: params.get('search') ?? '',
     page: Math.max(1, Number(params.get('page')) || 1),
@@ -55,11 +56,12 @@ export default function Events() {
   const [viewState] = useState(initialEventViewState);
   const [projectId, setProjectId] = useState(viewState.projectId);
   const [severity, setSeverity] = useState(viewState.severity);
+  const [eventType, setEventType] = useState(viewState.eventType);
   const [correlationId, setCorrelationId] = useState(viewState.correlationId);
   const [searchTerm, setSearchTerm] = useState(viewState.searchTerm);
   const [page, setPage] = useState(viewState.page);
   const [showFilters, setShowFilters] = useState(() => (
-    Boolean(viewState.projectId || viewState.severity || viewState.correlationId.trim())
+    Boolean(viewState.projectId || viewState.severity || viewState.eventType.trim() || viewState.correlationId.trim())
   ));
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -67,17 +69,19 @@ export default function Events() {
     const params = new URLSearchParams();
     if (projectId) params.set('projectId', projectId);
     if (severity) params.set('severity', severity);
+    if (eventType.trim()) params.set('type', eventType.trim());
     if (correlationId.trim()) params.set('correlationId', correlationId.trim());
     if (searchTerm.trim()) params.set('search', searchTerm.trim());
     if (page > 1) params.set('page', String(page));
     const query = params.toString();
     window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
-  }, [projectId, severity, correlationId, searchTerm, page]);
+  }, [projectId, severity, eventType, correlationId, searchTerm, page]);
 
   const eventQueryParams = {
     limit: PAGE_SIZE,
     page,
     ...(projectId ? { projectId } : {}),
+    ...(eventType.trim() ? { type: eventType.trim() } : {}),
     ...(correlationId.trim() ? { correlationId: correlationId.trim() } : {}),
     ...(severity ? { severity: severity as (typeof SEVERITIES)[number] } : {}),
     ...(searchTerm.trim() ? { search: searchTerm.trim() } : {}),
@@ -90,13 +94,14 @@ export default function Events() {
     },
   });
 
-  const activeFilterCount = [projectId, severity, correlationId.trim(), searchTerm.trim()].filter(Boolean).length;
+  const activeFilterCount = [projectId, severity, eventType.trim(), correlationId.trim(), searchTerm.trim()].filter(Boolean).length;
   const events = eventsPage?.events ?? [];
   const total = eventsPage?.total ?? 0;
   const hasNextPage = page * PAGE_SIZE < total;
   const clearEventFilters = () => {
     setProjectId('');
     setSeverity('');
+    setEventType('');
     setCorrelationId('');
     setSearchTerm('');
     setPage(1);
@@ -221,6 +226,30 @@ export default function Events() {
               ))}
             </select>
           </div>
+          {eventType.trim() && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground font-medium">نوع الحدث</span>
+              <span
+                data-testid="text-event-type-filter"
+                className="max-w-48 truncate rounded bg-secondary/50 px-2 py-1.5 text-xs"
+                title={eventType}
+              >
+                <bdi dir="auto">{eventTypeLabel(eventType.trim())}</bdi>
+              </span>
+              <button
+                type="button"
+                aria-label="مسح تصفية نوع الحدث"
+                data-testid="button-clear-event-type"
+                onClick={() => {
+                  setEventType('');
+                  setPage(1);
+                }}
+                className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                <X className="h-3 w-3" aria-hidden="true" />
+              </button>
+            </div>
+          )}
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground font-medium">العملية</span>
             <input
@@ -351,7 +380,28 @@ export default function Events() {
                             title={typeLabel === evt.type ? undefined : evt.type}
                             data-testid={`text-event-type-${evt.id}`}
                           >
-                            <bdi dir="auto">{typeLabel}</bdi>
+                            {evt.type.trim() ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const nextType = evt.type.trim() === eventType.trim() ? '' : evt.type.trim();
+                                  setEventType(nextType);
+                                  setPage(1);
+                                  setShowFilters(true);
+                                }}
+                                aria-pressed={evt.type.trim() === eventType.trim()}
+                                aria-label={
+                                  evt.type.trim() === eventType.trim()
+                                    ? `أزل تصفية نوع الحدث: ${typeLabel}`
+                                    : `اعرض أحداث النوع: ${typeLabel}`
+                                }
+                                title="تصفية سجل الأحداث حسب هذا النوع"
+                                data-testid={`button-event-type-filter-${evt.id}`}
+                                className="rounded text-start hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                              >
+                                <bdi dir="auto">{typeLabel}</bdi>
+                              </button>
+                            ) : <bdi dir="auto">{typeLabel}</bdi>}
                             {typeLabel !== evt.type && (
                               <span className="sr-only">
                                 {' '}الرمز التقني: <bdi dir="ltr">{evt.type}</bdi>
