@@ -1,4 +1,6 @@
 import React, { useState, useMemo } from 'react';
+import { useUser } from '@clerk/react';
+import { useLocation } from 'wouter';
 import {
   useListRules,
   useCreateRule,
@@ -17,10 +19,12 @@ import {
   BarChart2,
   ChevronDown,
   ChevronRight,
+  Sparkles,
 } from 'lucide-react';
 import RuleGoalHandoff from '@/components/RuleGoalHandoff';
 import { RefreshButton, RequestError } from '@/components/OperatorResilience';
 import RuleDetailActions from '@/components/RuleDetailActions';
+import { storeHomeGoalDraft } from '@/lib/home-goal-handoff';
 import RulePatternInput, {
   patternForRuleCreation,
   type RulePatternMode,
@@ -41,12 +45,15 @@ function createRuleCode(): string {
 }
 
 export default function Rules() {
+  const { isLoaded, user } = useUser();
+  const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const [filterSeverity, setFilterSeverity] = useState<RuleSeverity | ''>('');
   const [searchTerm, setSearchTerm] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [patternMode, setPatternMode] = useState<RulePatternMode>('regex');
   const [expandedRule, setExpandedRule] = useState<string | null>(null);
+  const [goalHandoffError, setGoalHandoffError] = useState('');
   const [newRule, setNewRule] = useState({
     title: '',
     code: '',
@@ -70,11 +77,26 @@ export default function Rules() {
   const createRule = useCreateRule();
 
   function openCreateForm() {
+    setGoalHandoffError('');
     setNewRule((current) => ({
       ...current,
       code: current.code || createRuleCode(),
     }));
     setShowCreate(true);
+  }
+
+  function openRuleAssistant() {
+    if (!isLoaded || !user?.id) return;
+    const draft = storeHomeGoalDraft(
+      'أريد إعداد قاعدة فحص جديدة. ساعدني في تحديد النمط الذي أريد رصده، واشرح لي المعلومات اللازمة لصياغتها. لا تحفظ القاعدة ولا تعدّل ملفات المشروع قبل أن أراجع المقترح وأوافق.',
+      user.id,
+    );
+    if (!draft) {
+      setGoalHandoffError('تعذر حفظ مسودة طلب المساعدة. بقيت في صفحة القواعد ولم نغيّرها.');
+      return;
+    }
+    setGoalHandoffError('');
+    setLocation(`/ai?goalDraftId=${encodeURIComponent(draft.id)}`);
   }
 
   const visibleRules = useMemo(() => {
@@ -405,13 +427,33 @@ export default function Rules() {
                 : 'أضف قاعدة لتحديد نمط تريد رصده في المشروع. فحص القاعدة يعرض النتائج للمراجعة فقط، ولا يغيّر ملفات المشروع.'}
             </p>
             {!(searchTerm || filterSeverity) && (
-              <button
-                type="button"
-                onClick={openCreateForm}
-                className="bg-primary text-primary-foreground px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2"
-              >
-                <Plus className="w-4 h-4" /> أنشئ أول قاعدة
-              </button>
+              <>
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  {!showCreate && (
+                    <button
+                      type="button"
+                      onClick={openRuleAssistant}
+                      disabled={!isLoaded || !user?.id}
+                      data-testid="button-rule-empty-assistant"
+                      className="bg-primary text-primary-foreground px-4 py-2 rounded-md font-medium text-sm inline-flex items-center gap-2 transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-wait disabled:opacity-50"
+                    >
+                      <Sparkles className="w-4 h-4" aria-hidden="true" /> اطلب المساعدة في إعداد قاعدة
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={openCreateForm}
+                    className="border border-border bg-secondary px-4 py-2 rounded-md font-medium text-sm inline-flex items-center gap-2 transition-colors hover:bg-secondary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  >
+                    <Plus className="w-4 h-4" aria-hidden="true" /> أنشئ أول قاعدة
+                  </button>
+                </div>
+                {goalHandoffError && (
+                  <p className="mt-3 text-xs text-destructive" role="alert" data-testid="text-rule-goal-handoff-error">
+                    {goalHandoffError}
+                  </p>
+                )}
+              </>
             )}
           </div>
         ) : (

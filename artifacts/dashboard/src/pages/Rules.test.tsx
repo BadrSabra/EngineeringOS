@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { readGoalDrafts, storeHomeGoalDraft } from '@/lib/home-goal-handoff';
 import Rules from './Rules';
 
 const mocks = vi.hoisted(() => {
@@ -26,6 +27,7 @@ const mocks = vi.hoisted(() => {
     ],
     projects: [{ id: 'project-1', name: 'Owned Project' }],
     clerkUser: { isLoaded: true, user: { id: 'user-1' } as { id: string } | null },
+    setLocation: vi.fn(),
     mutations: {
       create: mutation(),
       update: mutation(),
@@ -37,6 +39,10 @@ const mocks = vi.hoisted(() => {
 
 vi.mock('@clerk/react', () => ({
   useUser: () => mocks.clerkUser,
+}));
+
+vi.mock('wouter', () => ({
+  useLocation: () => ['/rules', mocks.setLocation],
 }));
 
 vi.mock('@workspace/api-client-react', () => ({
@@ -84,14 +90,23 @@ function renderRulesPage() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  window.sessionStorage.clear();
   mocks.projects.splice(0, mocks.projects.length, { id: 'project-1', name: 'Owned Project' });
-  mocks.rules[0] = {
-    ...mocks.rules[0],
+  mocks.rules.splice(0, mocks.rules.length, {
+    id: 'rule-1',
     projectId: undefined,
+    code: 'SEC-001',
     title: 'Avoid unsafe eval',
+    description: 'Detect dynamic evaluation.',
     severity: 'high',
+    pattern: 'eval\\(',
+    fixDescription: 'Use a safe parser.',
+    verifySteps: ['pnpm test'],
     enabled: true,
-  };
+    hitCount: 1,
+    createdAt: '2026-09-01T00:00:00.000Z',
+    updatedAt: '2026-09-01T00:00:00.000Z',
+  });
   for (const mutation of Object.values(mocks.mutations)) {
     mutation.isPending = false;
   }
@@ -108,6 +123,40 @@ describe('Rule goal handoff integration', () => {
     expandRule();
 
     expect(screen.getByTestId('button-rule-goal-handoff-rule-1')).toBeInTheDocument();
+  });
+
+  it('opens the assistant with an unsent rule setup draft and keeps manual creation available', () => {
+    mocks.rules.splice(0);
+    renderRulesPage();
+
+    fireEvent.click(screen.getByTestId('button-rule-empty-assistant'));
+
+    const draft = readGoalDrafts('user-1').drafts[0];
+    expect(draft).toMatchObject({ source: 'home', projectId: null });
+    expect(draft.text).toContain('أريد إعداد قاعدة فحص جديدة');
+    expect(draft.text).toContain('لا تحفظ القاعدة ولا تعدّل ملفات المشروع');
+    expect(mocks.setLocation).toHaveBeenCalledWith(`/ai?goalDraftId=${draft.id}`);
+    expect(mocks.mutations.create.mutate).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText('أنشئ أول قاعدة'));
+    expect(screen.getByText('إنشاء قاعدة جديدة')).toBeInTheDocument();
+  });
+
+  it('stays on the Rules page if the assistant draft cannot be saved', () => {
+    mocks.rules.splice(0);
+    for (let index = 0; index < 8; index += 1) {
+      expect(storeHomeGoalDraft(`مسودة ${index}`, 'user-1')).not.toBeNull();
+    }
+    renderRulesPage();
+
+    fireEvent.click(screen.getByTestId('button-rule-empty-assistant'));
+
+    expect(screen.getByTestId('text-rule-goal-handoff-error')).toHaveTextContent(
+      'تعذر حفظ مسودة طلب المساعدة.',
+    );
+    expect(mocks.setLocation).not.toHaveBeenCalled();
+    expect(mocks.mutations.create.mutate).not.toHaveBeenCalled();
+    expect(readGoalDrafts('user-1').drafts).toHaveLength(8);
   });
 });
 
