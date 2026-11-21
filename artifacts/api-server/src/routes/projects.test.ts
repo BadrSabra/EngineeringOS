@@ -8,6 +8,7 @@ import {
   eventsTable,
   metricsTable,
   tasksTable,
+  rulesTable,
   aiChatSessionsTable,
   aiChatMessagesTable,
   aiExecutionsTable,
@@ -80,6 +81,7 @@ async function insertProject(rootPath: string, ownerId = "test-user"): Promise<s
 async function cleanupProject(id: string): Promise<void> {
   await db.delete(browserValidationProfilesTable).where(eq(browserValidationProfilesTable.projectId, id));
   await db.delete(tasksTable).where(eq(tasksTable.projectId, id));
+  await db.delete(rulesTable).where(eq(rulesTable.projectId, id));
   await db.delete(metricsTable).where(eq(metricsTable.projectId, id));
   await db.delete(eventsTable).where(eq(eventsTable.projectId, id));
   // Deletion audits intentionally survive the project row with project_id
@@ -703,6 +705,75 @@ describe("POST /api/projects/:projectId/scan — DB side-effects", () => {
       .where(eq(metricsTable.projectId, projectId));
     expect(metrics).toHaveLength(1);
     expect(typeof metrics[0].overallScore).toBe("number");
+  });
+
+  it("reuses the active remediation Task and leaves completed history untouched", async () => {
+    const scanDir = makeTempScanDir();
+    tempDirs.push(scanDir);
+    writeFileSync(
+      join(scanDir, "scan-rule-fixture.ts"),
+      "// ACTIVE_SCAN_RULE_TOKEN\n",
+    );
+    const projectId = await insertProject(scanDir);
+    cleanupQueue.push(projectId);
+
+    const ruleId = randomUUID();
+    await db.insert(rulesTable).values({
+      id: ruleId,
+      projectId,
+      code: `SCAN_ACTIVE_TASK_${ruleId.slice(0, 8)}`,
+      title: "Active remediation fixture",
+      severity: "high",
+      pattern: "ACTIVE_SCAN_RULE_TOKEN",
+      enabled: true,
+    });
+
+    const activeTaskId = randomUUID();
+    const completedTaskId = randomUUID();
+    await db.insert(tasksTable).values([
+      {
+        id: activeTaskId,
+        projectId,
+        ruleId,
+        title: "Existing active remediation",
+        description: "stale active description",
+        status: "pending",
+        correlationId: "previous-active-scan",
+      },
+      {
+        id: completedTaskId,
+        projectId,
+        ruleId,
+        title: "Historical remediation",
+        description: "completed history must remain unchanged",
+        status: "completed",
+        correlationId: "previous-completed-scan",
+      },
+    ]);
+
+    const result = await performScan(projectId);
+    expect(result.issuesDetected).toBeGreaterThan(0);
+    expect(result.tasksCreated).toBe(0);
+
+    const storedTasks = await db
+      .select({
+        id: tasksTable.id,
+        status: tasksTable.status,
+        description: tasksTable.description,
+        correlationId: tasksTable.correlationId,
+      })
+      .from(tasksTable)
+      .where(eq(tasksTable.projectId, projectId));
+    const activeTask = storedTasks.find((task) => task.id === activeTaskId);
+    const completedTask = storedTasks.find((task) => task.id === completedTaskId);
+
+    expect(activeTask?.correlationId).toBe(result.scanCorrelationId);
+    expect(activeTask?.description).not.toBe("stale active description");
+    expect(completedTask).toMatchObject({
+      status: "completed",
+      description: "completed history must remain unchanged",
+      correlationId: "previous-completed-scan",
+    });
   });
 
   it("creates a ProjectScanned event when the scan completes", async () => {
