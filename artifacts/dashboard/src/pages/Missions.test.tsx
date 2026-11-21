@@ -421,7 +421,7 @@ describe('Missions management', () => {
     });
     expect(await screen.findByTestId(`button-mission-${mission.id}`)).toBeInTheDocument();
     expect(screen.getByTestId(`text-mission-title-${mission.id}`)).toHaveTextContent(mission.title);
-    expect(screen.getByText(/بدأ الهدف الرئيسي\./)).toBeInTheDocument();
+    expect(screen.getByText('قد تكون الخطة قيد الإعداد. حدّث البيانات بعد قليل لمعرفة الحالة المسجلة.')).toBeInTheDocument();
     expect(fetchMissionsMock).toHaveBeenCalledTimes(1);
   });
 
@@ -1167,6 +1167,85 @@ describe('Missions project isolation', () => {
     title: 'Second project mission',
     scope: { kind: 'project' as const, projectId: secondProject.id },
   };
+
+  it('does not publish a late action result into the newly selected project', async () => {
+    useListProjectsMock.mockReturnValue({
+      data: [project, secondProject],
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    const projectionFor = (targetMission: typeof mission) => ({
+      mission: targetMission,
+      engineeringAgent: {
+        schemaVersion: 2,
+        state: 'PLANNING',
+        nextAction: {
+          kind: 'START',
+          target: { kind: 'mission', id: targetMission.id },
+          reasonCode: 'mission_draft',
+        },
+        availableCommands: [],
+        intervention: { required: false, kind: 'none', reasonCode: null },
+        autonomy: {
+          mode: 'assisted',
+          allowAutoContinue: false,
+          allowAutoApply: false,
+          allowAutoCommit: false,
+          allowAutoPush: false,
+          requireHumanForExternalDelivery: true,
+          maxAutoReplans: 0,
+        },
+        missionId: targetMission.id,
+        sessionId: null,
+        goalId: null,
+        executionId: null,
+      },
+      agentControl: null,
+      currentPlan: { revision: null, binding: 'legacy_unversioned', goalIds: [] },
+      goals: [],
+      counts: { goals: 0, tasks: 0, workflows: 0, executions: 0, events: 0 },
+    });
+
+    fetchMissionsMock.mockImplementation(async (requestedProjectId: string) => (
+      requestedProjectId === secondProject.id ? [secondMission] : [mission]
+    ));
+    fetchMissionProjectionMock.mockImplementation(async (requestedMissionId: string) => (
+      projectionFor(requestedMissionId === secondMission.id ? secondMission : mission)
+    ));
+
+    let resolveFirstAction: ((value: unknown) => void) | null = null;
+    executeMissionAgentActionMock.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveFirstAction = resolve;
+    }));
+
+    renderPage();
+    fireEvent.click(await screen.findByTestId(`button-start-mission-${mission.id}`));
+
+    fireEvent.change(screen.getByTestId('select-mission-project'), {
+      target: { value: secondProject.id },
+    });
+    expect(await screen.findByTestId(`button-start-mission-${secondMission.id}`)).toBeInTheDocument();
+
+    if (!resolveFirstAction) throw new Error('The first Mission action did not start.');
+    await act(async () => {
+      resolveFirstAction?.({
+        missionId: mission.id,
+        outcome: 'completed',
+        projection: projectionFor(mission),
+        idempotentReplay: false,
+        operation: { status: 'activated_without_plan' },
+      });
+    });
+
+    expect(screen.getByTestId(`text-mission-title-${secondMission.id}`)).toHaveTextContent(
+      secondMission.title,
+    );
+    expect(screen.getByTestId('mission-agent-state-mission-2')).toHaveAttribute('data-state', 'PLANNING');
+    expect(screen.queryByText('بدأ الهدف الرئيسي. تابع حالة إعداد الخطة وتنفيذها.')).not.toBeInTheDocument();
+  });
 
   it('hides the previous project and ignores its aborted late list response after switching', async () => {
     useListProjectsMock.mockReturnValue({
