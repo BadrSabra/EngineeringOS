@@ -5561,7 +5561,7 @@ describe("recipe operation preparation", () => {
     }
   });
 
-  it("returns the cancelled receipt when reconciliation terminalizes cancellation before the worker fallback", async () => {
+  it("leaves a live cancellation to its worker instead of peer reconciliation", async () => {
     validationCalls.length = 0;
     const fixture = await createReclaimedRecipeFixture();
     const realComplete = aiExecutionState.completeAiExecutionWithResult;
@@ -5574,7 +5574,9 @@ describe("recipe operation preparation", () => {
         id: fixture.executionId,
         status: "cancelling",
       });
-      expect(await reconcileAiExecutions({ expiredOnly: true })).toBe(1);
+      // The recipe worker still owns a live lease, so a peer reconciler must
+      // not publish terminal cancellation ahead of that worker's finalizer.
+      expect(await reconcileAiExecutions({ expiredOnly: true })).toBe(0);
       return realComplete(params);
     });
     try {
