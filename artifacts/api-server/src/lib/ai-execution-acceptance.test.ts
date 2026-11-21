@@ -13,6 +13,10 @@ import {
   buildExecutionTrajectoryDigest,
   parseExecutionProofProjection,
 } from "./execution-proof.js";
+import {
+  isSamePlanTaskRecoveryPending,
+  TASK_RECOVERY_ACTION_CODES,
+} from "./task-recovery-contract.js";
 
 describe("server-owned execution acceptance", () => {
   it("fails closed when a required read is missing or truncated", () => {
@@ -492,6 +496,90 @@ describe("server-owned execution acceptance", () => {
       retryable: false,
       siblingTaskStatuses: [],
     })).toBe("needs_replan");
+  });
+
+  it("keeps a Goal on its current plan only for authorized same-plan Task recovery", () => {
+    expect(deriveLinkedGoalStatus({
+      outcome: "FAILED",
+      taskStatus: "verifying",
+      retryable: false,
+      siblingTaskStatuses: [],
+      samePlanRecoveryPending: true,
+    })).toBe("running");
+
+    expect(deriveLinkedGoalStatus({
+      outcome: "FAILED",
+      taskStatus: "verifying",
+      retryable: false,
+      siblingTaskStatuses: [],
+      samePlanRecoveryPending: false,
+    })).toBe("failed");
+  });
+
+  it("recognizes only the current acceptance actions owned by Task recovery", () => {
+    const eligible = {
+      taskStatus: "verifying",
+      prompt: "Continue the linked Mission Task.",
+      retryCount: 0,
+      maxRetries: 3,
+      executionStatus: "failed",
+      taskCorrelationId: "task-correlation",
+      executionCorrelationId: "task-correlation",
+    };
+    for (const nextActionCode of TASK_RECOVERY_ACTION_CODES) {
+      expect(isSamePlanTaskRecoveryPending({
+        ...eligible,
+        outcome: "FAILED",
+        recoveryState: "REQUIRED",
+        nextActionCode,
+      })).toBe(true);
+    }
+    expect(isSamePlanTaskRecoveryPending({
+      ...eligible,
+      outcome: "FAILED",
+      recoveryState: "INCOMPLETE",
+      nextActionCode: "RESUME_ALLOWED",
+    })).toBe(false);
+    expect(isSamePlanTaskRecoveryPending({
+      ...eligible,
+      outcome: "SUCCEEDED",
+      recoveryState: "REQUIRED",
+      nextActionCode: "RESUME_ALLOWED",
+    })).toBe(false);
+    expect(isSamePlanTaskRecoveryPending({
+      ...eligible,
+      outcome: "FAILED",
+      recoveryState: "REQUIRED",
+      nextActionCode: "RETRY_AFTER_PARSE",
+    })).toBe(false);
+    expect(isSamePlanTaskRecoveryPending({
+      ...eligible,
+      outcome: "FAILED",
+      recoveryState: "REQUIRED",
+      nextActionCode: "RESUME_ALLOWED",
+      taskStatus: "failed",
+    })).toBe(false);
+    expect(isSamePlanTaskRecoveryPending({
+      ...eligible,
+      outcome: "FAILED",
+      recoveryState: "REQUIRED",
+      nextActionCode: "RESUME_ALLOWED",
+      prompt: null,
+    })).toBe(false);
+    expect(isSamePlanTaskRecoveryPending({
+      ...eligible,
+      outcome: "FAILED",
+      recoveryState: "REQUIRED",
+      nextActionCode: "RESUME_ALLOWED",
+      retryCount: 3,
+    })).toBe(false);
+    expect(isSamePlanTaskRecoveryPending({
+      ...eligible,
+      outcome: "FAILED",
+      recoveryState: "REQUIRED",
+      nextActionCode: "RESUME_ALLOWED",
+      executionCorrelationId: "stale-correlation",
+    })).toBe(false);
   });
 
   it("keeps a delivery goal in verification until a server-owned receipt exists", () => {
