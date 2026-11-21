@@ -511,6 +511,14 @@ describe("server-owned execution acceptance", () => {
       outcome: "FAILED",
       taskStatus: "verifying",
       retryable: false,
+      siblingTaskStatuses: ["failed"],
+      samePlanRecoveryPending: true,
+    })).toBe("failed");
+
+    expect(deriveLinkedGoalStatus({
+      outcome: "FAILED",
+      taskStatus: "verifying",
+      retryable: false,
       siblingTaskStatuses: [],
       samePlanRecoveryPending: false,
     })).toBe("failed");
@@ -561,6 +569,7 @@ describe("server-owned execution acceptance", () => {
       outcome: "FAILED",
       recoveryState: "REQUIRED",
       nextActionCode: "RESUME_ALLOWED",
+      resumable: 1,
       taskStatus: "failed",
     })).toBe(false);
     expect(isSamePlanTaskRecoveryPending({
@@ -568,6 +577,7 @@ describe("server-owned execution acceptance", () => {
       outcome: "FAILED",
       recoveryState: "REQUIRED",
       nextActionCode: "RESUME_ALLOWED",
+      resumable: 1,
       prompt: null,
     })).toBe(false);
     expect(isSamePlanTaskRecoveryPending({
@@ -575,6 +585,7 @@ describe("server-owned execution acceptance", () => {
       outcome: "FAILED",
       recoveryState: "REQUIRED",
       nextActionCode: "RESUME_ALLOWED",
+      resumable: 1,
       retryCount: 3,
     })).toBe(false);
     expect(isSamePlanTaskRecoveryPending({
@@ -582,6 +593,7 @@ describe("server-owned execution acceptance", () => {
       outcome: "FAILED",
       recoveryState: "REQUIRED",
       nextActionCode: "RESUME_ALLOWED",
+      resumable: 1,
       executionCorrelationId: "stale-correlation",
     })).toBe(false);
   });
