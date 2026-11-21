@@ -497,6 +497,51 @@ describe("extractGraph", () => {
       });
     }, 30_000);
 
+    it("extracts explicit doc-comment coverage for Go types, functions, and methods", async () => {
+      const files = [makeGoFile(
+        "docs.go",
+        `package docs
+
+// User is a documented type.
+type User struct{}
+
+type HiddenType struct{}
+
+type (
+  // Customer is documented inside a grouped declaration.
+  Customer struct{}
+  Invoice struct{}
+)
+
+// LookupUser returns a user by ID.
+func LookupUser() {}
+
+func hiddenFunction() {}
+
+// Load fetches data for a User.
+func (u *User) Load() {}
+
+func (u *User) refresh() {}
+`,
+      )];
+
+      const result = await extractGraph(files);
+      const documentationByName = new Map(
+        result.entities
+          .filter((entity) => entity.path === "docs.go")
+          .map((entity) => [entity.name, entity.isDocumented]),
+      );
+
+      expect(documentationByName.get("User")).toBe(true);
+      expect(documentationByName.get("HiddenType")).toBe(false);
+      expect(documentationByName.get("Customer")).toBe(true);
+      expect(documentationByName.get("Invoice")).toBe(false);
+      expect(documentationByName.get("LookupUser")).toBe(true);
+      expect(documentationByName.get("hiddenFunction")).toBe(false);
+      expect(documentationByName.get("User.Load")).toBe(true);
+      expect(documentationByName.get("User.refresh")).toBe(false);
+    }, 30_000);
+
     it("keeps malformed Go files explicit and emits no structural entities", async () => {
       const files = [makeGoFile("broken.go", "package broken\n\nfunc Broken( {\n")];
 
