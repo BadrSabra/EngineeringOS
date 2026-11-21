@@ -122,6 +122,46 @@ describe("Mission decision shadow scheduler integration", () => {
     expect(reconcileShadows).not.toHaveBeenCalled();
   });
 
+  it("keeps the startup allowlist pinned while an earlier lifecycle stage is awaiting", async () => {
+    let releaseRecovery!: () => void;
+    let announceRecovery!: () => void;
+    const recoveryEntered = new Promise<void>((resolve) => {
+      announceRecovery = resolve;
+    });
+    const recoveryGate = new Promise<void>((resolve) => {
+      releaseRecovery = resolve;
+    });
+    let announceDispatchComplete!: () => void;
+    const dispatchComplete = new Promise<void>((resolve) => {
+      announceDispatchComplete = resolve;
+    });
+
+    vi.stubEnv("MISSION_DECISION_SHADOW_MODE", "1");
+    vi.stubEnv("MISSION_DECISION_SHADOW_PROJECT_ID", "not-a-project-id");
+    dispatchAutonomousTaskRecoveries.mockImplementationOnce(async () => {
+      announceRecovery();
+      await recoveryGate;
+      return 0;
+    });
+    wakeReadyMissionGoals.mockImplementationOnce(async () => {
+      announceDispatchComplete();
+      return 0;
+    });
+
+    const interval = vi.spyOn(globalThis, "setInterval").mockReturnValue({} as NodeJS.Timeout);
+    startScopedMissionLifecycleDispatcher(allowedProjectId);
+    await recoveryEntered;
+
+    // Simulate the next test (or a runtime config reload) installing a valid
+    // allowlist while the earlier scoped dispatch is still in flight.
+    vi.stubEnv("MISSION_DECISION_SHADOW_PROJECT_ID", allowedProjectId);
+    releaseRecovery();
+    await dispatchComplete;
+    interval.mockRestore();
+
+    expect(reconcileShadows).not.toHaveBeenCalled();
+  });
+
   it("reconciles only the allowlisted project with the scheduler's bounded batch", async () => {
     vi.stubEnv("MISSION_DECISION_SHADOW_MODE", "1");
     vi.stubEnv("MISSION_DECISION_SHADOW_PROJECT_ID", allowedProjectId);
