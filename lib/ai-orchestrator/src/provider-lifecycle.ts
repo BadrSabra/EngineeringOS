@@ -487,6 +487,8 @@ export function recordProviderLifecycleOutcome(input: {
   const key = cacheKey(input.provider, input.source, fingerprint(input.apiKey));
   const entry = cache.get(key);
   if (!entry) return;
+
+  const snapshot = entry.snapshot;
   const reason: ProviderLifecycleReasonCode =
     input.code === "MODEL_NOT_FOUND" ? "runtime_model_not_found" :
       input.code === "AUTH_ERROR" ? "runtime_auth_failed" :
@@ -494,26 +496,58 @@ export function recordProviderLifecycleOutcome(input: {
           input.code === "INVALID_TOOL_CALL" || input.code === "MODEL_UNAVAILABLE"
             ? "runtime_capability_mismatch"
             : "runtime_transient_failure";
-  const modelMissing = input.code === "MODEL_NOT_FOUND" || input.code === "AUTH_ERROR";
-  const snapshot = entry.snapshot;
-  const roles = input.model
-    ? snapshot.roles.map((role) => role.modelId === input.model && modelMissing ? { ...role, status: "missing" as const } : role)
+
+  // A runtime model failure is evidence about the exact candidate, not about
+  // every model reachable through this provider credential. Preserve the
+  // other healthy role(s) and keep the provider selectable while at least one
+  // known role remains usable. The live free-model resolver independently
+  // skips per-model cooldowns and remains the authority for the next request.
+  const modelNotFound = input.code === "MODEL_NOT_FOUND";
+  const matchedRole = Boolean(
+    modelNotFound && input.model && snapshot.roles.some((role) => role.modelId === input.model),
+  );
+  const roles = matchedRole
+    ? snapshot.roles.map((role) =>
+        role.modelId === input.model ? { ...role, status: "missing" as const } : role,
+      )
     : snapshot.roles;
+  const allKnownRolesMissing = matchedRole
+    && roles.length > 0
+    && roles.every((role) => role.status === "missing");
+  const modelStatus = modelNotFound && matchedRole
+    ? allKnownRolesMissing
+      ? "model_missing" as const
+      : "model_partial" as const
+    : snapshot.modelStatus;
+
+  const credentialStatus = input.code === "AUTH_ERROR"
+    ? "credentials_invalid" as const
+    : snapshot.credentialStatus;
+  const isCandidateFailure =
+    reason === "runtime_model_not_found" || reason === "runtime_capability_mismatch";
+  const candidateStillSelectable = isCandidateFailure
+    ? snapshot.selectable && !allKnownRolesMissing
+    : reason === "runtime_transient_failure"
+      ? true
+      : false;
+  const selectable = reason === "runtime_request_rejected" || reason === "runtime_auth_failed"
+    ? false
+    : candidateStillSelectable;
+
   cache.set(key, {
     ...entry,
     snapshot: completedSnapshot(snapshot, {
       revision: nextRevision(key),
       roles,
-      modelStatus: modelMissing ? "model_missing" : snapshot.modelStatus,
-      credentialStatus: input.code === "AUTH_ERROR" ? "credentials_invalid" : snapshot.credentialStatus,
-      // A transient upstream failure does not invalidate the credential or
-      // catalog. Keep the last-known configuration selectable so a later
-      // request can retry or fall back instead of becoming INVALID_CONFIG.
-      overallStatus: reason === "runtime_transient_failure" ? "degraded" : "unavailable",
-      selectable: reason === "runtime_transient_failure",
+      modelStatus,
+      credentialStatus,
+      // A single rejected model/tool attempt degrades diagnostics but does not
+      // poison the provider credential or unrelated free-model candidates.
+      overallStatus: selectable ? "degraded" : "unavailable",
+      selectable,
       reasonCodes: [...new Set([...snapshot.reasonCodes, reason])],
     }),
-    lastKnownGood: modelMissing ? entry.lastKnownGood : entry.lastKnownGood,
+    lastKnownGood: entry.lastKnownGood,
   });
 }
 
