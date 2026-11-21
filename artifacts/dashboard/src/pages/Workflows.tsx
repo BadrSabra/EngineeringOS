@@ -621,9 +621,11 @@ function ExecutionHistory({
 }
 
 export default function Workflows() {
-  const routeParams = new URLSearchParams(useSearch());
+  const routeSearch = useSearch();
+  const routeParams = new URLSearchParams(routeSearch);
   const requestedProjectId = routeParams.get('projectId') ?? '';
   const requestedWorkflowId = routeParams.get('workflowId') ?? '';
+  const requestedCreate = routeParams.get('create') === '1';
 
   // Project-scoped local state (expanded workflow, modal, and AI suggestions)
   // must not survive a route transition to another project.
@@ -632,6 +634,8 @@ export default function Workflows() {
       key={`${requestedProjectId || 'default'}:${requestedWorkflowId || 'default'}`}
       requestedProjectId={requestedProjectId}
       requestedWorkflowId={requestedWorkflowId}
+      requestedCreate={requestedCreate}
+      routeSearch={routeSearch}
     />
   );
 }
@@ -639,9 +643,13 @@ export default function Workflows() {
 function WorkflowsSession({
   requestedProjectId,
   requestedWorkflowId,
+  requestedCreate,
+  routeSearch,
 }: {
   requestedProjectId: string;
   requestedWorkflowId: string;
+  requestedCreate: boolean;
+  routeSearch: string;
 }) {
   const queryClient = useQueryClient();
   const [, navigate] = useLocation();
@@ -656,6 +664,14 @@ function WorkflowsSession({
     && !projectsQuery.isLoading
     && !projectsQuery.isError
     && !selectedProject,
+  );
+  const showCreateFromRoute = Boolean(
+    requestedCreate
+    && requestedProjectId
+    && projectId === requestedProjectId
+    && !projectTargetUnavailable
+    && !projectsQuery.isLoading
+    && !projectsQuery.isError,
   );
   const listParams = { projectId: projectId || undefined };
   const workflowsQuery = useListWorkflows(listParams, {
@@ -709,6 +725,12 @@ function WorkflowsSession({
   const closeCreateModal = () => {
     setShowCreateModal(false);
     setWorkflowToCopy(null);
+    if (!requestedCreate) return;
+
+    const nextParams = new URLSearchParams(routeSearch);
+    nextParams.delete('create');
+    const nextQuery = nextParams.toString();
+    navigate(`/workflows${nextQuery ? `?${nextQuery}` : ''}${window.location.hash}`, { replace: true });
   };
 
   const openCreateModal = () => {
@@ -888,7 +910,7 @@ function WorkflowsSession({
         </div>
       </div>
 
-      {showCreateModal && (
+      {(showCreateModal || showCreateFromRoute) && (
         <CreateWorkflowModal
           initialProjectId={workflowToCopy?.projectId ?? projectId}
           initialWorkflow={workflowToCopy}

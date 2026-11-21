@@ -275,7 +275,7 @@ function ProjectDetailSession({ projectId }: { projectId: string }) {
             </span>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <Link
             href={`/projects/${encodeURIComponent(projectId)}/workspace`}
             data-testid="link-project-workspace"
@@ -283,6 +283,15 @@ function ProjectDetailSession({ projectId }: { projectId: string }) {
           >
             <Activity className="h-4 w-4" aria-hidden="true" />
             مساحة العمل
+          </Link>
+          <Link
+            href={`/workflows?projectId=${encodeURIComponent(projectId)}&create=1`}
+            aria-label={`إنشاء مسار عمل للمشروع ${project.name}`}
+            data-testid="link-create-project-workflow"
+            className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          >
+            <GitMerge className="h-4 w-4" aria-hidden="true" />
+            مسار عمل جديد
           </Link>
           <RefreshButton onRefresh={async () => { await Promise.all([refetchProject(), refetchSummary()]); }} isRefreshing={projectRefreshing || summaryFetching} lastUpdated={compositeLastUpdatedAt} label="تحديث المشروع" />
           <button
