@@ -381,6 +381,86 @@ describe("Projects", () => {
     });
   });
 
+  it('filters projects by status and preserves search and unrelated URL context', async () => {
+    window.history.replaceState({}, '', '/projects?search=TypeScript&tab=recent#project-list');
+    render(<Projects />);
+
+    fireEvent.change(screen.getByTestId('select-project-status-filter'), {
+      target: { value: 'active' },
+    });
+
+    expect(screen.getByText('alpha-service')).toBeInTheDocument();
+    expect(screen.queryByText('gamma-lib')).not.toBeInTheDocument();
+    await waitFor(() => {
+      const url = new URL(window.location.href);
+      expect(url.searchParams.get('search')).toBe('TypeScript');
+      expect(url.searchParams.get('status')).toBe('active');
+      expect(url.searchParams.get('tab')).toBe('recent');
+      expect(url.hash).toBe('#project-list');
+    });
+
+    fireEvent.change(screen.getByTestId('select-project-status-filter'), {
+      target: { value: '' },
+    });
+
+    expect(screen.getByText('gamma-lib')).toBeInTheDocument();
+    await waitFor(() => {
+      const url = new URL(window.location.href);
+      expect(url.searchParams.has('status')).toBe(false);
+      expect(url.searchParams.get('search')).toBe('TypeScript');
+      expect(url.searchParams.get('tab')).toBe('recent');
+      expect(url.hash).toBe('#project-list');
+    });
+  });
+
+  it('restores a project status filter from a shared URL', () => {
+    window.history.replaceState({}, '', '/projects?status=scanning');
+
+    render(<Projects />);
+
+    expect(screen.getByTestId('select-project-status-filter')).toHaveValue('scanning');
+    expect(screen.getByText('beta-worker')).toBeInTheDocument();
+    expect(screen.queryByText('alpha-service')).not.toBeInTheDocument();
+    expect(screen.queryByText('gamma-lib')).not.toBeInTheDocument();
+    expect(document.getElementById('project-search-keyboard-status'))
+      .toHaveTextContent('مشروع واحد مطابق. اضغط Enter لفتح مساحة العمل.');
+  });
+
+  it('does not suggest a new project when a status filter hides an existing search match', () => {
+    window.history.replaceState({}, '', '/projects?status=active&search=beta-worker');
+
+    render(<Projects />);
+
+    expect(screen.getByRole('status')).toHaveTextContent('لا توجد مشاريع تطابق البحث والحالة');
+    expect(screen.queryByTestId('button-create-project-from-search')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('button-clear-project-filters'));
+
+    expect(screen.getByText('alpha-service')).toBeInTheDocument();
+    expect(screen.getByText('beta-worker')).toBeInTheDocument();
+    expect(screen.getByTestId('input-project-search')).toHaveFocus();
+  });
+
+  it('offers a reset instead of empty-project actions when a status filter has no matches', () => {
+    window.history.replaceState({}, '', '/projects?status=scanning');
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [mockProjects[0]],
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      error: null,
+      refetch: mocks.refetchProjects,
+    } as ReturnType<typeof useListProjects>);
+
+    render(<Projects />);
+
+    expect(screen.getByRole('status')).toHaveTextContent('لا توجد مشاريع بهذه الحالة');
+    expect(screen.getByTestId('button-clear-project-filters')).toBeInTheDocument();
+    expect(screen.queryByTestId('button-empty-create-project')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('button-empty-discover-project')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('link-empty-goal-first')).not.toBeInTheDocument();
+  });
+
   it("shows empty state when no projects match the search", () => {
     render(<Projects />);
     const input = screen.getByRole('textbox', { name: 'ابحث عن مشروع بكلمات من الاسم أو الوصف أو التقنية' });
