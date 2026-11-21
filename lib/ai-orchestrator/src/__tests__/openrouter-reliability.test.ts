@@ -2320,6 +2320,52 @@ describe("openrouterCompleteStream — bounded retry and disconnect safety", () 
     expect(attemptedModels.every((model: string) => model.endsWith(":free"))).toBe(true);
   });
 
+  it("skips a model rejected by a previous stream request", async () => {
+    const firstModel = FREE_MODELS.find((model) =>
+      model.capabilities.includes("chat") && model.supportsStreaming !== false,
+    )!.id;
+    const cooldownStore = createModelCooldownFixture();
+    const attemptedModels: string[] = [];
+    const fetchMock = vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+      const model = body.model ?? "";
+      attemptedModels.push(model);
+      if (model === firstModel) {
+        return fetchResponse(422, {
+          error: { code: "model_unavailable", message: "fixture model unavailable" },
+        });
+      }
+      return streamResponse([sseDelta("stream recovered"), "data: [DONE]\n\n"]);
+    });
+    global.fetch = fetchMock as typeof fetch;
+
+    const options = {
+      apiKey: "candidate-stream-cooldown-fixture",
+      model: firstModel,
+      capability: "chat" as const,
+      maxFallbackModels: 2,
+      modelCooldownPersistence: cooldownStore,
+    };
+    const readStream = async (message: string) => {
+      const chunks: string[] = [];
+      for await (const chunk of openrouterCompleteStream(
+        [{ role: "user", content: message }],
+        options,
+      )) {
+        chunks.push(chunk);
+      }
+      return chunks.join("");
+    };
+
+    expect(await readStream("first stream request")).toBe("stream recovered");
+    expect(await readStream("second stream request")).toBe("stream recovered");
+    expect(attemptedModels).toHaveLength(3);
+    expect(attemptedModels[0]).toBe(firstModel);
+    expect(attemptedModels[1]).not.toBe(firstModel);
+    expect(attemptedModels[1]).toMatch(/:free$/);
+    expect(attemptedModels[2]).toBe(attemptedModels[1]);
+  });
+
   it("terminalizes a disconnect after the first chunk without retrying or duplicating text", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       streamResponse([sseDelta("first "), sseDelta("answer"), "data: [DONE]\n\n"], { disconnect: true }),
