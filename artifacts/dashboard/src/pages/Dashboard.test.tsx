@@ -583,6 +583,7 @@ describe("Dashboard goal-first home", () => {
     render(<Dashboard />);
 
     expect(screen.getByTestId("text-completed-work-home")).toHaveTextContent("1");
+    // Completed and failed counts are single-status filters; active remains an aggregate.
     expect(screen.getByTestId("card-completed-work-home"))
       .toHaveAttribute("href", "/tasks?status=completed");
     expect(screen.getByTestId("card-failed-work-home"))
