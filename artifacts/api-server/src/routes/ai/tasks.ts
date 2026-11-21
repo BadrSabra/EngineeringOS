@@ -764,6 +764,16 @@ async function runAiTaskExecution(
 const scheduledAiTaskCompletions = new Map<string, Promise<void>>();
 const schedulingAiTaskExecutions = new Map<string, Promise<void>>();
 
+function taskAutoExecutionScheduleKey(
+  taskId: string,
+  retryCount: number,
+  correlationId: string | null,
+): string {
+  // A stale closure for an older generation must not suppress the wake for
+  // the replacement generation of the same Task.
+  return `task-auto-execution:${JSON.stringify([taskId, retryCount, correlationId])}`;
+}
+
 export async function scheduleAiTaskExecution(
   taskId: string,
   userId: string,
@@ -771,57 +781,59 @@ export async function scheduleAiTaskExecution(
   expectedRetryCount?: number,
   expectedCorrelationId?: string | null,
 ): Promise<void> {
-  const inFlightScheduling = schedulingAiTaskExecutions.get(taskId);
+  let persisted: Awaited<ReturnType<typeof persistDeferredAiTaskExecution>>;
+  try {
+    // Resolve the authoritative generation before applying process-local
+    // single-flight deduplication. Calls for a newer generation get a distinct
+    // key even while an older generation is still waiting in the local queue.
+    persisted = await persistDeferredAiTaskExecution(
+      taskId,
+      userId,
+      options,
+      expectedRetryCount,
+      expectedCorrelationId,
+    );
+  } catch (err) {
+    logger.error({ err, taskId }, "AI auto-trigger: failed to persist dispatch intent");
+    throw err;
+  }
+  if (!persisted) return;
+
+  const retryCount = persisted.retryCount;
+  const correlationId = persisted.correlationId;
+  const scheduleKey = taskAutoExecutionScheduleKey(taskId, retryCount, correlationId);
+  const inFlightScheduling = schedulingAiTaskExecutions.get(scheduleKey);
   if (inFlightScheduling) return inFlightScheduling;
-  if (scheduledAiTaskCompletions.has(taskId)) return;
+  if (scheduledAiTaskCompletions.has(scheduleKey)) return;
+
+  // A direct caller may race or repeat a wake-up while the durable intent is
+  // already deferred. Never let that local wake bypass the persisted window.
+  const nextAttemptAt = persisted.payload.nextAttemptAt
+    ? Date.parse(persisted.payload.nextAttemptAt)
+    : Number.NaN;
+  if (Number.isFinite(nextAttemptAt) && nextAttemptAt > persisted.databaseNow.getTime()) {
+    logger.info(
+      { taskId, nextAttemptAt: persisted.payload.nextAttemptAt },
+      "AI task execution remains deferred until its retry window is due",
+    );
+    return;
+  }
+
+  const effectiveUserId = persisted.payload.userId;
+  const effectiveOptions = persisted.payload.options ?? options;
 
   let resolveCompletion!: () => void;
   const completion = new Promise<void>((resolve) => {
     resolveCompletion = resolve;
   });
-  scheduledAiTaskCompletions.set(taskId, completion);
+  scheduledAiTaskCompletions.set(scheduleKey, completion);
 
   let scheduling!: Promise<void>;
   scheduling = (async () => {
     try {
-      // The route normally committed this intent with the verifying transition.
-      // This idempotent repair also supports direct callers and legacy rows.
-      const persisted = await persistDeferredAiTaskExecution(
-        taskId,
-        userId,
-        options,
-        expectedRetryCount,
-        expectedCorrelationId,
-      );
-      if (!persisted) {
-        resolveCompletion();
-        scheduledAiTaskCompletions.delete(taskId);
-        return;
-      }
-      // A direct caller may race or repeat a wake-up while the durable
-      // intent is already deferred. Never let that local wake bypass the
-      // persisted retry window; the recovery dispatcher will enqueue it once due.
-      const nextAttemptAt = persisted.payload.nextAttemptAt
-        ? Date.parse(persisted.payload.nextAttemptAt)
-        : Number.NaN;
-      if (Number.isFinite(nextAttemptAt) && nextAttemptAt > persisted.databaseNow.getTime()) {
-        resolveCompletion();
-        scheduledAiTaskCompletions.delete(taskId);
-        logger.info(
-          { taskId, nextAttemptAt: persisted.payload.nextAttemptAt },
-          "AI task execution remains deferred until its retry window is due",
-        );
-        return;
-      }
-
-      const retryCount = persisted.retryCount;
-      const correlationId = persisted.correlationId;
-      const effectiveUserId = persisted.payload.userId;
-      const effectiveOptions = persisted.payload.options ?? options;
-
-      // ID-based queue deduplication plus the DB Task claim protect repeated
-      // calls in this process and dispatches from other API instances.
-      const enqueueResult = heavyJobQueue.enqueueWithIdDetailed(taskId, async () => {
+      // Queue identity is generation-scoped too; otherwise the queue itself
+      // could report a duplicate for the old Task ID and suppress this wake.
+      const enqueueResult = heavyJobQueue.enqueueWithIdDetailed(scheduleKey, async () => {
         try {
           await runAiTaskExecution(taskId, effectiveUserId, retryCount, correlationId, effectiveOptions);
         } finally {
@@ -830,7 +842,7 @@ export async function scheduleAiTaskExecution(
       });
       if (enqueueResult !== "enqueued") {
         resolveCompletion();
-        scheduledAiTaskCompletions.delete(taskId);
+        scheduledAiTaskCompletions.delete(scheduleKey);
         if (enqueueResult === "full") {
           await markDeferredAiTaskExecution(
             taskId,
@@ -850,23 +862,22 @@ export async function scheduleAiTaskExecution(
       }
 
       void completion.finally(() => {
-        scheduledAiTaskCompletions.delete(taskId);
+        scheduledAiTaskCompletions.delete(scheduleKey);
       });
     } catch (err) {
       resolveCompletion();
-      scheduledAiTaskCompletions.delete(taskId);
-      logger.error({ err, taskId }, "AI auto-trigger: failed to persist dispatch intent");
+      scheduledAiTaskCompletions.delete(scheduleKey);
+      logger.error({ err, taskId }, "AI auto-trigger: failed to enqueue persisted dispatch intent");
       throw err;
     } finally {
-      if (schedulingAiTaskExecutions.get(taskId) === scheduling) {
-        schedulingAiTaskExecutions.delete(taskId);
+      if (schedulingAiTaskExecutions.get(scheduleKey) === scheduling) {
+        schedulingAiTaskExecutions.delete(scheduleKey);
       }
     }
   })();
-  schedulingAiTaskExecutions.set(taskId, scheduling);
+  schedulingAiTaskExecutions.set(scheduleKey, scheduling);
   await scheduling;
 }
-
 /**
  * Discard an invalid/stale dispatch row only if it still matches the exact
  * snapshot read by the dispatcher. A newer Task generation can replace the
