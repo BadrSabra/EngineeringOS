@@ -55,6 +55,8 @@ async function createFixture() {
   const staleGenerationChildId = randomUUID();
   const staleCorrelationChildId = randomUUID();
   const otherDeferralChildId = randomUUID();
+  const nonStringUserIdChildId = randomUUID();
+  const stringRetryCountChildId = randomUUID();
   const unrelatedChildId = randomUUID();
   const oldNextAttemptAt = new Date(Date.now() + 60_000).toISOString();
 
@@ -105,6 +107,26 @@ async function createFixture() {
       prompt: "retain provider backoff",
       retryCount: 1,
       correlationId: "provider-correlation",
+      dependsOn: [completedTaskId],
+    },
+    {
+      id: nonStringUserIdChildId,
+      projectId,
+      title: "Non-string user id",
+      status: "verifying",
+      prompt: "do not wake malformed user identity",
+      retryCount: 1,
+      correlationId: "malformed-user-id-correlation",
+      dependsOn: [completedTaskId],
+    },
+    {
+      id: stringRetryCountChildId,
+      projectId,
+      title: "String retry count",
+      status: "verifying",
+      prompt: "do not wake malformed retry count",
+      retryCount: 1,
+      correlationId: "string-retry-count-correlation",
       dependsOn: [completedTaskId],
     },
     {
@@ -170,6 +192,36 @@ async function createFixture() {
         failureCode: "PROJECT_RATE_LIMITED",
       }),
     },
+    {
+      id: taskAutoExecutionIntentId(nonStringUserIdChildId),
+      type: TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE,
+      projectId,
+      taskId: nonStringUserIdChildId,
+      message: "Malformed user identity",
+      payload: {
+        ...deferredPayload({
+          retryCount: 1,
+          correlationId: "malformed-user-id-correlation",
+          nextAttemptAt: oldNextAttemptAt,
+        }),
+        userId: 42,
+      },
+    },
+    {
+      id: taskAutoExecutionIntentId(stringRetryCountChildId),
+      type: TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE,
+      projectId,
+      taskId: stringRetryCountChildId,
+      message: "Malformed retry count",
+      payload: {
+        ...deferredPayload({
+          retryCount: 1,
+          correlationId: "string-retry-count-correlation",
+          nextAttemptAt: oldNextAttemptAt,
+        }),
+        taskRetryCount: "1",
+      },
+    },
   ]);
 
   return {
@@ -179,6 +231,8 @@ async function createFixture() {
     staleGenerationChildId,
     staleCorrelationChildId,
     otherDeferralChildId,
+    nonStringUserIdChildId,
+    stringRetryCountChildId,
     oldNextAttemptAt,
   };
 }
@@ -304,6 +358,8 @@ describe("Task dependency wake", () => {
       fixture.staleGenerationChildId,
       fixture.staleCorrelationChildId,
       fixture.otherDeferralChildId,
+      fixture.nonStringUserIdChildId,
+      fixture.stringRetryCountChildId,
     ]) {
       const [unchanged] = await db.select({ payload: eventsTable.payload })
         .from(eventsTable)
