@@ -9,7 +9,7 @@ import {
   projectsTable,
   scanJobsTable,
 } from "@workspace/db";
-import { commitCreatedProject } from "./project-bootstrap.js";
+import { commitCreatedProject, dispatchProjectBootstrapJobs } from "./project-bootstrap.js";
 
 vi.mock("./job-queue.js", () => ({
   heavyJobQueue: {
@@ -63,6 +63,78 @@ afterEach(async () => {
     await db.delete(projectsTable).where(eq(projectsTable.id, id));
   }
   vi.mocked(heavyJobQueue.enqueueWithId).mockClear().mockReturnValue(false);
+});
+
+describe("project bootstrap lease recovery", () => {
+  it("reclaims expired leases in one batch and preserves retry and exhaustion outcomes", async () => {
+    const expiredAt = new Date(Date.now() - 60_000);
+    const liveUntil = new Date(Date.now() + 120_000);
+    const { job: retryJob } = await insertRunningBootstrapJob(expiredAt);
+    const { job: exhaustedJob } = await insertRunningBootstrapJob(expiredAt);
+    const { job: liveJob } = await insertRunningBootstrapJob(liveUntil);
+
+    // Avoid filesystem work in this database-state regression.
+    await db.update(projectBootstrapJobsTable)
+      .set({ workingRootPath: null })
+      .where(or(
+        eq(projectBootstrapJobsTable.id, retryJob.id),
+        eq(projectBootstrapJobsTable.id, exhaustedJob.id),
+        eq(projectBootstrapJobsTable.id, liveJob.id),
+      ));
+    await db.update(projectBootstrapJobsTable)
+      .set({ attempt: 3 })
+      .where(eq(projectBootstrapJobsTable.id, exhaustedJob.id));
+
+    const dispatched = await dispatchProjectBootstrapJobs();
+
+    const rows = await db.select()
+      .from(projectBootstrapJobsTable)
+      .where(or(
+        eq(projectBootstrapJobsTable.id, retryJob.id),
+        eq(projectBootstrapJobsTable.id, exhaustedJob.id),
+        eq(projectBootstrapJobsTable.id, liveJob.id),
+      ));
+    const byId = new Map(rows.map((row) => [row.id, row]));
+
+    expect(dispatched).toBeGreaterThanOrEqual(2);
+    expect(byId.get(retryJob.id)).toMatchObject({
+      status: "queued",
+      attempt: 1,
+      workerId: null,
+      leaseUntil: null,
+      workingRootPath: null,
+      errorCode: null,
+      errorMessage: null,
+      finishedAt: null,
+    });
+    expect(byId.get(exhaustedJob.id)).toMatchObject({
+      status: "failed",
+      attempt: 3,
+      workerId: null,
+      leaseUntil: null,
+      workingRootPath: null,
+      errorCode: "ATTEMPTS_EXHAUSTED",
+      errorMessage: "The project could not be created after several attempts. Please start again.",
+    });
+    expect(byId.get(exhaustedJob.id)?.finishedAt).toBeInstanceOf(Date);
+    expect(byId.get(liveJob.id)).toMatchObject({
+      status: "running",
+      workerId: liveJob.workerId,
+      leaseUntil: liveUntil,
+    });
+    expect(heavyJobQueue.enqueueWithId).toHaveBeenCalledWith(
+      `project-bootstrap:${retryJob.id}`,
+      expect.any(Function),
+    );
+    expect(heavyJobQueue.enqueueWithId).not.toHaveBeenCalledWith(
+      `project-bootstrap:${exhaustedJob.id}`,
+      expect.any(Function),
+    );
+    expect(heavyJobQueue.enqueueWithId).not.toHaveBeenCalledWith(
+      `project-bootstrap:${liveJob.id}`,
+      expect.any(Function),
+    );
+  });
 });
 
 describe("project bootstrap initial scan", () => {

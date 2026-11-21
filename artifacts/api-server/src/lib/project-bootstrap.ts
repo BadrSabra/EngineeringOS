@@ -9,7 +9,7 @@ import {
   projectsTable,
   scanJobsTable,
 } from "@workspace/db";
-import { and, eq, gt, lt, lte } from "drizzle-orm";
+import { and, eq, gt, isNull, lt, lte, or, sql } from "drizzle-orm";
 import type { ProjectBootstrapJob } from "@workspace/db";
 import { heavyJobQueue } from "./job-queue.js";
 import { runScanJob } from "./scan-runner.js";
@@ -506,45 +506,71 @@ async function reclaimExpiredBootstrapLeases(): Promise<number> {
       ),
     )
     .limit(100);
-  let reclaimed = 0;
-  for (const job of expired) {
-    const retry = job.attempt < job.maxAttempts;
-    const [updated] = await db
-      .update(projectBootstrapJobsTable)
-      .set({
-        status: retry ? "queued" : "failed",
-        workerId: null,
-        leaseUntil: null,
-        workingRootPath: null,
-        errorCode: retry ? null : "ATTEMPTS_EXHAUSTED",
-        errorMessage: retry
-          ? null
-          : "The project could not be created after several attempts. Please start again.",
-        updatedAt: databaseNow(),
-        finishedAt: retry ? null : databaseNow(),
-      })
-      .where(
-        and(
-          eq(projectBootstrapJobsTable.id, job.id),
-          eq(projectBootstrapJobsTable.status, "running"),
-          eq(projectBootstrapJobsTable.workerId, job.workerId!),
-          lte(projectBootstrapJobsTable.leaseUntil, databaseNow()),
-        ),
-      )
-      .returning({ id: projectBootstrapJobsTable.id });
-    if (updated) {
-      reclaimed++;
-      if (job.workingRootPath) {
-        await removeManagedProjectRoot(job.workingRootPath).catch((error) => {
-          logger.warn(
-            { error, bootstrapId: job.id },
-            "Could not clean an expired project bootstrap root",
-          );
-        });
-      }
-    }
+  if (expired.length === 0) return 0;
+
+  // Keep the exact observed worker identity for each candidate. A worker that
+  // heartbeats or a replacement that reclaims the row after this SELECT must
+  // not be overwritten by this batch transition.
+  const observedOwners = expired.map((job) =>
+    and(
+      eq(projectBootstrapJobsTable.id, job.id),
+      job.workerId === null
+        ? isNull(projectBootstrapJobsTable.workerId)
+        : eq(projectBootstrapJobsTable.workerId, job.workerId),
+    ),
+  );
+
+  const reclaimed = await db
+    .update(projectBootstrapJobsTable)
+    .set({
+      status: sql`CASE
+        WHEN ${projectBootstrapJobsTable.attempt} < ${projectBootstrapJobsTable.maxAttempts}
+          THEN 'queued'::project_bootstrap_status
+        ELSE 'failed'::project_bootstrap_status
+      END`,
+      workerId: null,
+      leaseUntil: null,
+      workingRootPath: null,
+      errorCode: sql`CASE
+        WHEN ${projectBootstrapJobsTable.attempt} < ${projectBootstrapJobsTable.maxAttempts}
+          THEN NULL
+        ELSE 'ATTEMPTS_EXHAUSTED'
+      END`,
+      errorMessage: sql`CASE
+        WHEN ${projectBootstrapJobsTable.attempt} < ${projectBootstrapJobsTable.maxAttempts}
+          THEN NULL
+        ELSE 'The project could not be created after several attempts. Please start again.'
+      END`,
+      updatedAt: databaseNow(),
+      finishedAt: sql`CASE
+        WHEN ${projectBootstrapJobsTable.attempt} < ${projectBootstrapJobsTable.maxAttempts}
+          THEN NULL
+        ELSE ${databaseNow()}
+      END`,
+    })
+    .where(
+      and(
+        eq(projectBootstrapJobsTable.status, "running"),
+        lte(projectBootstrapJobsTable.leaseUntil, databaseNow()),
+        or(...observedOwners),
+      ),
+    )
+    .returning({ id: projectBootstrapJobsTable.id });
+
+  // Keep the original paths from the candidate snapshot: RETURNING observes
+  // post-update values, where workingRootPath has already been cleared.
+  const originalById = new Map(expired.map((job) => [job.id, job]));
+  for (const row of reclaimed) {
+    const workingRootPath = originalById.get(row.id)?.workingRootPath;
+    if (!workingRootPath) continue;
+    await removeManagedProjectRoot(workingRootPath).catch((error) => {
+      logger.warn(
+        { error, bootstrapId: row.id },
+        "Could not clean an expired project bootstrap root",
+      );
+    });
   }
-  return reclaimed;
+  return reclaimed.length;
 }
 
 export async function dispatchProjectBootstrapJobs(): Promise<number> {
