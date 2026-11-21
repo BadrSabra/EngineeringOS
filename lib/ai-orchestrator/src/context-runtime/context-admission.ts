@@ -36,6 +36,25 @@ const SLICE_IMPORTANCE: Record<SliceId, number> = {
   worldState:     4,
 };
 
+/**
+ * World State is evidence, not generic project decoration. Give it precedence
+ * over metrics when the execution profile is expected to reason from durable
+ * facts, while keeping it secondary in ordinary/tool-assisted chat.
+ */
+const EVIDENCE_TASK_TYPES = new Set<string>([
+  "analysis",
+  "code_review",
+  "task_execution",
+  "workflow",
+]);
+
+function sliceImportance(sliceId: SliceId, plan: ExecutionPlan): number {
+  if (sliceId !== "worldState") return SLICE_IMPORTANCE[sliceId];
+  return EVIDENCE_TASK_TYPES.has(plan.taskProfile.taskType)
+    ? 7
+    : SLICE_IMPORTANCE.worldState;
+}
+
 function decideSlice(
   slice: ContextSlice,
   plan: ExecutionPlan,
@@ -78,11 +97,12 @@ function decideSlice(
   }
 
   // Rule 4 — missing content with low importance is just noise
-  if (slice.freshness === "missing" && SLICE_IMPORTANCE[slice.id] < 6) return "DROP";
+  const importance = sliceImportance(slice.id, plan);
+  if (slice.freshness === "missing" && importance < 6) return "DROP";
 
   // Rule 5 — budget enforcement
   if (slice.estimatedTokens > budget.remaining) {
-    return SLICE_IMPORTANCE[slice.id] >= 6 ? "REFERENCE" : "DEFER";
+    return importance >= 6 ? "REFERENCE" : "DEFER";
   }
 
   budget.remaining = Math.max(0, budget.remaining - slice.estimatedTokens);
@@ -108,7 +128,7 @@ export function runAdmission(plan: ContextPlan, executionPlan: ExecutionPlan): C
     plan.admissionIdentity.scanCorrelationId.length > 0 &&
     plan.admissionIdentity.scanCorrelationId !== "unavailable";
   const sorted = [...plan.slices].sort(
-    (a, b) => SLICE_IMPORTANCE[b.id] - SLICE_IMPORTANCE[a.id],
+    (a, b) => sliceImportance(b.id, executionPlan) - sliceImportance(a.id, executionPlan),
   );
 
   const budget = { remaining: plan.budgetTokens };
