@@ -8,8 +8,44 @@ import {
   isWriteCapableTurn,
   resolveOperationalCommand,
   resolveTurnIntent,
+  toContextIntent,
 } from "../turn-intent.js";
+import { ContextIntentSchema } from "../context-contract.js";
 import { buildProviderTools } from "../agents/chat-agent.js";
+
+describe("turn intent context projection", () => {
+  it("preserves request category and execution task type as separate server-owned fields", () => {
+    const intent = resolveTurnIntent(
+      "Audit the source code, verify the evidence flow, and identify root causes.",
+    );
+
+    const contextIntent = toContextIntent(intent);
+
+    expect(contextIntent).toMatchObject({
+      kind: intent.kind,
+      classification: intent.classification.category,
+      executionTaskType: intent.executionTaskType,
+      operationMode: intent.operationMode,
+      phases: intent.phases,
+      requiresEvidence: intent.requiresEvidence,
+      contextMode: intent.contextMode,
+    });
+    expect(contextIntent.classification).not.toBe("[object Object]");
+    expect(ContextIntentSchema.safeParse(contextIntent).success).toBe(true);
+  });
+
+  it("allows only the server-owned evidence decision to be overridden for context identity", () => {
+    const intent = resolveTurnIntent("Explain how the workflow retry policy works.");
+    expect(intent.requiresEvidence).toBe(false);
+
+    const contextIntent = toContextIntent(intent, { requiresEvidence: true });
+
+    expect(contextIntent.requiresEvidence).toBe(true);
+    expect(contextIntent.classification).toBe(intent.classification.category);
+    expect(contextIntent.executionTaskType).toBe(intent.executionTaskType);
+    expect(ContextIntentSchema.safeParse(contextIntent).success).toBe(true);
+  });
+});
 
 describe("resolveTurnIntent", () => {
   it.each([
