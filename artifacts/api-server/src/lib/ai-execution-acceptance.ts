@@ -789,6 +789,9 @@ async function syncLinkedObjectiveState(
               nextActionCode: params.currentAcceptance.nextActionCode,
               resumable: params.currentAcceptance.resumable,
               retryAt: recordValue(params.currentAcceptance.disposition).retryAt,
+              failureKind: recordValue(params.currentAcceptance.disposition).failureKind,
+              retryAfterSource: recordValue(params.currentAcceptance.disposition).retryAfterSource,
+              rateLimitScope: recordValue(params.currentAcceptance.disposition).rateLimitScope,
             },
           }).kind === "continue",
           siblingTaskStatuses: siblingTasks

@@ -31,6 +31,58 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
+const PROVIDER_LIMIT_FAILURE_KINDS = new Set([
+  "RATE_LIMITED",
+  "QUOTA",
+  "QUOTA_EXCEEDED",
+  "QUOTA_EXHAUSTED",
+]);
+
+/** Shared classification for rate-limit failures that cannot be retried autonomously. */
+export function isProviderLimitRecoveryManual(input: {
+  action: unknown;
+  failureKind?: unknown;
+  retryAfterSource?: unknown;
+  rateLimitScope?: unknown;
+}): boolean {
+  const retryAfterSource = typeof input.retryAfterSource === "string"
+    ? input.retryAfterSource
+    : undefined;
+  const failureKind = typeof input.failureKind === "string"
+    ? input.failureKind.trim().toUpperCase()
+    : "";
+  const rateLimitScope = typeof input.rateLimitScope === "string"
+    ? input.rateLimitScope.trim().toLowerCase()
+    : "";
+  const hasNonLocalRateLimitScope = Boolean(rateLimitScope)
+    && rateLimitScope !== "project"
+    && rateLimitScope !== "local_admission";
+  const hasProviderRetrySource = retryAfterSource === "provider"
+    || retryAfterSource === "local_adaptive"
+    || retryAfterSource === "adaptive_default"
+    || retryAfterSource === "server_default";
+  const hasProviderSpecificLimitFailure = failureKind !== "RATE_LIMIT"
+    && PROVIDER_LIMIT_FAILURE_KINDS.has(failureKind);
+
+  if (
+    hasProviderSpecificLimitFailure
+    || hasNonLocalRateLimitScope
+    || hasProviderRetrySource
+  ) {
+    return true;
+  }
+  if (
+    retryAfterSource === "project_rate_limit"
+    || retryAfterSource === "local_admission"
+    || rateLimitScope === "project"
+    || rateLimitScope === "local_admission"
+  ) {
+    return false;
+  }
+  return input.action === "RETRY_AFTER_RATE_LIMIT"
+    || PROVIDER_LIMIT_FAILURE_KINDS.has(failureKind);
+}
+
 /** A future retryAt remains pending; it is deferred, not abandoned. */
 export function isSamePlanTaskRecoveryPending(input: {
   outcome: unknown;
@@ -66,7 +118,13 @@ export function isSamePlanTaskRecoveryPending(input: {
     && (TASK_RECOVERY_EXECUTION_STATUSES as readonly string[]).includes(input.executionStatus)
     && typeof input.taskCorrelationId === "string"
     && input.taskCorrelationId.length > 0
-    && input.executionCorrelationId === input.taskCorrelationId;
+    && input.executionCorrelationId === input.taskCorrelationId
+    && !isProviderLimitRecoveryManual({
+      action: input.nextActionCode,
+      failureKind: input.failureKind,
+      retryAfterSource: input.retryAfterSource,
+      rateLimitScope: input.rateLimitScope,
+    });
 }
 
 /** Only an exact, parseable Outbox row for the current Task generation continues work. */
@@ -130,6 +188,9 @@ export function decideTaskContinuation(input: {
     nextActionCode: unknown;
     resumable: unknown;
     retryAt?: unknown;
+    failureKind?: unknown;
+    retryAfterSource?: unknown;
+    rateLimitScope?: unknown;
   };
   outbox?: {
     eventType: unknown;

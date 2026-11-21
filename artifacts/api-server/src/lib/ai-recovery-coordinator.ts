@@ -29,6 +29,7 @@ import {
   TASK_RECOVERY_EXECUTION_STATUSES,
   TASK_RECOVERY_TASK_STATUSES,
   isSamePlanTaskRecoveryPending,
+  isProviderLimitRecoveryManual,
 } from "./task-recovery-contract.js";
 
 const SAFE_CHAT_RECOVERY_FAILURE_CODES = new Set([
@@ -70,13 +71,6 @@ const MAX_RECOVERY_CANDIDATES = 64;
 const TASK_RECOVERY_DEPENDENCY_RECHECK_MS = 30_000;
 const MAX_AUTOMATIC_CHAT_PARSER_RECOVERY_ATTEMPTS = 2;
 const MAX_AUTOMATIC_CHAT_PROVIDER_RECOVERY_ATTEMPTS = 3;
-const PROVIDER_LIMIT_FAILURE_KINDS = new Set([
-  "RATE_LIMIT",
-  "RATE_LIMITED",
-  "QUOTA",
-  "QUOTA_EXCEEDED",
-  "QUOTA_EXHAUSTED",
-]);
 
 type RecoveryAction = (typeof RECOVERY_ACTIONS)[number];
 type RecoveryTaskStatus = (typeof RECOVERY_TASK_STATUSES)[number];
@@ -217,46 +211,12 @@ function requiresManualProviderLimitAction(
   action: string,
   disposition: RecoveryDisposition,
 ): boolean {
-  const retryAfterSource = typeof disposition.retryAfterSource === "string"
-    ? disposition.retryAfterSource
-    : undefined;
-  const failureKind = typeof disposition.failureKind === "string"
-    ? disposition.failureKind.trim().toUpperCase()
-    : "";
-  const rateLimitScope = typeof disposition.rateLimitScope === "string"
-    ? disposition.rateLimitScope.trim().toLowerCase()
-    : "";
-  const hasNonLocalRateLimitScope = Boolean(rateLimitScope)
-    && rateLimitScope !== "project"
-    && rateLimitScope !== "local_admission";
-  const hasProviderRetrySource = retryAfterSource === "provider"
-    || retryAfterSource === "local_adaptive"
-    || retryAfterSource === "adaptive_default"
-    || retryAfterSource === "server_default";
-  const hasProviderSpecificLimitFailure = failureKind !== "RATE_LIMIT"
-    && PROVIDER_LIMIT_FAILURE_KINDS.has(failureKind);
-
-  // Provider/quota evidence and an unknown or upstream scope take precedence
-  // over a local source that may have been written by a later project cooldown.
-  if (
-    hasProviderSpecificLimitFailure
-    || hasNonLocalRateLimitScope
-    || hasProviderRetrySource
-  ) {
-    return true;
-  }
-
-  if (
-    retryAfterSource === "project_rate_limit"
-    || retryAfterSource === "local_admission"
-    || rateLimitScope === "project"
-    || rateLimitScope === "local_admission"
-  ) {
-    return false;
-  }
-
-  return action === "RETRY_AFTER_RATE_LIMIT"
-    || PROVIDER_LIMIT_FAILURE_KINDS.has(failureKind);
+  return isProviderLimitRecoveryManual({
+    action,
+    failureKind: disposition.failureKind,
+    retryAfterSource: disposition.retryAfterSource,
+    rateLimitScope: disposition.rateLimitScope,
+  });
 }
 
 function parseRetryAt(value: unknown): number | undefined {
@@ -457,6 +417,20 @@ export function planTaskRecovery(
   if (disposition.recoveryState !== "REQUIRED") {
     return { kind: "skip", reason: "resume_not_authorized" };
   }
+  const retryAtMs = parseRetryAt(disposition.retryAt);
+  if (action === "RETRY_AFTER_RATE_LIMIT" && retryAtMs === undefined) {
+    return { kind: "skip", reason: "rate_limit_window_unavailable" };
+  }
+  if (retryAtMs !== undefined && retryAtMs > nowMs) {
+    return { kind: "skip", reason: "retry_not_due" };
+  }
+  const dependencyRetryAtMs = parseRetryAt(disposition.dependencyRetryAt);
+  if (dependencyRetryAtMs !== undefined && dependencyRetryAtMs > nowMs) {
+    return { kind: "skip", reason: "dependencies_pending" };
+  }
+  if (requiresManualProviderLimitAction(action, disposition)) {
+    return { kind: "skip", reason: "provider_rate_limit_requires_manual_action" };
+  }
   if (!isSamePlanTaskRecoveryPending({
     outcome: "FAILED",
     recoveryState: disposition.recoveryState,
@@ -476,20 +450,6 @@ export function planTaskRecovery(
     return { kind: "skip", reason: "invalid_scope" };
   }
 
-  const retryAtMs = parseRetryAt(disposition.retryAt);
-  if (action === "RETRY_AFTER_RATE_LIMIT" && retryAtMs === undefined) {
-    return { kind: "skip", reason: "rate_limit_window_unavailable" };
-  }
-  if (retryAtMs !== undefined && retryAtMs > nowMs) {
-    return { kind: "skip", reason: "retry_not_due" };
-  }
-  const dependencyRetryAtMs = parseRetryAt(disposition.dependencyRetryAt);
-  if (dependencyRetryAtMs !== undefined && dependencyRetryAtMs > nowMs) {
-    return { kind: "skip", reason: "dependencies_pending" };
-  }
-  if (requiresManualProviderLimitAction(action, disposition)) {
-    return { kind: "skip", reason: "provider_rate_limit_requires_manual_action" };
-  }
 
   if (action === "RESUME_ALLOWED") {
     if (candidate.resumable !== 1) {
