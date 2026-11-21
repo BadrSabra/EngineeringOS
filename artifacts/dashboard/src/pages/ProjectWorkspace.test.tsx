@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useGetAiExecution, type ProjectWorkspaceSnapshot } from "@workspace/api-client-react";
 import ProjectWorkspace from "./ProjectWorkspace";
@@ -649,7 +649,7 @@ describe("ProjectWorkspace live snapshot refresh", () => {
 
 
 describe("Workspace task cards", () => {
-  it("shows the source, task identity, accepted attempt, and a project-preserving detail link", () => {
+  it("keeps technical task details collapsed and preserves their project-bound links", () => {
     const updatedAt = "2026-11-11T12:00:00.000Z";
     mocks.snapshot = {
       ...initialSnapshot,
@@ -694,6 +694,10 @@ describe("Workspace task cards", () => {
       </QueryClientProvider>,
     );
 
+    const technicalDetails = screen.getByTestId("workspace-task-technical-details-task-accepted");
+    expect(technicalDetails).not.toHaveAttribute("open");
+    fireEvent.click(within(technicalDetails).getByText("تفاصيل تقنية"));
+    expect(technicalDetails).toHaveAttribute("open");
     expect(screen.getByTestId("workspace-task-source-task-accepted")).toHaveTextContent("ملخص مهام Workspace");
     expect(screen.getByTestId("workspace-task-id-task-accepted")).toHaveTextContent("task-accepted");
     expect(screen.getByTestId("workspace-task-attempt-task-accepted")).toHaveTextContent("2");
@@ -774,6 +778,7 @@ describe("Workspace task cards", () => {
       </QueryClientProvider>,
     );
 
+    fireEvent.click(screen.getByText("تفاصيل تقنية"));
     const dependencies = screen.getByTestId("workspace-task-dependencies-task-with-dependency");
     expect(dependencies).toHaveTextContent("task-upstream");
     expect(dependencies).not.toHaveTextContent(title);
