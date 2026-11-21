@@ -340,7 +340,7 @@ describe("Events", () => {
     expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
   });
 
-  it("clears every active filter directly from the empty results state", () => {
+  it("clears every active filter from the expanded panel for an empty shared view", () => {
     window.history.replaceState(
       {},
       "",
@@ -358,10 +358,12 @@ describe("Events", () => {
 
     render(<Events />);
 
-    expect(screen.getByTestId("button-clear-event-filters-empty")).toBeInTheDocument();
-    expect(screen.queryByTestId("select-event-severity")).not.toBeInTheDocument();
+    // Shared links intentionally reveal their active filters, so clear them from that panel.
+    expect(screen.getByTestId("select-event-severity")).toBeInTheDocument();
+    const clearFilters = screen.getByRole("button", { name: "مسح عوامل التصفية" });
+    expect(clearFilters).toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId("button-clear-event-filters-empty"));
+    fireEvent.click(clearFilters);
 
     expect(vi.mocked(useListEvents).mock.calls.at(-1)?.[0]).toEqual({
       limit: 50,
