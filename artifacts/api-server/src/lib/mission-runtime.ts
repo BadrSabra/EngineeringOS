@@ -75,6 +75,10 @@ import { getProjectWorldState } from "./agent-state/world-state.js";
 import { taskScopeIdentity } from "./agent-state/observation-materializer.js";
 import { scheduleAiTaskExecution } from "../routes/ai/tasks.js";
 import { insertTaskAutoExecutionIntent } from "./task-auto-execution-outbox.js";
+import {
+  dispatchMissionReplanIntent,
+  insertMissionReplanIntent,
+} from "./mission-replan-outbox.js";
 import { createMissionEventEnvelope, type MissionEventEnvelope } from "./mission-events.js";
 import {
   buildMissionDelegationBinding,
@@ -1590,7 +1594,8 @@ export async function syncRecipeObjectiveState(params: {
   };
 }): Promise<void> {
   let wakeIntentId: string | null = null;
-  let immediateReplanMissionId: string | null = null;
+  let immediateReplanIntentId: string | null = null;
+  let legacyImmediateReplanMissionId: string | null = null;
   await db.transaction(async (tx) => {
     const [mission] = await tx
       .select()
@@ -1889,7 +1894,30 @@ export async function syncRecipeObjectiveState(params: {
       && nextGoalStatus === "needs_replan"
       && nextMissionStatus === "needs_replan"
     ) {
-      immediateReplanMissionId = mission.id;
+      // Bind the durable replan request to the exact Recipe execution attempt.
+      // The stable identity also makes repeated projection callbacks idempotent.
+      const replanAttempt = durableExecution?.attempt;
+      if (
+        params.executionId
+        && durableExecution
+        && typeof replanAttempt === "number"
+        && Number.isSafeInteger(replanAttempt)
+        && replanAttempt >= 0
+      ) {
+        immediateReplanIntentId = await insertMissionReplanIntent(tx, {
+          missionId: mission.id,
+          projectId: params.projectId,
+          goalId: goal.id,
+          executionId: durableExecution.id,
+          attempt: replanAttempt,
+          acceptanceId: `recipe:${durableExecution.id}:attempt:${replanAttempt}`,
+          requestedAt: new Date(),
+        });
+      } else {
+        // Preserve the legacy wake for callers that have no durable execution
+        // identity; normal Recipe executions always use the shared Outbox.
+        legacyImmediateReplanMissionId = mission.id;
+      }
     }
     if (mission.status === nextMissionStatus) return;
     await tx.update(aiMissionsTable)
@@ -1925,24 +1953,45 @@ export async function syncRecipeObjectiveState(params: {
     }
   }
 
-  // Recipe failure is a durable state transition. Re-enter the existing
-  // coordinator only after the Goal and Mission projections commit; it still
-  // owns autonomy, diagnosis, approval, evidence, and retry-budget gates.
-  if (immediateReplanMissionId) {
+  // The Outbox event commits with the Goal/Mission needs_replan projection.
+  // Immediate dispatch only reduces latency; the durable worker owns recovery
+  // after process loss and revalidates the current Mission/Goal state.
+  if (immediateReplanIntentId) {
     try {
-      const { autoReplanMission } = await import("./mission-auto-replan.js");
-      await autoReplanMission(immediateReplanMissionId);
+      await dispatchMissionReplanIntent(immediateReplanIntentId);
     } catch (error) {
       logger.warn(
         {
           error,
-          missionId: immediateReplanMissionId,
+          intentId: immediateReplanIntentId,
+          missionId: params.missionId,
           projectId: params.projectId,
           goalId: params.goalId,
           operationId: params.operationId,
           scope: "mission-recipe",
         },
-        "Immediate Mission replan failed after Recipe failure; durable reconciliation remains available.",
+        "Immediate Mission replan Outbox dispatch failed; durable recovery remains available.",
+      );
+    }
+  }
+
+  // Compatibility for legacy callers that report a Recipe failure without
+  // a persisted execution/attempt identity. New execution paths do not use it.
+  if (legacyImmediateReplanMissionId) {
+    try {
+      const { autoReplanMission } = await import("./mission-auto-replan.js");
+      await autoReplanMission(legacyImmediateReplanMissionId);
+    } catch (error) {
+      logger.warn(
+        {
+          error,
+          missionId: legacyImmediateReplanMissionId,
+          projectId: params.projectId,
+          goalId: params.goalId,
+          operationId: params.operationId,
+          scope: "mission-recipe",
+        },
+        "Legacy Mission replan wake failed; durable reconciliation remains available.",
       );
     }
   }
