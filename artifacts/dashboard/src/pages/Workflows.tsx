@@ -39,6 +39,7 @@ import {
 } from 'lucide-react';
 import { RefreshButton, RequestError } from '@/components/OperatorResilience';
 import { ProviderRecoveryCard } from '@/components/ProviderRecoveryCard';
+import WorkflowFailureAssistantHandoff from '@/components/WorkflowFailureAssistantHandoff';
 
 function workflowStatusLabel(status: string): string {
   const labels: Record<string, string> = {
@@ -417,10 +418,12 @@ function CreateWorkflowModal({
 
 function ExecutionHistory({
   workflowId,
+  workflowName,
   projectId,
   phases,
 }: {
   workflowId: string;
+  workflowName: string;
   projectId: string;
   phases: Array<{ name: string }>;
 }) {
@@ -530,6 +533,15 @@ function ExecutionHistory({
                     >
                       عرض الأحداث المرتبطة
                     </Link>
+                  )}
+                  {exec.status === 'failed' && (
+                    <WorkflowFailureAssistantHandoff
+                      projectId={projectId}
+                      workflowId={workflowId}
+                      workflowName={workflowName}
+                      executionId={exec.id}
+                      currentPhase={exec.currentPhase}
+                    />
                   )}
                 </div>
               );
@@ -1236,7 +1248,12 @@ function WorkflowsSession({
               </button>
               {expandedId === workflow.id && (
                 <div className="mt-3">
-                  <ExecutionHistory workflowId={workflow.id} projectId={workflow.projectId} phases={workflow.phases} />
+                <ExecutionHistory
+                  workflowId={workflow.id}
+                  workflowName={workflow.name}
+                  projectId={workflow.projectId}
+                  phases={workflow.phases}
+                />
                 </div>
               )}
             </div>
