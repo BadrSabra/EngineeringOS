@@ -82,7 +82,22 @@ describe("GET /events — list", () => {
     expect(res.body.total).toBe(2);
   });
 
-  it("returns an empty array when the authenticated user owns no projects", async () => {
+  it("returns no events when the authenticated user owns no projects", async () => {
+    const otherProjectId = randomUUID();
+    const now = new Date();
+    await db.insert(projectsTable).values({
+      id: otherProjectId,
+      ownerId: "other-user",
+      name: `other-user-project-${otherProjectId.slice(0, 8)}`,
+      rootPath: "/tmp/other-user-events-empty-scope",
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    projectIds.push(otherProjectId);
+    await insertEvent({ projectId: otherProjectId, message: "private event" });
+
     const res = await request(app).get("/api/events");
 
     expect(res.status).toBe(200);
