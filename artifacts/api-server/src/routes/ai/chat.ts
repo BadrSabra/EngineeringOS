@@ -15372,20 +15372,33 @@ router.get("/ai/chat/:sessionId/messages", async (req, res) => {
       .map((message) => message.executionId)
       .filter((executionId): executionId is string => Boolean(executionId)),
   )];
-  const acceptanceQuery = executionIds.length > 0
-    ? db
+  const acceptanceRows = executionIds.length > 0
+    ? await db
       .select()
       .from(aiExecutionAcceptancesTable)
       .where(inArray(aiExecutionAcceptancesTable.executionId, executionIds))
-    : undefined;
-  const acceptanceRows = acceptanceQuery
-    ? await acceptanceQuery.limit(500)
+      .orderBy(desc(aiExecutionAcceptancesTable.attempt))
     : [];
+  // Keep the acceptance read bounded to this session's executions (the
+  // executionId-leading index supports this predicate), but never truncate the
+  // history to an arbitrary number of acceptance rows.
+  // Match each row to its exact message and retain the highest attempt.
+  const acceptanceByMessage = new Map<string, (typeof acceptanceRows)[number]>();
+  for (const row of acceptanceRows) {
+    if (!row.messageId) continue;
+    const key = `${row.executionId}:${row.messageId}`;
+    const current = acceptanceByMessage.get(key);
+    if (!current || row.attempt > current.attempt) {
+      acceptanceByMessage.set(key, row);
+    }
+  }
+  const acceptanceForMessage = (message: (typeof messages)[number]) => {
+    if (!message.executionId) return undefined;
+    return acceptanceByMessage.get(`${message.executionId}:${message.id}`);
+  };
   const projectionEntries = messages.flatMap((message) => {
     if (!message.executionId) return [];
-    const acceptance = acceptanceRows
-      .filter((row) => row.executionId === message.executionId && row.messageId === message.id)
-      .sort((left, right) => right.attempt - left.attempt)[0];
+    const acceptance = acceptanceForMessage(message);
     return [{
       messageId: message.id,
       executionId: message.executionId,
@@ -15419,11 +15432,7 @@ router.get("/ai/chat/:sessionId/messages", async (req, res) => {
     const terminalMetadata = terminalMetadataFromTrace(message.toolTrace);
     const { forensicDiagnostic: historicalForensicDiagnostic, ...safeTerminalMetadata } = terminalMetadata;
     const includeForensicDetails = isForensicHistoryTurn(message.turnIntent);
-    const executionAcceptance = message.executionId
-      ? acceptanceRows
-        .filter((row) => row.executionId === message.executionId && row.messageId === message.id)
-        .sort((left, right) => right.attempt - left.attempt)[0]
-      : undefined;
+    const executionAcceptance = acceptanceForMessage(message);
     const projectedAcceptance = projectExecutionAcceptance(executionAcceptance);
     const projectQueryResponseProvenance = projectQueryResponseProvenanceFromTrace(message.toolTrace);
     const terminalProjection = terminalProjectionByMessage.get(message.id);
