@@ -136,6 +136,7 @@ const HEALTH_TO_SLICE: Record<string, SliceId> = {
   graphRelationships: "graphSummary",
   events: "recentEvents",
   workflows: "workflows",
+  worldState: "worldState",
 };
 
 function assembleContext(
