@@ -94,6 +94,11 @@ export const eventsTable = pgTable("events", {
   uniqueIndex("uq_events_github_delivery_recovery")
     .on(t.projectId, t.correlationId)
     .where(sql`${t.type} = 'GitPushRecoveryRequired' AND ${t.correlationId} IS NOT NULL`),
+  // The global Task auto-execution dispatcher reads only pending/deferred
+  // intents in timestamp/id order; exclude unrelated activity events.
+  index("idx_events_task_auto_execution_pending")
+    .on(t.timestamp, t.id)
+    .where(sql`${t.type} IN ('TaskAutoExecutionDispatchRequested', 'TaskAutoExecutionDeferred')`),
   // Bounded lookup of durable Mission world-transition wake intents.
   index("idx_events_mission_world_transition_wake_pending")
     .on(t.timestamp, t.id)
