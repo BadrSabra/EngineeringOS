@@ -2907,6 +2907,7 @@ export async function runMissionGoal(params: {
 }): Promise<MissionGoalRunResult> {
   let taskDispatchGeneration: { retryCount: number; correlationId: string | null } | undefined;
   let eventWaitIntentId: string | undefined;
+  let completedGoalWakeIntentId: string | undefined;
   const decision = await db.transaction(async (tx): Promise<MissionGoalRunResult> => {
     const recordActionEffect = async <T extends MissionGoalRunResult>(run: T): Promise<T> => {
       if (
@@ -3539,15 +3540,23 @@ export async function runMissionGoal(params: {
       if (!projected) {
         return { status: "conflict" as const, goalId: goal.id, reason: "goal_acceptance_projection_failed" };
       }
+      const completedAt = completionGoal.completedAt ?? now;
       await tx.update(aiGoalsTable)
         .set({
           status: "completed",
           blockedReason: null,
-          completedAt: completionGoal.completedAt ?? now,
+          completedAt,
           nextWakeAt: null,
           updatedAt: now,
         })
         .where(eq(aiGoalsTable.id, goal.id));
+      const { insertMissionGoalWakeIntent } = await import("./mission-goal-wake-outbox.js");
+      completedGoalWakeIntentId = await insertMissionGoalWakeIntent(tx, {
+        missionId: mission.id,
+        projectId: goal.projectId,
+        goalId: goal.id,
+        completedAt,
+      });
       const missionGoals = await tx.select({
         id: aiGoalsTable.id,
         status: aiGoalsTable.status,
@@ -3996,6 +4005,21 @@ export async function runMissionGoal(params: {
     }
   }
 
+  if (completedGoalWakeIntentId) {
+    try {
+      const { dispatchMissionGoalWakeIntent } = await import("./mission-goal-wake-outbox.js");
+      await dispatchMissionGoalWakeIntent(completedGoalWakeIntentId);
+    } catch (error) {
+      // The intent committed with the proven Goal completion and remains
+      // recoverable by the durable, lease-protected Mission Goal dispatcher.
+      logger.warn({
+        error,
+        goalId: decision.goalId,
+        intentId: completedGoalWakeIntentId,
+      }, "Mission dependent Goal wake did not run immediately after Apply Changes proof; durable outbox recovery remains available");
+    }
+  }
+
   if (decision.recipeDispatch && decision.status === "scheduled" && !decision.executionId) {
     heavyJobQueue.enqueueWithId(decision.recipeDispatch.operationId, async () => {
       await executeMissionRecipe(decision.recipeDispatch!);
@@ -4031,10 +4055,7 @@ export async function runMissionGoal(params: {
       );
     }
   }
-  if (decision.status === "completed" && decision.reason === "apply_changes_d2_proven") {
-    await wakeReadyMissionGoals(32, getLifecycleWorkerScopeProjectId());
-  }
-  if (decision.status === "completed") {
+  if (decision.status === "completed" && !completedGoalWakeIntentId) {
     await finalizeMissionPlanOutcomesAfterGoalCompletion(decision.goalId);
   }
   return decision;
