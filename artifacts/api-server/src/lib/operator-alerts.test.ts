@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHash, randomUUID } from "node:crypto";
 import { eq, inArray } from "drizzle-orm";
 import { db, operatorAlertsTable } from "@workspace/db";
