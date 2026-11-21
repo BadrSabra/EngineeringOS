@@ -111,6 +111,123 @@ describe("provider lifecycle", () => {
     expect(lifecycle.roles.every((role) => role.status === "missing")).toBe(true);
   });
 
+  it("keeps OpenRouter selectable when one known free-model role is not found", async () => {
+    const apiKey = "openrouter-single-model-not-found-key";
+    const liveFreeModels = [
+      "nvidia/nemotron-3.5-lightning:free",
+      "cohere/north-mini-code:free",
+    ];
+    setDynamicCatalogSnapshotForTest(liveFreeModels);
+
+    const healthy = await getProviderLifecycleSnapshot({
+      provider: "openrouter",
+      apiKey,
+      source: "user",
+      check: true,
+      requirements: { requireTools: true, requireJson: true },
+    });
+    const failedModel = healthy.roles[0]!.modelId;
+
+    recordProviderLifecycleOutcome({
+      provider: "openrouter",
+      apiKey,
+      source: "user",
+      model: failedModel,
+      code: "MODEL_NOT_FOUND",
+    });
+
+    const degraded = await getProviderLifecycleSnapshot({
+      provider: "openrouter",
+      apiKey,
+      source: "user",
+      check: false,
+      requirements: { requireTools: true, requireJson: true },
+    });
+
+    expect(degraded.selectable).toBe(true);
+    expect(degraded.overallStatus).toBe("degraded");
+    expect(degraded.modelStatus).toBe("model_partial");
+    expect(degraded.roles.find((role) => role.modelId === failedModel)?.status).toBe("missing");
+    expect(degraded.roles.some((role) => role.status === "healthy")).toBe(true);
+    expect(degraded.reasonCodes).toContain("runtime_model_not_found");
+  });
+
+  it("keeps OpenRouter selectable after a candidate-only MODEL_UNAVAILABLE outcome", async () => {
+    const apiKey = "openrouter-model-unavailable-key";
+    setDynamicCatalogSnapshotForTest([
+      "nvidia/nemotron-3.5-lightning:free",
+      "cohere/north-mini-code:free",
+    ]);
+
+    const healthy = await getProviderLifecycleSnapshot({
+      provider: "openrouter",
+      apiKey,
+      source: "user",
+      check: true,
+      requirements: { requireTools: true },
+    });
+
+    recordProviderLifecycleOutcome({
+      provider: "openrouter",
+      apiKey,
+      source: "user",
+      model: healthy.roles[0]!.modelId,
+      code: "MODEL_UNAVAILABLE",
+    });
+
+    const degraded = await getProviderLifecycleSnapshot({
+      provider: "openrouter",
+      apiKey,
+      source: "user",
+      check: false,
+      requirements: { requireTools: true },
+    });
+
+    expect(degraded.selectable).toBe(true);
+    expect(degraded.overallStatus).toBe("degraded");
+    expect(degraded.modelStatus).toBe("model_healthy");
+    expect(degraded.reasonCodes).toContain("runtime_capability_mismatch");
+  });
+
+  it("fails closed only after every known OpenRouter role is marked missing", async () => {
+    const apiKey = "openrouter-all-models-missing-key";
+    setDynamicCatalogSnapshotForTest([
+      "nvidia/nemotron-3.5-lightning:free",
+      "cohere/north-mini-code:free",
+    ]);
+
+    const healthy = await getProviderLifecycleSnapshot({
+      provider: "openrouter",
+      apiKey,
+      source: "user",
+      check: true,
+      requirements: { requireTools: true },
+    });
+
+    for (const role of healthy.roles) {
+      recordProviderLifecycleOutcome({
+        provider: "openrouter",
+        apiKey,
+        source: "user",
+        model: role.modelId,
+        code: "MODEL_NOT_FOUND",
+      });
+    }
+
+    const unavailable = await getProviderLifecycleSnapshot({
+      provider: "openrouter",
+      apiKey,
+      source: "user",
+      check: false,
+      requirements: { requireTools: true },
+    });
+
+    expect(unavailable.selectable).toBe(false);
+    expect(unavailable.overallStatus).toBe("unavailable");
+    expect(unavailable.modelStatus).toBe("model_missing");
+    expect(unavailable.roles.every((role) => role.status === "missing")).toBe(true);
+  });
+
   it("deduplicates checks and refreshes after the TTL", async () => {
     const first = await getProviderLifecycleSnapshot({
       provider: "groq",
