@@ -445,7 +445,12 @@ function runtimeStrategy(input: StrategyInput): MissionStrategySelection {
       steps,
       observationOrder,
       addedStepIds: reusableInspection ? [] : [preflightStepId],
-      changedStepIds: reusableInspection ? [reusableInspection.id, startStep.id] : [startStep.id],
+      changedStepIds: reusableInspection
+        ? [
+            reusableInspection.id,
+            ...(startStep.dependencies.includes(runtimeInspectionStepId) ? [] : [startStep.id]),
+          ]
+        : [startStep.id],
     };
   };
   const candidatePlanProjections = candidates.map((candidate) => {
