@@ -533,10 +533,10 @@ async function performScanCore(
   checkCancelled();
   const persistScanEffects = async (tx: ScanJobTransaction) => {
     checkCancelled();
-    // Only matching rules can reuse a remediation Task. Keep the lookup
-    // proportional to the current scan findings instead of loading every
-    // historical Task for this project on every scan. When there are no
-    // findings, avoid the Task-table read entirely.
+    // Only matching rules can reuse a remediation Task. Keep the rows
+    // returned to the worker bounded by current scan findings instead of
+    // materializing every historical Task for this project. When there are
+    // no findings, avoid the Task-table read entirely.
     const matchedRuleIds = [...new Set(
       ruleResults.filter((result) => result.matched).map((result) => result.ruleId),
     )];
