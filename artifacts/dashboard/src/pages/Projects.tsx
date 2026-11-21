@@ -26,13 +26,17 @@ import {
   AlertTriangle,
   ArrowRight,
   ChevronDown,
+  Sparkles,
 } from 'lucide-react';
 import { Link } from 'wouter';
 import { DiscoverProjectWizard } from './DiscoverProjectWizard';
-import { readGoalDrafts, storeGoalDraft, updateGoalDraft } from '@/lib/home-goal-handoff';
+import { readGoalDrafts, storeGoalDraft, storeHomeGoalDraft, updateGoalDraft } from '@/lib/home-goal-handoff';
 import { matchesProjectSearch } from '@/lib/project-search';
 import { suggestProjectNameFromGoal } from '@/lib/project-name-suggestion';
 import { projectStatusLabel } from '@/lib/project-detail-copy';
+
+const PROJECT_ASSISTANT_STARTER_GOAL =
+  'أريد العمل على هذا المشروع. اسألني أولًا عما أريد إنجازه، ثم ساعدني على تحديد خطوة مناسبة. لا تغيّر الملفات أو تبدأ أي عمل قبل أن أراجع المقترح وأوافق.';
 
 // Display-only labels; the server status values are never changed.
 const bootstrapStatusLabels: Record<string, string> = {
@@ -116,6 +120,10 @@ function ProjectsForAccountSession({
   // Accept the newest query result, including an authoritative empty collection.
   const projects = rawProjects;
   const [showDiscover, setShowDiscover] = useState(false);
+  const [assistantHandoffError, setAssistantHandoffError] = useState<{
+    projectId: string;
+    message: string;
+  } | null>(null);
   const [showCreate, setShowCreate] = useState(Boolean(incomingDraft) || routeCreate);
   const [search, setSearch] = useState(
     () => new URLSearchParams(window.location.search).get('search') ?? '',
@@ -214,6 +222,21 @@ function ProjectsForAccountSession({
   const openCreate = () => {
     idempotencyKey.current = '';
     setShowCreate(true);
+  };
+
+  const openProjectAssistant = (projectId: string) => {
+    const draft = storeHomeGoalDraft(PROJECT_ASSISTANT_STARTER_GOAL, ownerId, projectId);
+    if (!draft) {
+      setAssistantHandoffError({
+        projectId,
+        message: 'تعذر حفظ مسودة طلب المساعدة. بقيت في صفحة المشاريع ولم نغيّر شيئًا.',
+      });
+      return;
+    }
+    setAssistantHandoffError(null);
+    setLocation(
+      `/projects/${encodeURIComponent(projectId)}/workspace?goalDraftId=${encodeURIComponent(draft.id)}#workspace-panel-agent`,
+    );
   };
 
   const openCreateFromSearch = () => {
@@ -736,7 +759,11 @@ function ProjectsForAccountSession({
                       </div>
                     </div>
                   </div>
-                  <div className="flex w-full items-center justify-between gap-3 sm:w-auto sm:justify-end">
+                  <div className="flex w-full flex-wrap items-center justify-between gap-2 sm:w-auto sm:justify-end">
+                    <button type="button" onClick={() => openProjectAssistant(project.id)} data-testid={`button-project-assistant-${project.id}`} aria-label={`اسأل مساعد مشروع ${project.name}`} title="ستراجع المسودة قبل إرسالها" className="inline-flex items-center gap-2 rounded-md border border-primary/35 bg-background px-3 py-2 text-xs font-semibold text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">
+                      <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+                      اسأل المساعد
+                    </button>
                     <Link
                       to={`/projects/${encodeURIComponent(project.id)}`}
                       data-testid={`link-project-details-${project.id}`}
@@ -748,6 +775,9 @@ function ProjectsForAccountSession({
                     </Link>
                   </div>
                 </div>
+                {assistantHandoffError?.projectId === project.id && (
+                  <p role="alert" data-testid={`text-project-assistant-handoff-error-${project.id}`} className="text-xs text-destructive">{assistantHandoffError.message}</p>
+                )}
               </article>
             ))}
           </div>
