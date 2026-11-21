@@ -763,6 +763,33 @@ function isOpenRouterModelAvailabilityFailure(
 }
 
 /**
+ * Persist only candidate-wide OpenRouter failures across requests. Empty or
+ * malformed output is contract-scoped and must not suppress a model for
+ * unrelated tasks.
+ */
+async function recordUnavailableOpenRouterModelCooldown(
+  error: unknown,
+  model: string,
+  persistence?: ModelCooldownPersistence,
+): Promise<void> {
+  if (!isOpenRouterModelAvailabilityFailure(error)) return;
+
+  const cooldown = await recordLocalAdaptiveModelCooldown(
+    "openrouter",
+    model,
+    persistence,
+  );
+  console.info(JSON.stringify({
+    scope: "openrouter-fallback",
+    code: "MODEL_CANDIDATE_COOLDOWN",
+    model,
+    reason: error.code,
+    cooldownMs: cooldown.cooldownMs,
+    persistence: cooldown.persistence,
+  }));
+}
+
+/**
  * PR-007 / PR-008: extract a structured error code and message from a provider
  * response body string. Returns { code, message } where code is the provider's
  * own error tag (e.g. "model_not_found") and message is the human text.
@@ -2471,6 +2498,12 @@ export async function openrouterCompleteWithFallback(
       // retry in openrouterCompleteRaw. If that retry is exhausted, advance to
       // the next compatible free candidate. Preserve Retry-After as a wait
       // signal and never rotate around a provider/account rate limit.
+      // Share candidate availability knowledge across later completions.
+      await recordUnavailableOpenRouterModelCooldown(
+        err,
+        model,
+        opts.modelCooldownPersistence,
+      );
       const fallbackOnTransient =
         isTransientError(err) &&
         !isRateLimitFailure(err) &&
@@ -2862,6 +2895,12 @@ export async function* openrouterCompleteStream(
             transientRetried = true;
             continue;
           }
+          // Share candidate availability knowledge across later stream requests.
+          await recordUnavailableOpenRouterModelCooldown(
+            providerError,
+            model,
+            fullOpts.modelCooldownPersistence,
+          );
           const fallbackOnTransient =
             isTransientError(providerError) &&
             !isRateLimitFailure(providerError) &&
