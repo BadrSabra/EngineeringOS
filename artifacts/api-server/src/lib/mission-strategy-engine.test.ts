@@ -281,10 +281,58 @@ describe("Mission recovery strategy engine", () => {
       ({ strategyId }) => strategyId === "code.reconstruct-then-repair",
     );
     expect(targetedProjection?.orderedStepIds).not.toEqual(reconstructProjection?.orderedStepIds);
-    expect(targetedProjection?.actions.find(({ stepId }) => stepId === "strategy-validator-scope")?.kind)
+    expect(targetedProjection?.addedStepIds).toEqual([]);
+    expect(targetedProjection?.changedStepIds).toEqual(["inspect", "execute"]);
+    expect(targetedProjection?.actions.find(({ stepId }) => stepId === "inspect")?.kind)
       .toBe("inspect");
     expect(reconstructProjection?.actions.find(({ stepId }) => stepId === "strategy-validator-reconstruction")?.kind)
       .toBe("analyze");
+    expect(result.preview.plan.steps.map((step) => step.id)).toEqual([
+      "inspect",
+      "execute",
+      "validate",
+      "deliver",
+    ]);
+    expect(result.preview.plan.steps.find((step) => step.id === "inspect")).toMatchObject({
+      title: "Re-inspect the exact validator failure scope",
+      files: ["src/auth/session.ts"],
+      readOnly: true,
+    });
+    expect(result.preview.plan.steps.find((step) => step.id === "inspect")?.objective)
+      .toContain("validation:run-12");
+    expect(result.preview.plan.steps.find((step) => step.id === "execute")).toMatchObject({
+      files: ["src/auth/session.ts"],
+      dependencies: ["inspect"],
+      approvalRequired: true,
+    });
+    expect(result.decision.planDelta.addedStepIds).toEqual([]);
+    expect(result.preview.plan.steps.find((step) => step.id === "validate")?.dependencies)
+      .toContain("execute");
+    expect(result.decision.source.evidenceRefs).toEqual(["validation:run-12"]);
+  });
+
+  it("keeps a dedicated read-only preflight when the existing inspection is not read-only", () => {
+    const preview = validatorPreview();
+    preview.plan.steps = preview.plan.steps.map((step) =>
+      step.id === "inspect" ? { ...step, readOnly: false } : step,
+    );
+    const result = selectAndApplyMissionStrategy({
+      preview,
+      ...sourceIdentity,
+      failureDiagnosis: {
+        kind: "VALIDATOR_FAILED",
+        reasonCode: "VALIDATOR_FAILED",
+        nextActionCode: "REPAIR_AND_REVALIDATE",
+        retryable: true,
+        requiresApproval: false,
+      },
+      evidenceRefs: ["validation:run-13"],
+      affectedPaths: ["src/auth/session.ts"],
+      affectedClaims: ["claim:session-refresh"],
+    });
+
+    expect(result.status).toBe("selected");
+    if (result.status !== "selected") return;
     expect(result.preview.plan.steps.map((step) => step.id)).toEqual([
       "inspect",
       "strategy-validator-scope",
@@ -292,14 +340,13 @@ describe("Mission recovery strategy engine", () => {
       "validate",
       "deliver",
     ]);
+    expect(result.preview.plan.steps.find((step) => step.id === "strategy-validator-scope"))
+      .toMatchObject({ kind: "inspect", readOnly: true });
     expect(result.preview.plan.steps.find((step) => step.id === "execute")).toMatchObject({
-      files: ["src/auth/session.ts"],
       dependencies: ["inspect", "strategy-validator-scope"],
       approvalRequired: true,
     });
-    expect(result.preview.plan.steps.find((step) => step.id === "validate")?.dependencies)
-      .toContain("execute");
-    expect(result.decision.source.evidenceRefs).toEqual(["validation:run-12"]);
+    expect(result.decision.planDelta.addedStepIds).toEqual(["strategy-validator-scope"]);
   });
 
   it("uses evidence reconstruction for broad multi-claim validator failures", () => {
