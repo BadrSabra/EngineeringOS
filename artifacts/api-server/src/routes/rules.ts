@@ -17,7 +17,7 @@ import { randomUUID } from "crypto";
 import { requireAuth, isOperatorUser } from "../middlewares/requireAuth.js";
 import { loadProjectByIdForUser } from "../middlewares/requireProjectAccess.js";
 import { walkProject, matchRule, type RuleInput } from "@workspace/scanner";
-import { recordAudit } from "../lib/audit.js";
+import { recordAudit, recordAuditInTransaction } from "../lib/audit.js";
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
 import { parsePagination } from "../lib/pagination.js";
 
@@ -271,31 +271,43 @@ router.post("/rules/:ruleId/evaluate", async (req, res) => {
 
   const result = matchRule(ruleInput, walk.files);
 
-  await db
-    .update(rulesTable)
-    .set({
-      hitCount: sql`coalesce(${rulesTable.hitCount}, 0) + ${result.matchCount}`,
-      updatedAt: new Date(),
-    })
-    .where(eq(rulesTable.id, ruleId));
+  const correlationId = randomUUID();
+  const evaluation = await db.transaction(async (tx) => {
+    // Keep the counter and both evidence projections in one commit. RETURNING
+    // gives the exact post-increment value even when evaluations race.
+    const [updated] = await tx
+      .update(rulesTable)
+      .set({
+        hitCount: sql`coalesce(${rulesTable.hitCount}, 0) + ${result.matchCount}`,
+        updatedAt: new Date(),
+      })
+      .where(eq(rulesTable.id, ruleId))
+      .returning({ hitCount: rulesTable.hitCount });
+    if (!updated) return null;
 
-  await db.insert(eventsTable).values({
-    id: randomUUID(),
-    type: "RuleEvaluated",
-    projectId: body.projectId,
-    severity: result.matched ? "warning" : "info",
-    message: `Rule "${rule[0].code}" evaluated: ${result.matchCount} matches`,
+    const hitCountAfter = updated.hitCount ?? 0;
+    const hitCountBefore = hitCountAfter - result.matchCount;
+    await tx.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "RuleEvaluated",
+      projectId: body.projectId,
+      severity: result.matched ? "warning" : "info",
+      message: `Rule "${rule[0].code}" evaluated: ${result.matchCount} matches`,
+      correlationId,
+    });
+    await recordAuditInTransaction(tx, {
+      entityType: "rule",
+      entityId: ruleId,
+      action: "evaluated",
+      projectId: body.projectId,
+      stateBefore: { hitCount: hitCountBefore },
+      stateAfter: { hitCount: hitCountAfter },
+      changedFields: { matchCount: result.matchCount, matched: result.matched },
+      correlationId,
+    });
+    return { hitCountBefore, hitCountAfter };
   });
-
-  await recordAudit({
-    entityType: "rule",
-    entityId: ruleId,
-    action: "evaluated",
-    projectId: body.projectId,
-    stateBefore: { hitCount: rule[0].hitCount ?? 0 },
-    stateAfter: { hitCount: (rule[0].hitCount ?? 0) + result.matchCount },
-    changedFields: { matchCount: result.matchCount, matched: result.matched },
-  });
+  if (!evaluation) return res.status(404).json({ error: "Rule not found" });
 
   invalidateContextCache(body.projectId);
 
