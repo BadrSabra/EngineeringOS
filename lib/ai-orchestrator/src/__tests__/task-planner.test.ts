@@ -13,7 +13,7 @@ function intent(overrides: Partial<Parameters<typeof buildGeneralTaskPlan>[0]["t
 }
 
 describe("buildGeneralTaskPlan", () => {
-  it("creates one canonical inspect/analyze/deliver plan for a new project query", () => {
+  it("combines project discovery and analysis into one read-only Goal", () => {
     const plan = buildGeneralTaskPlan({
       message: "Explain the embedded AI agent",
       turnIntent: intent(),
@@ -22,8 +22,30 @@ describe("buildGeneralTaskPlan", () => {
     expect(plan.decision).toBe("CREATE");
     expect(plan.source).toBe("new");
     expect(plan.skipQueryPlanner).toBe(false);
-    expect(plan.steps.map((step) => step.kind)).toEqual(["inspect", "analyze", "deliver"]);
-    expect(plan.steps[1]?.dependencies).toEqual(["inspect"]);
+    expect(plan.steps.map((step) => step.id)).toEqual(["analyze", "deliver"]);
+    expect(plan.steps.map((step) => step.kind)).toEqual(["analyze", "deliver"]);
+    expect(plan.steps[0]).toMatchObject({
+      title: "Inspect and analyze the relevant project evidence",
+      dependencies: [],
+      readOnly: true,
+      approvalRequired: false,
+    });
+    expect(plan.steps[1]?.dependencies).toEqual(["analyze"]);
+  });
+
+  it("uses the same one-pass read-only Goal for forensic audits", () => {
+    const plan = buildGeneralTaskPlan({
+      message: "Audit the authentication implementation against its acceptance rules",
+      turnIntent: intent({ kind: "FORENSIC_AUDIT" }),
+    });
+
+    expect(plan.steps.map((step) => step.id)).toEqual(["analyze", "deliver"]);
+    expect(plan.steps[0]).toMatchObject({
+      kind: "analyze",
+      dependencies: [],
+      readOnly: true,
+      approvalRequired: false,
+    });
   });
 
   it("binds explicit safe file paths to every read-only step and rejects traversal paths", () => {
@@ -35,9 +57,9 @@ describe("buildGeneralTaskPlan", () => {
     expect(plan.steps.map((step) => step.files)).toEqual([
       ["README.md", "src/overview.ts", "test/report.test.mjs"],
       ["README.md", "src/overview.ts", "test/report.test.mjs"],
-      ["README.md", "src/overview.ts", "test/report.test.mjs"],
     ]);
     expect(plan.steps.every((step) => step.readOnly)).toBe(true);
+    expect(plan.steps[0]?.approvalRequired).toBe(false);
   });
 
   it("creates a functional orientation plan for broad explain-project requests", () => {
@@ -180,8 +202,43 @@ describe("buildGeneralTaskPlan", () => {
     expect(plan.decision).toBe("REUSE");
     expect(plan.source).toBe("project_query_state");
     expect(plan.skipQueryPlanner).toBe(true);
-    expect(plan.steps[0]?.files).toEqual(["src/agent.ts", "src/router.ts"]);
-    expect(plan.steps.map((step) => step.kind)).toEqual(["inspect", "analyze", "deliver"]);
+    expect(plan.steps[0]).toMatchObject({
+      id: "analyze",
+      kind: "analyze",
+      title: "Inspect retained evidence and close 2 server-owned project claims",
+      dependencies: [],
+      files: ["src/agent.ts", "src/router.ts"],
+      readOnly: true,
+      approvalRequired: false,
+    });
+    expect(plan.steps.map((step) => step.kind)).toEqual(["analyze", "deliver"]);
+    expect(plan.steps[1]?.dependencies).toEqual(["analyze"]);
+  });
+
+  it("keeps explicit multi-query plans split into their requested analysis phases", () => {
+    const plan = buildGeneralTaskPlan({
+      message: "Explain authentication behavior",
+      turnIntent: intent(),
+      existingQueryPlan: {
+        originalIntent: "Trace authentication",
+        targetFiles: ["src/auth.ts"],
+        targetEntities: [],
+        scopeEstimate: "narrow",
+        suggestedIterations: 8,
+        requiresToolUse: true,
+        subQueries: ["Trace login and session creation", "Trace refresh and logout"],
+        compoundParts: [],
+      },
+    });
+
+    expect(plan.steps.map((step) => step.id)).toEqual([
+      "inspect",
+      "analyze-1",
+      "analyze-2",
+      "deliver",
+    ]);
+    expect(plan.steps[1]?.dependencies).toEqual(["inspect"]);
+    expect(plan.steps[2]?.dependencies).toEqual(["inspect"]);
   });
 
   it("rejects a persisted plan from an older revision unless the server supplied an override", () => {
