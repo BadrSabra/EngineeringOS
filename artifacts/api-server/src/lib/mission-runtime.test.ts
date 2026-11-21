@@ -43,6 +43,10 @@ import { buildExecutionProofProjection } from "./execution-proof.js";
 import { heavyJobQueue } from "./job-queue.js";
 import * as missionRuntimeModule from "./mission-runtime.js";
 import { dispatchPendingMissionEventWakes } from "./mission-event-wake-outbox.js";
+import {
+  MISSION_REPLAN_REQUESTED,
+  missionReplanAdmissionIntentId,
+} from "./mission-replan-outbox.js";
 import { createAiExecution } from "./ai-execution-state.js";
 import {
   dispatchMissionGoalApprovalIntent,
@@ -827,6 +831,9 @@ async function configureGoalDeliveryRequirement(
 
 async function expectDependencyProofBlocked(fixture: {
   goalId: string;
+  missionId: string;
+  projectId: string;
+  planRevision: string;
 }): Promise<void> {
   await expect(runMissionGoal({
     goalId: fixture.goalId,
@@ -845,6 +852,29 @@ async function expectDependencyProofBlocked(fixture: {
     status: "needs_replan",
     blockedReason: "dependency_proof_unproven",
   });
+
+  const intentId = missionReplanAdmissionIntentId({
+    missionId: fixture.missionId,
+    projectId: fixture.projectId,
+    goalId: fixture.goalId,
+    reasonCode: "dependency_proof_unproven",
+    planRevision: fixture.planRevision,
+  });
+  const [intent] = await db.select({
+    type: eventsTable.type,
+    payload: eventsTable.payload,
+  }).from(eventsTable).where(eq(eventsTable.id, intentId));
+  expect(intent?.type).toBe(MISSION_REPLAN_REQUESTED);
+  expect(intent?.payload).toMatchObject({
+    source: "goal_admission",
+    missionId: fixture.missionId,
+    projectId: fixture.projectId,
+    goalId: fixture.goalId,
+    reasonCode: "dependency_proof_unproven",
+    sourcePlanRevision: fixture.planRevision,
+  });
+  expect(intent?.payload).not.toHaveProperty("executionId");
+  expect(intent?.payload).not.toHaveProperty("acceptanceId");
 }
 
 afterEach(async () => {
@@ -921,6 +951,118 @@ async function contendWithMissionThenGoalLock(params: {
 }
 
 describe("Mission goal runtime", () => {
+  it("persists an Outbox wake when a Mission dependency has failed", async () => {
+    const fixture = await createMissionFixture({ kind: "task", taskId: "failed-prerequisite-task" });
+    const planRevision = "failed-dependency-plan-v1";
+    await db.update(aiMissionsTable)
+      .set({
+        autonomyPolicy: {
+          mode: "autonomous",
+          maxAutoReplans: 3,
+          activePlanRevision: planRevision,
+        },
+      })
+      .where(eq(aiMissionsTable.id, fixture.missionId));
+    await db.update(aiGoalsTable)
+      .set({
+        successCriteria: { planRevision: { hash: planRevision } },
+        outcomeContract: { planRevision: { hash: planRevision } },
+      })
+      .where(eq(aiGoalsTable.id, fixture.goalId));
+
+    const [mission] = await db.select().from(aiMissionsTable)
+      .where(eq(aiMissionsTable.id, fixture.missionId))
+      .limit(1);
+    const [goal] = await db.select().from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, fixture.goalId))
+      .limit(1);
+    const dependency = { id: randomUUID(), title: "Failed prerequisite" };
+    const intentId = await db.transaction((tx) =>
+      missionRuntimeModule.persistGoalDependencyFailed(tx, {
+        goal: goal!,
+        mission: mission!,
+        planRevision,
+        dependency,
+      }),
+    );
+
+    const [updatedGoal] = await db.select({
+      status: aiGoalsTable.status,
+      blockedReason: aiGoalsTable.blockedReason,
+    }).from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, fixture.goalId))
+      .limit(1);
+    const [updatedMission] = await db.select({
+      status: aiMissionsTable.status,
+    }).from(aiMissionsTable)
+      .where(eq(aiMissionsTable.id, fixture.missionId))
+      .limit(1);
+    const [intent] = await db.select({
+      type: eventsTable.type,
+      payload: eventsTable.payload,
+    }).from(eventsTable)
+      .where(eq(eventsTable.id, intentId))
+      .limit(1);
+
+    expect(updatedGoal).toEqual({
+      status: "needs_replan",
+      blockedReason: "dependency_failed",
+    });
+    expect(updatedMission?.status).toBe("needs_replan");
+    expect(intent?.type).toBe(MISSION_REPLAN_REQUESTED);
+    expect(intent?.payload).toMatchObject({
+      source: "goal_admission",
+      missionId: fixture.missionId,
+      projectId: fixture.projectId,
+      goalId: fixture.goalId,
+      reasonCode: "dependency_failed",
+      sourcePlanRevision: planRevision,
+    });
+    expect(intent?.payload).not.toHaveProperty("executionId");
+    expect(intent?.payload).not.toHaveProperty("acceptanceId");
+  });
+
+  it("uses success criteria as the fallback plan revision for dependency proofs", async () => {
+    const fixture = await createDependencyProofFixture();
+
+    await db.update(aiGoalsTable)
+      .set({ outcomeContract: {} })
+      .where(eq(aiGoalsTable.id, fixture.goalId));
+    const [edge] = await db.select({
+      dependsOnGoalId: aiGoalDependenciesTable.dependsOnGoalId,
+    }).from(aiGoalDependenciesTable)
+      .where(eq(aiGoalDependenciesTable.goalId, fixture.goalId))
+      .limit(1);
+    expect(edge?.dependsOnGoalId).toBeTruthy();
+
+    const [dependencyGoal] = await db.select({
+      outcomeContract: aiGoalsTable.outcomeContract,
+    }).from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, edge!.dependsOnGoalId))
+      .limit(1);
+    const dependencyOutcome = {
+      ...(dependencyGoal?.outcomeContract as Record<string, unknown>),
+    };
+    delete dependencyOutcome.planRevision;
+    await db.update(aiGoalsTable)
+      .set({ outcomeContract: dependencyOutcome })
+      .where(eq(aiGoalsTable.id, edge!.dependsOnGoalId));
+
+    const [mission] = await db.select().from(aiMissionsTable)
+      .where(eq(aiMissionsTable.id, fixture.missionId))
+      .limit(1);
+    const [goal] = await db.select().from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, fixture.goalId))
+      .limit(1);
+    const state = await db.transaction((tx) =>
+      missionRuntimeModule.evaluateGoalDependencyState(tx, mission!, goal!),
+    );
+
+    expect(state.planRevision).toBe("plan-e3.1");
+    expect(state.unprovenDependencies).toEqual([]);
+  });
+
+
   it("rejects a replaced approval event binding while runtime waits for the Mission lock", async () => {
     const planRevision = "a".repeat(64);
     const rotatedApprovalEventId = randomUUID();
