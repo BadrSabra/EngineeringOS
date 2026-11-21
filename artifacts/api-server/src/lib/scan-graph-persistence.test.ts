@@ -8,7 +8,6 @@ import {
   projectsTable,
   scanJobsTable,
 } from "@workspace/db";
-import type { RelationshipProvenance } from "@workspace/scanner";
 import { deleteStaticGraphRelationships, persistGraphRelationshipRefresh } from "./scan-graph-persistence.js";
 
 const projectIds: string[] = [];
@@ -213,7 +212,7 @@ describe("persistGraphRelationshipRefresh", () => {
       createdAt: now,
     });
     const foreignStampedId = randomUUID();
-    const baseProvenance: RelationshipProvenance = {
+    const baseProvenance: NonNullable<(typeof graphRelationshipsTable.$inferInsert)["provenance"]> = {
       sourceType: "typescript-ast",
       method: "ts-compiler-api",
       extractedAt: now.toISOString(),
