@@ -1,7 +1,7 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import axe from 'axe-core';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Metrics from './Metrics';
 import { useLocation } from 'wouter';
 
@@ -33,6 +33,10 @@ import {
 
 const refetchMetrics = vi.fn();
 const refetchProjects = vi.fn();
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 function mockProjects(
   data: Array<{ id: string; name: string; status?: string }> = [],
@@ -126,6 +130,40 @@ describe('Metrics', () => {
       }),
     );
     expect(getListMetricsQueryKey).toHaveBeenCalledWith({ projectId: 'project-a' });
+  });
+
+  it('shows existing history instead of suggesting a new scan when the selected range is empty', async () => {
+    mockProjects([{ id: 'project-a', name: 'Alpha' }]);
+    mockMetrics([{
+      timestamp: '2020-01-01T12:00:00.000Z',
+      overallScore: 72,
+      architectureScore: 70,
+      securityScore: 74,
+      structuralTestEstimate: 55,
+      lintIssues: 2,
+      technicalDebt: 5,
+    }]);
+    window.history.replaceState({}, '', '/metrics?projectId=project-a&range=7d');
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+
+    render(<Metrics />);
+
+    expect(screen.getByTestId('metrics-range-empty')).toHaveTextContent(
+      'لا توجد قراءات خلال الفترة المحددة.',
+    );
+    expect(screen.queryByTestId('button-start-metrics-scan')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('button-show-all-metrics'));
+
+    await waitFor(() => {
+      expect(window.location.search).toContain('range=all');
+      expect(screen.getByRole('button', { name: 'الكل' })).toHaveAttribute('aria-pressed', 'true');
+    });
+    expect(scanProjectMutate).not.toHaveBeenCalled();
   });
 
   it('starts a scan from the empty metrics state and tracks its background job', () => {
