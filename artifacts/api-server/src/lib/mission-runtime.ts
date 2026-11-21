@@ -4003,13 +4003,30 @@ export async function runMissionGoal(params: {
     && decision.status === "scheduled"
     && taskDispatchGeneration
   ) {
-    await scheduleAiTaskExecution(
-      decision.taskId,
-      params.userId,
-      { parentExecutionId: decision.delegation?.parentExecutionId },
-      taskDispatchGeneration.retryCount,
-      taskDispatchGeneration.correlationId,
-    );
+    try {
+      await scheduleAiTaskExecution(
+        decision.taskId,
+        params.userId,
+        { parentExecutionId: decision.delegation?.parentExecutionId },
+        taskDispatchGeneration.retryCount,
+        taskDispatchGeneration.correlationId,
+      );
+    } catch (error) {
+      // The Mission/Task transition and its Outbox intent already committed.
+      // A process-local queue wake is only an optimization; the durable Task
+      // dispatcher will retry this exact generation without another operator
+      // request.
+      logger.warn(
+        {
+          error,
+          taskId: decision.taskId,
+          goalId: decision.goalId,
+          retryCount: taskDispatchGeneration.retryCount,
+          correlationId: taskDispatchGeneration.correlationId,
+        },
+        "Mission Task local wake failed after Outbox commit; durable dispatch recovery remains available",
+      );
+    }
   }
   if (decision.status === "completed" && decision.reason === "apply_changes_d2_proven") {
     await wakeReadyMissionGoals(32, getLifecycleWorkerScopeProjectId());

@@ -2151,7 +2151,7 @@ describe("Mission goal runtime", () => {
     expect(mission?.status).toBe("needs_replan");
   });
 
-  it("commits the Mission Task outbox intent before attempting the local queue wake", async () => {
+  it("keeps Mission dispatch accepted when the local queue wake fails after Outbox commit", async () => {
     const taskId = randomUUID();
     const taskCorrelationId = randomUUID();
     const fixture = await createMissionFixture({
@@ -2181,7 +2181,11 @@ describe("Mission goal runtime", () => {
       goalId: fixture.goalId,
       userId: "test-user",
       trigger: "resume",
-    })).rejects.toThrow("simulated local wake loss");
+    })).resolves.toMatchObject({
+      status: "scheduled",
+      goalId: fixture.goalId,
+      taskId,
+    });
     expect(localWake).toHaveBeenCalledOnce();
     expect(localWake).toHaveBeenCalledWith(
       taskId,
