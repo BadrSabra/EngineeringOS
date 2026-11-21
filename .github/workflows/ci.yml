@@ -97,6 +97,7 @@ jobs:
               - 'artifacts/dashboard/src/components/ProjectAiBudgetPanel.tsx'
               - 'artifacts/dashboard/src/components/ProjectPluginsPanel.tsx'
               - 'artifacts/dashboard/src/components/RuleDetailActions.tsx'
+              - 'artifacts/dashboard/src/components/RuleEvaluationHandoff.tsx'
               - 'artifacts/dashboard/src/components/WorldTransitionTimeline.tsx'
               - 'artifacts/dashboard/src/components/mission-state.ts'
               - 'artifacts/dashboard/src/components/result-details.ts'
