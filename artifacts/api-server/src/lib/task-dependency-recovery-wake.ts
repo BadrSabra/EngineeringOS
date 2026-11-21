@@ -24,7 +24,9 @@ export async function wakeDeferredTaskRecoveryAcceptances(
     SET disposition = jsonb_set(
       COALESCE(acceptance.disposition, '{}'::jsonb),
       '{dependencyRetryAt}',
-      to_jsonb(clock_timestamp()::text),
+      -- planTaskRecovery compares this marker with the application clock.
+      -- A past sentinel avoids re-deferring a wake on a clock-skewed replica.
+      to_jsonb('1970-01-01T00:00:00.000Z'::text),
       true
     )
     FROM ai_executions AS execution
