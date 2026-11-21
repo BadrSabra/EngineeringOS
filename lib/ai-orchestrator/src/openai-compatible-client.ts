@@ -762,7 +762,6 @@ function isOpenRouterModelAvailabilityFailure(
   );
 }
 
-
 /**
  * Persist only candidate-wide OpenRouter failures across requests. Empty or
  * malformed output is contract-scoped and must not suppress a model for
@@ -2499,7 +2498,7 @@ export async function openrouterCompleteWithFallback(
       // retry in openrouterCompleteRaw. If that retry is exhausted, advance to
       // the next compatible free candidate. Preserve Retry-After as a wait
       // signal and never rotate around a provider/account rate limit.
-            // Share candidate availability knowledge across later completions.
+      // Share candidate availability knowledge across later completions.
       await recordUnavailableOpenRouterModelCooldown(
         err,
         model,
@@ -2896,7 +2895,7 @@ export async function* openrouterCompleteStream(
             transientRetried = true;
             continue;
           }
-                    // Share candidate availability knowledge across later stream requests.
+          // Share candidate availability knowledge across later stream requests.
           await recordUnavailableOpenRouterModelCooldown(
             providerError,
             model,
