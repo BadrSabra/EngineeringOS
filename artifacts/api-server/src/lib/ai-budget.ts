@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
-import { and, count, eq, gte, inArray, isNotNull, isNull, lt, notExists, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
   db,
   aiProjectBudgetsTable,
@@ -178,134 +178,184 @@ async function loadOrCreateBudget(
   return created[0];
 }
 
-async function usageForDay(executor: BudgetExecutor, projectId: string, day: string) {
+/**
+ * Read all daily AI usage aggregates in one PostgreSQL statement.
+ *
+ * Each scalar aggregate intentionally retains the predicate from the former
+ * independent query so reservation/event reconciliation semantics stay exact.
+ * Besides reducing round trips, the single statement gives the summary one
+ * consistent PostgreSQL snapshot instead of nine independently-read snapshots.
+ *
+ * @internal
+ */
+export async function usageForDay(executor: BudgetExecutor, projectId: string, day: string) {
   const since = utcDayStart(day);
   const until = new Date(since.getTime() + 86_400_000);
-  const [unreservedUsageAttempts, consumedReservations, reservations, tokenUsage, unreservedEventTokens, reservedKnownTokens, reservedTokens, chargedTokens, unreportedReservations] = await Promise.all([
-    executor.select({ value: count() }).from(aiUsageEventsTable).where(and(
-      eq(aiUsageEventsTable.projectId, projectId),
-      gte(aiUsageEventsTable.occurredAt, since),
-      lt(aiUsageEventsTable.occurredAt, until),
-      isNull(aiUsageEventsTable.modelTaskContract),
-      notExists(executor.select({ id: aiBudgetReservationsTable.id })
-        .from(aiBudgetReservationsTable)
-        .where(and(
-          eq(aiBudgetReservationsTable.projectId, projectId),
-          eq(aiBudgetReservationsTable.attemptId, aiUsageEventsTable.attemptId),
-        ))),
-    )),
-    executor.select({ value: count() }).from(aiBudgetReservationsTable).where(and(
-      eq(aiBudgetReservationsTable.projectId, projectId),
-      eq(aiBudgetReservationsTable.utcDay, day),
-      eq(aiBudgetReservationsTable.status, "consumed"),
-    )),
-    executor.select({ value: count() }).from(aiBudgetReservationsTable).where(and(
-      eq(aiBudgetReservationsTable.projectId, projectId),
-      eq(aiBudgetReservationsTable.utcDay, day),
-      eq(aiBudgetReservationsTable.status, "reserved"),
-    )),
-    executor.select({
-      prompt: sql<number>`coalesce(sum(${aiUsageEventsTable.promptTokens}), 0)`,
-      completion: sql<number>`coalesce(sum(${aiUsageEventsTable.completionTokens}), 0)`,
-      unknown: sql<number>`coalesce(sum(case when ${aiUsageEventsTable.usageStatus} = 'unknown' then 1 else 0 end), 0)`,
-      partial: sql<number>`coalesce(sum(case when ${aiUsageEventsTable.usageStatus} = 'partial' then 1 else 0 end), 0)`,
-    }).from(aiUsageEventsTable).where(and(
-      eq(aiUsageEventsTable.projectId, projectId),
-      gte(aiUsageEventsTable.occurredAt, since),
-      lt(aiUsageEventsTable.occurredAt, until),
-      isNull(aiUsageEventsTable.modelTaskContract),
-    )),
-    executor.select({
-      value: sql<number>`coalesce(sum(case
-        when ${aiUsageEventsTable.usageStatus} = 'known'
-          then coalesce(${aiUsageEventsTable.promptTokens}, 0) + coalesce(${aiUsageEventsTable.completionTokens}, 0)
-        else greatest(${AI_BUDGET_PROVIDER_RESERVATION_TOKENS},
-          coalesce(${aiUsageEventsTable.promptTokens}, 0) + coalesce(${aiUsageEventsTable.completionTokens}, 0))
-        end), 0)`,
-    }).from(aiUsageEventsTable).where(and(
-      eq(aiUsageEventsTable.projectId, projectId),
-      gte(aiUsageEventsTable.occurredAt, since),
-      lt(aiUsageEventsTable.occurredAt, until),
-      isNull(aiUsageEventsTable.modelTaskContract),
-      notExists(executor.select({ id: aiBudgetReservationsTable.id })
-        .from(aiBudgetReservationsTable)
-        .where(and(
-          eq(aiBudgetReservationsTable.projectId, projectId),
-          eq(aiBudgetReservationsTable.attemptId, aiUsageEventsTable.attemptId),
-        ))),
-    )),
-    executor.select({
-      value: sql<number>`coalesce(sum(coalesce(${aiUsageEventsTable.promptTokens}, 0) + coalesce(${aiUsageEventsTable.completionTokens}, 0)), 0)`,
-    }).from(aiUsageEventsTable).innerJoin(
-      aiBudgetReservationsTable,
-      and(
-        eq(aiBudgetReservationsTable.projectId, aiUsageEventsTable.projectId),
-        eq(aiBudgetReservationsTable.attemptId, aiUsageEventsTable.attemptId),
-      ),
-    ).where(and(
-      eq(aiUsageEventsTable.projectId, projectId),
-      eq(aiBudgetReservationsTable.utcDay, day),
-      isNull(aiUsageEventsTable.modelTaskContract),
-      eq(aiUsageEventsTable.usageStatus, "known"),
-      isNotNull(aiUsageEventsTable.promptTokens),
-      isNotNull(aiUsageEventsTable.completionTokens),
-    )),
-    executor.select({
-      value: sql<number>`coalesce(sum(${aiBudgetReservationsTable.estimatedTokens}), 0)`,
-    }).from(aiBudgetReservationsTable).where(and(
-      eq(aiBudgetReservationsTable.projectId, projectId),
-      eq(aiBudgetReservationsTable.utcDay, day),
-      eq(aiBudgetReservationsTable.status, "reserved"),
-      notExists(executor.select({ id: aiUsageEventsTable.id })
-        .from(aiUsageEventsTable)
-        .where(and(
-          eq(aiUsageEventsTable.projectId, projectId),
-          eq(aiUsageEventsTable.attemptId, aiBudgetReservationsTable.attemptId),
-          eq(aiUsageEventsTable.usageStatus, "known"),
-          isNotNull(aiUsageEventsTable.promptTokens),
-          isNotNull(aiUsageEventsTable.completionTokens),
-        ))),
-    )),
-    executor.select({
-      value: sql<number>`coalesce(sum(greatest(${aiBudgetReservationsTable.chargedTokens}, ${aiBudgetReservationsTable.estimatedTokens})), 0)`,
-    }).from(aiBudgetReservationsTable).where(and(
-      eq(aiBudgetReservationsTable.projectId, projectId),
-      eq(aiBudgetReservationsTable.utcDay, day),
-      eq(aiBudgetReservationsTable.status, "consumed"),
-      notExists(executor.select({ id: aiUsageEventsTable.id })
-        .from(aiUsageEventsTable)
-        .where(and(
-          eq(aiUsageEventsTable.attemptId, aiBudgetReservationsTable.attemptId),
-          eq(aiUsageEventsTable.projectId, projectId),
-          eq(aiUsageEventsTable.usageStatus, "known"),
-          isNotNull(aiUsageEventsTable.promptTokens),
-          isNotNull(aiUsageEventsTable.completionTokens),
-        ))),
-    )),
-    executor.select({ value: count() }).from(aiBudgetReservationsTable).where(and(
-      eq(aiBudgetReservationsTable.projectId, projectId),
-      eq(aiBudgetReservationsTable.utcDay, day),
-      inArray(aiBudgetReservationsTable.status, ["reserved", "consumed"]),
-      notExists(executor.select({ id: aiUsageEventsTable.id })
-        .from(aiUsageEventsTable)
-        .where(and(
-          eq(aiUsageEventsTable.attemptId, aiBudgetReservationsTable.attemptId),
-          eq(aiUsageEventsTable.projectId, projectId),
-        ))),
-    )),
-  ]);
-  const consumed = Number(unreservedUsageAttempts[0]?.value ?? 0)
-    + Number(consumedReservations[0]?.value ?? 0);
-  const pending = Number(reservations[0]?.value ?? 0);
-  const promptTokens = Number(tokenUsage[0]?.prompt ?? 0);
-  const completionTokens = Number(tokenUsage[0]?.completion ?? 0);
-  const unknownCount = Number(tokenUsage[0]?.unknown ?? 0)
-    + Number(unreportedReservations[0]?.value ?? 0);
-  const partialCount = Number(tokenUsage[0]?.partial ?? 0);
-  const reservedTokenTotal = Number(reservedTokens[0]?.value ?? 0);
-  const chargedTokenTotal = Number(chargedTokens[0]?.value ?? 0);
-  const tokenAdmissionTotal = Number(unreservedEventTokens[0]?.value ?? 0)
-    + Number(reservedKnownTokens[0]?.value ?? 0)
+  const result = await executor.execute(sql`
+    SELECT
+      (
+        SELECT count(*)
+        FROM ${aiUsageEventsTable}
+        WHERE ${aiUsageEventsTable.projectId} = ${projectId}
+          AND ${aiUsageEventsTable.occurredAt} >= ${since}
+          AND ${aiUsageEventsTable.occurredAt} < ${until}
+          AND ${aiUsageEventsTable.modelTaskContract} IS NULL
+          AND NOT EXISTS (
+            SELECT 1
+            FROM ${aiBudgetReservationsTable}
+            WHERE ${aiBudgetReservationsTable.projectId} = ${projectId}
+              AND ${aiBudgetReservationsTable.attemptId} = ${aiUsageEventsTable.attemptId}
+          )
+      ) AS "unreservedUsageAttempts",
+      (
+        SELECT count(*)
+        FROM ${aiBudgetReservationsTable}
+        WHERE ${aiBudgetReservationsTable.projectId} = ${projectId}
+          AND ${aiBudgetReservationsTable.utcDay} = ${day}
+          AND ${aiBudgetReservationsTable.status} = 'consumed'
+      ) AS "consumedReservations",
+      (
+        SELECT count(*)
+        FROM ${aiBudgetReservationsTable}
+        WHERE ${aiBudgetReservationsTable.projectId} = ${projectId}
+          AND ${aiBudgetReservationsTable.utcDay} = ${day}
+          AND ${aiBudgetReservationsTable.status} = 'reserved'
+      ) AS "reservedAttempts",
+      (
+        SELECT json_build_object(
+          'prompt', coalesce(sum(${aiUsageEventsTable.promptTokens}), 0),
+          'completion', coalesce(sum(${aiUsageEventsTable.completionTokens}), 0)
+        )
+        FROM ${aiUsageEventsTable}
+        WHERE ${aiUsageEventsTable.projectId} = ${projectId}
+          AND ${aiUsageEventsTable.occurredAt} >= ${since}
+          AND ${aiUsageEventsTable.occurredAt} < ${until}
+          AND ${aiUsageEventsTable.modelTaskContract} IS NULL
+      ) AS "tokenTotals",
+      (
+        SELECT coalesce(sum(
+          CASE
+            WHEN ${aiUsageEventsTable.usageStatus} = 'known'
+              THEN coalesce(${aiUsageEventsTable.promptTokens}, 0)
+                + coalesce(${aiUsageEventsTable.completionTokens}, 0)
+            ELSE greatest(
+              ${AI_BUDGET_PROVIDER_RESERVATION_TOKENS},
+              coalesce(${aiUsageEventsTable.promptTokens}, 0)
+                + coalesce(${aiUsageEventsTable.completionTokens}, 0)
+            )
+          END
+        ), 0)
+        FROM ${aiUsageEventsTable}
+        WHERE ${aiUsageEventsTable.projectId} = ${projectId}
+          AND ${aiUsageEventsTable.occurredAt} >= ${since}
+          AND ${aiUsageEventsTable.occurredAt} < ${until}
+          AND ${aiUsageEventsTable.modelTaskContract} IS NULL
+          AND NOT EXISTS (
+            SELECT 1
+            FROM ${aiBudgetReservationsTable}
+            WHERE ${aiBudgetReservationsTable.projectId} = ${projectId}
+              AND ${aiBudgetReservationsTable.attemptId} = ${aiUsageEventsTable.attemptId}
+          )
+      ) AS "unreservedEventTokens",
+      (
+        SELECT coalesce(sum(
+          coalesce(${aiUsageEventsTable.promptTokens}, 0)
+            + coalesce(${aiUsageEventsTable.completionTokens}, 0)
+        ), 0)
+        FROM ${aiUsageEventsTable}
+        INNER JOIN ${aiBudgetReservationsTable}
+          ON ${aiBudgetReservationsTable.projectId} = ${aiUsageEventsTable.projectId}
+          AND ${aiBudgetReservationsTable.attemptId} = ${aiUsageEventsTable.attemptId}
+        WHERE ${aiUsageEventsTable.projectId} = ${projectId}
+          AND ${aiBudgetReservationsTable.utcDay} = ${day}
+          AND ${aiUsageEventsTable.modelTaskContract} IS NULL
+          AND ${aiUsageEventsTable.usageStatus} = 'known'
+          AND ${aiUsageEventsTable.promptTokens} IS NOT NULL
+          AND ${aiUsageEventsTable.completionTokens} IS NOT NULL
+      ) AS "reservedKnownTokens",
+      (
+        SELECT coalesce(sum(${aiBudgetReservationsTable.estimatedTokens}), 0)
+        FROM ${aiBudgetReservationsTable}
+        WHERE ${aiBudgetReservationsTable.projectId} = ${projectId}
+          AND ${aiBudgetReservationsTable.utcDay} = ${day}
+          AND ${aiBudgetReservationsTable.status} = 'reserved'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM ${aiUsageEventsTable}
+            WHERE ${aiUsageEventsTable.projectId} = ${aiBudgetReservationsTable.projectId}
+              AND ${aiUsageEventsTable.attemptId} = ${aiBudgetReservationsTable.attemptId}
+              AND ${aiUsageEventsTable.usageStatus} = 'known'
+              AND ${aiUsageEventsTable.promptTokens} IS NOT NULL
+              AND ${aiUsageEventsTable.completionTokens} IS NOT NULL
+          )
+      ) AS "reservedTokenTotal",
+      (
+        SELECT coalesce(sum(greatest(
+          ${aiBudgetReservationsTable.chargedTokens},
+          ${aiBudgetReservationsTable.estimatedTokens}
+        )), 0)
+        FROM ${aiBudgetReservationsTable}
+        WHERE ${aiBudgetReservationsTable.projectId} = ${projectId}
+          AND ${aiBudgetReservationsTable.utcDay} = ${day}
+          AND ${aiBudgetReservationsTable.status} = 'consumed'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM ${aiUsageEventsTable}
+            WHERE ${aiUsageEventsTable.attemptId} = ${aiBudgetReservationsTable.attemptId}
+              AND ${aiUsageEventsTable.projectId} = ${aiBudgetReservationsTable.projectId}
+              AND ${aiUsageEventsTable.usageStatus} = 'known'
+              AND ${aiUsageEventsTable.promptTokens} IS NOT NULL
+              AND ${aiUsageEventsTable.completionTokens} IS NOT NULL
+          )
+      ) AS "chargedTokenTotal",
+      (
+        SELECT json_build_object(
+          'unknown', count(*) FILTER (WHERE ${aiUsageEventsTable.usageStatus} = 'unknown'),
+          'partial', count(*) FILTER (WHERE ${aiUsageEventsTable.usageStatus} = 'partial')
+        )
+        FROM ${aiUsageEventsTable}
+        WHERE ${aiUsageEventsTable.projectId} = ${projectId}
+          AND ${aiUsageEventsTable.occurredAt} >= ${since}
+          AND ${aiUsageEventsTable.occurredAt} < ${until}
+          AND ${aiUsageEventsTable.modelTaskContract} IS NULL
+      ) AS "eventUsageStatus",
+      (
+        SELECT count(*)
+        FROM ${aiBudgetReservationsTable}
+        WHERE ${aiBudgetReservationsTable.projectId} = ${projectId}
+          AND ${aiBudgetReservationsTable.utcDay} = ${day}
+          AND ${aiBudgetReservationsTable.status} IN ('reserved', 'consumed')
+          AND NOT EXISTS (
+            SELECT 1
+            FROM ${aiUsageEventsTable}
+            WHERE ${aiUsageEventsTable.attemptId} = ${aiBudgetReservationsTable.attemptId}
+              AND ${aiUsageEventsTable.projectId} = ${aiBudgetReservationsTable.projectId}
+          )
+      ) AS "unreportedReservations"
+  `);
+  const row = result.rows[0] as {
+    unreservedUsageAttempts?: number | string | null;
+    consumedReservations?: number | string | null;
+    reservedAttempts?: number | string | null;
+    tokenTotals?: { prompt?: number | string | null; completion?: number | string | null } | null;
+    unreservedEventTokens?: number | string | null;
+    reservedKnownTokens?: number | string | null;
+    reservedTokenTotal?: number | string | null;
+    chargedTokenTotal?: number | string | null;
+    eventUsageStatus?: { unknown?: number | string | null; partial?: number | string | null } | null;
+    unreportedReservations?: number | string | null;
+  } | undefined;
+  const value = (input: number | string | null | undefined) => Number(input ?? 0);
+  const consumed = value(row?.unreservedUsageAttempts) + value(row?.consumedReservations);
+  const pending = value(row?.reservedAttempts);
+  const promptTokens = value(row?.tokenTotals?.prompt);
+  const completionTokens = value(row?.tokenTotals?.completion);
+  const unknownCount = value(row?.eventUsageStatus?.unknown) + value(row?.unreportedReservations);
+  const partialCount = value(row?.eventUsageStatus?.partial);
+  const reservedTokenTotal = value(row?.reservedTokenTotal);
+  const chargedTokenTotal = value(row?.chargedTokenTotal);
+  const tokenAdmissionTotal = value(row?.unreservedEventTokens)
+    + value(row?.reservedKnownTokens)
     + reservedTokenTotal
     + chargedTokenTotal;
   return {
