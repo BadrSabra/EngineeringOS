@@ -4270,7 +4270,17 @@ export async function reconcileAiExecutions(
   const running = await db.select().from(aiExecutionsTable).where(
     params.expiredOnly !== false
       ? or(
-          eq(aiExecutionsTable.status, "cancelling"),
+          // A cancellation request is not proof that its worker has stopped.
+          // Let the current owner observe the abort and finalize normally; a
+          // reconciler takes over only after ownership/lease metadata is gone.
+          and(
+            eq(aiExecutionsTable.status, "cancelling"),
+            or(
+              isNull(aiExecutionsTable.workerId),
+              isNull(aiExecutionsTable.leaseUntil),
+              lte(aiExecutionsTable.leaseUntil, databaseNow()),
+            ),
+          ),
           and(
             eq(aiExecutionsTable.status, "running"),
             lte(aiExecutionsTable.leaseUntil, databaseNow()),
