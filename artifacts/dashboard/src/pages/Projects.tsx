@@ -51,15 +51,18 @@ export default function Projects() {
 }
 
 function ProjectsForAccount({ ownerId }: { ownerId: string }) {
-  const routeDraftId = new URLSearchParams(window.location.search).get('goalDraftId') ?? '';
+  const routeParams = new URLSearchParams(window.location.search);
+  const routeDraftId = routeParams.get('goalDraftId') ?? '';
+  const routeCreate = routeParams.get('create') === '1';
 
   // The same /projects route can receive another goal handoff without unmounting.
   // Bind all create-form and bootstrap state to the exact handoff draft.
   return (
     <ProjectsForAccountSession
-      key={JSON.stringify([ownerId, routeDraftId])}
+      key={JSON.stringify([ownerId, routeDraftId, routeCreate])}
       ownerId={ownerId}
       routeDraftId={routeDraftId}
+      routeCreate={routeCreate}
     />
   );
 }
@@ -67,9 +70,11 @@ function ProjectsForAccount({ ownerId }: { ownerId: string }) {
 function ProjectsForAccountSession({
   ownerId,
   routeDraftId,
+  routeCreate,
 }: {
   ownerId: string;
   routeDraftId: string;
+  routeCreate: boolean;
 }) {
   const [, setLocation] = useLocation();
   const draftSnapshot = readGoalDrafts(ownerId);
@@ -100,7 +105,7 @@ function ProjectsForAccountSession({
   // Accept the newest query result, including an authoritative empty collection.
   const projects = rawProjects;
   const [showDiscover, setShowDiscover] = useState(false);
-  const [showCreate, setShowCreate] = useState(Boolean(incomingDraft));
+  const [showCreate, setShowCreate] = useState(Boolean(incomingDraft) || routeCreate);
   const [search, setSearch] = useState(
     () => new URLSearchParams(window.location.search).get('search') ?? '',
   );
@@ -168,6 +173,11 @@ function ProjectsForAccountSession({
   const resetCreate = () => {
     createGeneration.current++;
     setShowCreate(false);
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('create') === '1') {
+      url.searchParams.delete('create');
+      window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+    }
     setProjectName('');
     setProjectDescription('');
     setBootstrapId('');
