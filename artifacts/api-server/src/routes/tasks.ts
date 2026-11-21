@@ -24,6 +24,7 @@ import {
 } from "@workspace/api-zod";
 import { eq, and, desc, gt, asc, inArray, isNull, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
+import { z } from "zod";
 import { recordAudit, recordAuditInTransaction } from "../lib/audit.js";
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
 import { runTaskVerification } from "../services/task-service.js";
@@ -61,6 +62,16 @@ const router = Router();
 // Defense-in-depth: requireAuth is already applied globally in app.ts, but
 // adding it here too means this router is safe even if mounted without it.
 router.use(requireAuth);
+
+const CreateTaskRequest = CreateTaskBody.superRefine((body, context) => {
+  if (body.executeImmediately && !body.prompt?.trim()) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["prompt"],
+      message: "A non-empty prompt is required when executeImmediately is true.",
+    });
+  }
+});
 
 async function projectCurrentTaskExecutionReceipts<
   T extends { id: string; agentResponse: string | null },
@@ -261,7 +272,7 @@ router.get("/tasks", async (req, res) => {
 
 // Create task
 router.post("/tasks", async (req, res) => {
-  const body = CreateTaskBody.parse(req.body);
+  const { executeImmediately, ...body } = CreateTaskRequest.parse(req.body);
   const project = await loadProjectByIdForUser(body.projectId, req.userId, res);
   if (!project) return;
 
@@ -303,7 +314,14 @@ router.post("/tasks", async (req, res) => {
       if (invalidIds.length > 0) throw new TaskDependencyReferenceError(invalidIds);
 
       const rows = await tx.insert(tasksTable)
-        .values({ id: taskId, ...body, correlationId, createdAt: now, updatedAt: now })
+        .values({
+          id: taskId,
+          ...body,
+          ...(executeImmediately ? { status: "verifying" as const } : {}),
+          correlationId,
+          createdAt: now,
+          updatedAt: now,
+        })
         .returning();
       await tx.insert(eventsTable).values({
         id: randomUUID(), type: "TaskCreated", projectId: body.projectId,
@@ -315,6 +333,18 @@ router.post("/tasks", async (req, res) => {
         projectId: body.projectId, actor: req.userId, correlationId,
         stateAfter: rows[0],
       });
+      if (executeImmediately) {
+        const intentPersisted = await insertTaskAutoExecutionIntent(tx, {
+          taskId,
+          userId: req.userId,
+          retryCount: rows[0].retryCount,
+        });
+        if (!intentPersisted) {
+          throw new TaskStateConflictError(
+            "The new Task could not reserve its initial execution intent.",
+          );
+        }
+      }
       return rows;
     });
   } catch (error) {
@@ -324,7 +354,32 @@ router.post("/tasks", async (req, res) => {
         dependencyIds: error.dependencyIds,
       });
     }
+    if (error instanceof TaskStateConflictError) {
+      return res.status(409).json({
+        error: "task_dispatch_identity_conflict",
+        reason: error.message,
+      });
+    }
     throw error;
+  }
+
+  if (executeImmediately) {
+    try {
+      // The durable intent was committed with the Task. A failed local wake-up
+      // must not turn a successful create into an ambiguous client retry.
+      await scheduleAiTaskExecution(
+        taskId,
+        req.userId,
+        undefined,
+        task[0].retryCount,
+        task[0].correlationId,
+      );
+    } catch (error) {
+      logger.warn(
+        { error, taskId, projectId: project.id, correlationId },
+        "Task created with a durable execution intent; local queue wake-up failed",
+      );
+    }
   }
 
   invalidateContextCache(project.id);
@@ -1143,7 +1198,13 @@ router.post("/tasks/:taskId/retry", async (req, res) => {
 
   const retryCount = task[0].retryCount ?? 0;
   const maxRetries = task[0].maxRetries ?? 3;
-  const retryTransition = taskTransitionConflict(task[0].status as TaskStatus, "queued", "retry");
+  // Validate the public transition before opening the write transaction. The
+  // exact target (queued vs verifying) is recalculated under the Task row lock.
+  const retryTransition = taskTransitionConflict(
+    task[0].status as TaskStatus,
+    "queued",
+    "retry",
+  );
   if (retryTransition) {
     return res.status(409).json({ error: retryTransition });
   }
@@ -1156,30 +1217,55 @@ router.post("/tasks/:taskId/retry", async (req, res) => {
   const now = new Date();
   const correlationId = randomUUID();
   let updated: typeof tasksTable.$inferSelect;
+  let nextStatus: "queued" | "verifying" = "queued";
   try {
     [updated] = await db.transaction(async (tx) => {
-      // Atomic claim + effects in one transaction: the status/retryCount
-      // guard means a concurrent retry call on the same task affects 0 rows
-      // and the whole transaction rolls back instead of double-incrementing
-      // retryCount or racing with another retry/execute call.
+      // Lock and re-read the Task so prompt presence and retry generation
+      // cannot change between choosing the dispatch path and persisting it.
+      const [lockedTask] = await tx
+        .select()
+        .from(tasksTable)
+        .where(eq(tasksTable.id, taskId))
+        .for("update")
+        .limit(1);
+      if (
+        !lockedTask
+        || !["failed", "cancelled"].includes(lockedTask.status)
+        || lockedTask.retryCount !== retryCount
+        || lockedTask.retryCount >= (lockedTask.maxRetries ?? 3)
+      ) {
+        throw new TaskStateConflictError(
+          `Cannot retry task with status "${lockedTask?.status ?? "missing"}"`,
+        );
+      }
+      nextStatus = lockedTask.prompt ? "verifying" : "queued";
+      const lockedTransition = taskTransitionConflict(
+        lockedTask.status as TaskStatus,
+        nextStatus,
+        "retry",
+      );
+      if (lockedTransition) throw new TaskStateConflictError(lockedTransition);
+
+      // The Task generation, event/audit records, and any Outbox intent all
+      // commit together. Concurrent retries cannot increment twice.
       const [row] = await tx
         .update(tasksTable)
         .set({
-          status: "queued",
+          status: nextStatus,
           retryCount: retryCount + 1,
           correlationId,
           updatedAt: now,
         })
-        .where(
-          and(
-            eq(tasksTable.id, taskId),
-            inArray(tasksTable.status, ["failed", "cancelled"]),
-            eq(tasksTable.retryCount, retryCount),
-          ),
-        )
+        .where(and(
+          eq(tasksTable.id, taskId),
+          eq(tasksTable.status, lockedTask.status),
+          eq(tasksTable.retryCount, lockedTask.retryCount),
+        ))
         .returning();
       if (!row) {
-        throw new TaskStateConflictError(`Cannot retry task with status "${task[0].status}"`);
+        throw new TaskStateConflictError(
+          `Cannot retry task with status "${lockedTask.status}"`,
+        );
       }
 
       await tx.insert(taskLogsTable).values({
@@ -1193,18 +1279,34 @@ router.post("/tasks/:taskId/retry", async (req, res) => {
       await tx.insert(eventsTable).values({
         id: randomUUID(),
         type: "TaskRetried",
-        projectId: task[0].projectId,
+        projectId: lockedTask.projectId,
         taskId,
         severity: "warning",
-        message: `Task "${task[0].title}" queued for retry (#${retryCount + 1})`,
+        message: `Task "${lockedTask.title}" ${nextStatus === "verifying" ? "scheduled for retry" : "queued for retry"} (#${retryCount + 1})`,
         correlationId,
-        payload: { before: { status: task[0].status, retryCount }, after: { status: "queued", retryCount: retryCount + 1 } },
+        payload: {
+          before: { status: lockedTask.status, retryCount },
+          after: { status: nextStatus, retryCount: retryCount + 1 },
+        },
       });
       await recordAuditInTransaction(tx, {
         entityType: "task", entityId: taskId, action: "retried",
-        projectId: task[0].projectId, stateBefore: { status: task[0].status, retryCount },
-        stateAfter: { status: "queued", retryCount: retryCount + 1 }, correlationId,
+        projectId: lockedTask.projectId, stateBefore: { status: lockedTask.status, retryCount },
+        stateAfter: { status: nextStatus, retryCount: retryCount + 1 }, correlationId,
       });
+
+      if (row.status === "verifying" && row.prompt) {
+        const intentPersisted = await insertTaskAutoExecutionIntent(tx, {
+          taskId,
+          userId: req.userId,
+          retryCount: row.retryCount,
+        });
+        if (!intentPersisted) {
+          throw new TaskStateConflictError(
+            "The Task generation is already bound to a different dispatch identity.",
+          );
+        }
+      }
 
       return [row];
     });
@@ -1213,6 +1315,25 @@ router.post("/tasks/:taskId/retry", async (req, res) => {
       return res.status(409).json({ error: err.message });
     }
     throw err;
+  }
+
+  if (updated.status === "verifying" && updated.prompt) {
+    try {
+      // The retry and its Outbox intent are already committed. This wake-up
+      // only reduces latency; the durable dispatcher remains the recovery path.
+      await scheduleAiTaskExecution(
+        taskId,
+        req.userId,
+        undefined,
+        updated.retryCount,
+        updated.correlationId,
+      );
+    } catch (error) {
+      logger.warn(
+        { error, taskId, projectId: project.id, correlationId },
+        "Task retry committed with a durable execution intent; local queue wake-up failed",
+      );
+    }
   }
 
   invalidateContextCache(project.id);

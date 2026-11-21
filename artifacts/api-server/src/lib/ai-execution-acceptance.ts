@@ -49,6 +49,11 @@ import {
 } from "./agent-state/apply-changes-proof.js";
 import { canonicalJsonHash, ValidationProfileSchema } from "@workspace/ai-orchestrator";
 import { logger } from "./logger.js";
+import {
+  wakeDeferredTaskDependencyIntents,
+  type TaskDependencyWakeTarget,
+} from "./task-dependency-wake.js";
+import { wakeDeferredTaskRecoveryAcceptances } from "./task-dependency-recovery-wake.js";
 
 const CURRENT_EVIDENCE_READ_METADATA_VERSION = 1;
 
@@ -2154,6 +2159,8 @@ export async function finalizeExecutionAcceptance(
 ): Promise<FinalizeExecutionAcceptanceResult> {
   const immediateReplanTarget: { value: { missionId: string; projectId: string; executionId: string } | null } = { value: null };
   const immediateTaskGoalWakeTarget: { value: { projectId: string; wakeIntentId: string } | null } = { value: null };
+  const immediateTaskDependencyWakeTargets: { value: TaskDependencyWakeTarget[] } = { value: [] };
+  const immediateTaskRecoveryWakeProjectId: { value: string | null } = { value: null };
   const result = await db.transaction(async (tx) => {
     const persistActionReceipt = async (
       acceptance: typeof aiExecutionAcceptancesTable.$inferSelect,
@@ -3066,6 +3073,23 @@ export async function finalizeExecutionAcceptance(
         .returning();
       if (!updatedTask) throw new Error("task_state_changed_during_finalize");
 
+      // A successful prerequisite completion releases only child Outbox
+      // intents that were deferred by the dependency gate. The parent Task
+      // commit and the child's earlier retry timestamp move together.
+      if (outcome === "SUCCEEDED" && updatedTask.status === "completed") {
+        immediateTaskDependencyWakeTargets.value = await wakeDeferredTaskDependencyIntents(tx, {
+          completedTaskId: updatedTask.id,
+          projectId: execution.projectId,
+        });
+        const wokenRecoveryCount = await wakeDeferredTaskRecoveryAcceptances(tx, {
+          completedTaskId: updatedTask.id,
+          projectId: execution.projectId,
+        });
+        if (wokenRecoveryCount > 0) {
+          immediateTaskRecoveryWakeProjectId.value = execution.projectId;
+        }
+      }
+
       const correlationId = params.taskFinalization.correlationId ?? execution.correlationId;
       const linkedGoalFollowUp = await syncLinkedObjectiveState(tx, {
         task,
@@ -3289,6 +3313,60 @@ export async function finalizeExecutionAcceptance(
           scope: "task-acceptance",
         },
         "Mission dependent Goal wake failed after proven Task acceptance; durable reconciliation remains available.",
+      );
+    }
+  }
+
+  // A completed prerequisite may also unblock an autonomous recovery acceptance.
+  // Make its persisted dependency cooldown due in the parent transaction above,
+  // then ask the existing coordinator to enqueue the now-eligible recovery.
+  // The 10-second durable dispatcher remains the crash/restart recovery path.
+  const dependencyRecoveryWakeProjectId = immediateTaskRecoveryWakeProjectId.value;
+  if (result.accepted && !result.duplicate && dependencyRecoveryWakeProjectId) {
+    try {
+      const { dispatchAutonomousTaskRecoveries } = await import("./ai-recovery-coordinator.js");
+      await dispatchAutonomousTaskRecoveries({ projectId: dependencyRecoveryWakeProjectId });
+    } catch (error) {
+      logger.warn(
+        {
+          projectId: dependencyRecoveryWakeProjectId,
+          error,
+          scope: "task-dependency-recovery-wake",
+        },
+        "Immediate autonomous Task recovery wake failed; durable dispatch will retry.",
+      );
+    }
+  }
+
+  const dependentTaskWakeTargets = immediateTaskDependencyWakeTargets.value;
+  if (result.accepted && !result.duplicate && dependentTaskWakeTargets.length > 0) {
+    try {
+      const { scheduleAiTaskExecution } = await import("../routes/ai/tasks.js");
+      // Keep post-commit scheduling bounded; the durable Task Outbox remains
+      // eligible for the ordinary dispatcher if this process or queue is lost.
+      for (let offset = 0; offset < dependentTaskWakeTargets.length; offset += 8) {
+        const batch = dependentTaskWakeTargets.slice(offset, offset + 8);
+        await Promise.all(batch.map(async (target) => {
+          try {
+            await scheduleAiTaskExecution(
+              target.taskId,
+              target.userId,
+              undefined,
+              target.retryCount,
+              target.correlationId,
+            );
+          } catch (error) {
+            logger.warn(
+              { taskId: target.taskId, error, scope: "task-dependency-wake" },
+              "Immediate dependent Task wake failed; its durable Outbox intent remains due for dispatch.",
+            );
+          }
+        }));
+      }
+    } catch (error) {
+      logger.warn(
+        { taskIds: dependentTaskWakeTargets.map((target) => target.taskId), error, scope: "task-dependency-wake" },
+        "Immediate dependent Task scheduling could not start; durable Outbox intents remain due for dispatch.",
       );
     }
   }

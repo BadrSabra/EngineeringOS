@@ -65,11 +65,11 @@ export function resolveWorkspaceNextStep({
   if (candidate?.status === 'pending' && candidate.approvalRequired) {
     return {
       kind: 'link',
-      title: 'راجع العمل المقترح',
-      description: 'هناك تغييرات مقترحة تنتظر مراجعتك قبل اتخاذ قرار.',
-      actionLabel: 'افتح المراجعة',
-      ariaLabel: 'الخطوة المقترحة: مراجعة العمل المقترح',
-      href: '#workspace-panel-canvas',
+      title: 'راجع ملخص النسخة المقترحة',
+      description: 'هناك نسخة تنتظر موافقتك. افتح ملخصها المسجل قبل اتخاذ القرار.',
+      actionLabel: 'عرض تفاصيل النسخة',
+      ariaLabel: 'الخطوة المقترحة: عرض ملخص النسخة المقترحة',
+      href: '#workspace-candidate-summary',
     };
   }
 
@@ -82,6 +82,18 @@ export function resolveWorkspaceNextStep({
       actionLabel: 'راجع المهمة',
       ariaLabel: `الخطوة المقترحة: مراجعة المهمة المتعثّرة: ${failedTask.title}`,
       href: `/tasks?projectId=${encodeURIComponent(projectId)}&taskId=${encodeURIComponent(failedTask.id)}`,
+    };
+  }
+
+  const blockedTask = recentTasks.find((task) => task.status === 'blocked');
+  if (blockedTask) {
+    return {
+      kind: 'link',
+      title: 'راجع المهمة المتوقفة',
+      description: 'هناك مهمة متوقفة ضمن أحدث المهام. افتح تفاصيلها لمعرفة ما يلزم لمتابعتها؛ لن نستأنفها تلقائيًا.',
+      actionLabel: 'افتح المهمة',
+      ariaLabel: `الخطوة المقترحة: مراجعة المهمة المتوقفة: ${blockedTask.title}`,
+      href: `/tasks?projectId=${encodeURIComponent(projectId)}&taskId=${encodeURIComponent(blockedTask.id)}`,
     };
   }
 

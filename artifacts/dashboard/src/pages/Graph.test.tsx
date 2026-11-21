@@ -1,6 +1,7 @@
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { readGoalDrafts } from '@/lib/home-goal-handoff';
 import Graph from './Graph';
 
 vi.mock('@workspace/api-client-react', () => ({
@@ -19,6 +20,7 @@ vi.mock('@workspace/api-client-react', () => ({
 
 const graphHandoffMocks = vi.hoisted(() => ({
   setLocation: vi.fn(),
+  search: '',
 }));
 
 vi.mock('@clerk/react', () => ({
@@ -27,6 +29,7 @@ vi.mock('@clerk/react', () => ({
 
 vi.mock('wouter', () => ({
   useLocation: () => ['/graph', graphHandoffMocks.setLocation],
+  useSearch: () => graphHandoffMocks.search,
 }));
 
 import {
@@ -73,6 +76,11 @@ const graphMeta = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  graphHandoffMocks.search = '';
+  graphHandoffMocks.setLocation.mockImplementation((path: string) => {
+    const query = path.split('?')[1];
+    graphHandoffMocks.search = query ? `?${query}` : '';
+  });
   window.sessionStorage.clear();
   vi.stubGlobal('ResizeObserver', class {
     observe() {}
@@ -135,6 +143,47 @@ describe('Graph', () => {
     expect(screen.getByText('الكيانات (1)')).toBeInTheDocument();
   });
 
+  it('opens a project-scoped reviewable assistant draft when the knowledge graph is empty', () => {
+    vi.mocked(useListGraphEntities).mockReturnValue({
+      data: { items: [], meta: { ...graphMeta, total: 0 } },
+      isLoading: false,
+    } as ReturnType<typeof useListGraphEntities>);
+    vi.mocked(useListGraphRelationships).mockReturnValue({
+      data: { items: [], meta: { ...graphMeta, total: 0 } },
+    } as ReturnType<typeof useListGraphRelationships>);
+    vi.mocked(useGetGraphSummary).mockReturnValue({
+      data: {
+        projectId: project.id,
+        entityCount: 0,
+        relationshipCount: 0,
+        entitiesByType: {},
+        relationsByType: {},
+        topConnected: [],
+        avgDegree: 0,
+        isolatedCount: 0,
+        clusterCount: 0,
+      },
+    } as ReturnType<typeof useGetGraphSummary>);
+
+    render(<Graph />);
+
+    expect(screen.getByText('لا توجد بيانات رسم بياني موثوقة لهذا المشروع.')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('button-graph-empty-assistant-handoff'));
+
+    const draft = readGoalDrafts('user-1').drafts[0];
+    expect(draft).toMatchObject({
+      source: 'home',
+      projectId: 'project-1',
+      sendAttemptedAt: null,
+    });
+    expect(draft.text).toContain('لا تظهر بيانات موثوقة في خريطة المعرفة');
+    expect(draft.text).toContain('اقترح خطوة آمنة');
+    expect(draft.text).toContain('لا تبدأ فحصًا ولا تغيّر ملفات المشروع');
+    expect(graphHandoffMocks.setLocation).toHaveBeenLastCalledWith(
+      `/projects/project-1/workspace?goalDraftId=${draft.id}#workspace-panel-agent`,
+    );
+  });
+
   it('highlights matching entities and their links while keeping the rest of the map visible', () => {
     render(<Graph />);
 
@@ -148,6 +197,55 @@ describe('Graph', () => {
     expect(screen.getByTestId('graph-node-entity-target')).toHaveStyle({ opacity: '0.12' });
     expect(screen.getByTestId('graph-edge-relationship-1'))
       .toHaveAttribute('stroke-opacity', '0.85');
+  });
+
+  it('selects an exact graph search match on Enter without guessing among partial matches', () => {
+    const helperEntity = {
+      ...targetEntity,
+      id: 'entity-target-helper',
+      name: 'buildGraphHelper',
+      path: 'src/graph-helper.ts',
+    };
+    const duplicateTargetEntity = {
+      ...targetEntity,
+      id: 'entity-target-copy',
+      path: 'src/legacy-graph.ts',
+    };
+    vi.mocked(useListGraphEntities).mockReturnValue({
+      data: {
+        items: [sourceEntity, targetEntity, helperEntity, duplicateTargetEntity],
+        meta: { ...graphMeta, total: 4 },
+      },
+      isLoading: false,
+    } as ReturnType<typeof useListGraphEntities>);
+
+    render(<Graph />);
+    const searchInput = screen.getByRole('textbox', { name: 'البحث في عناصر الرسم البياني' });
+
+    fireEvent.change(searchInput, { target: { value: 'build' } });
+    fireEvent.keyDown(searchInput, { key: 'Enter', code: 'Enter' });
+    expect(useGetGraphEntityNeighbors).toHaveBeenLastCalledWith(
+      '',
+      expect.objectContaining({ query: expect.objectContaining({ enabled: false }) }),
+    );
+
+    fireEvent.change(searchInput, { target: { value: 'buildGraph' } });
+    fireEvent.keyDown(searchInput, { key: 'Enter', code: 'Enter' });
+    expect(useGetGraphEntityNeighbors).toHaveBeenLastCalledWith(
+      '',
+      expect.objectContaining({ query: expect.objectContaining({ enabled: false }) }),
+    );
+
+    fireEvent.change(searchInput, { target: { value: 'buildGraphHelper' } });
+    expect(screen.getByTestId('graph-search-status')).toHaveTextContent(
+      'اضغط Enter لتحديد النتيجة.',
+    );
+    fireEvent.keyDown(searchInput, { key: 'Enter', code: 'Enter' });
+
+    expect(useGetGraphEntityNeighbors).toHaveBeenLastCalledWith(
+      helperEntity.id,
+      expect.objectContaining({ query: expect.objectContaining({ enabled: true }) }),
+    );
   });
 
   it('leaves the full map unchanged when a search has no matches', () => {
@@ -174,7 +272,11 @@ describe('Graph', () => {
     const projectSelect = screen.getByRole('combobox', { name: 'اختر مشروع الرسم البياني' });
 
     fireEvent.change(projectSelect, { target: { value: secondProject.id } });
+    rerender(<Graph />);
 
+    expect(graphHandoffMocks.setLocation).toHaveBeenLastCalledWith(
+      '/graph?projectId=project-2',
+    );
     expect(useListGraphEntities).toHaveBeenLastCalledWith(
       { projectId: secondProject.id },
       expect.objectContaining({
@@ -196,12 +298,69 @@ describe('Graph', () => {
     );
   });
 
-  it('does not keep an entity selection or detail query when switching projects', () => {
+  it('loads the selected project from a direct graph URL', () => {
+    graphHandoffMocks.search = '?projectId=project-2';
     vi.mocked(useListProjects).mockReturnValue({
       data: [project, secondProject],
     } as ReturnType<typeof useListProjects>);
 
     render(<Graph />);
+
+    expect(screen.getByRole('combobox', { name: 'اختر مشروع الرسم البياني' }))
+      .toHaveValue(secondProject.id);
+    expect(useListGraphEntities).toHaveBeenLastCalledWith(
+      { projectId: secondProject.id },
+      expect.objectContaining({
+        query: expect.objectContaining({ enabled: true }),
+      }),
+    );
+    expect(graphHandoffMocks.setLocation).not.toHaveBeenCalled();
+  });
+
+  it('follows project URL changes when navigating through browser history', () => {
+    graphHandoffMocks.search = '?projectId=project-2';
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [project, secondProject],
+    } as ReturnType<typeof useListProjects>);
+
+    const graph = render(<Graph />);
+    graphHandoffMocks.search = '?projectId=project-1';
+    graph.rerender(<Graph />);
+
+    expect(screen.getByRole('combobox', { name: 'اختر مشروع الرسم البياني' }))
+      .toHaveValue(project.id);
+    expect(useListGraphEntities).toHaveBeenLastCalledWith(
+      { projectId: project.id },
+      expect.objectContaining({
+        query: expect.objectContaining({ enabled: true }),
+      }),
+    );
+  });
+
+  it('falls back to an owned project when the URL requests an unavailable project', () => {
+    graphHandoffMocks.search = '?projectId=not-owned';
+
+    render(<Graph />);
+
+    expect(screen.getByRole('combobox', { name: 'اختر مشروع الرسم البياني' }))
+      .toHaveValue(project.id);
+    expect(useListGraphEntities).toHaveBeenLastCalledWith(
+      { projectId: project.id },
+      expect.objectContaining({
+        query: expect.objectContaining({ enabled: true }),
+      }),
+    );
+    expect(graphHandoffMocks.setLocation).toHaveBeenLastCalledWith(
+      '/graph?projectId=project-1',
+    );
+  });
+
+  it('does not keep an entity selection or detail query when switching projects', () => {
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [project, secondProject],
+    } as ReturnType<typeof useListProjects>);
+
+    const graph = render(<Graph />);
     fireEvent.click(screen.getByRole('button', { name: 'source.ts' }));
 
     expect(useGetGraphEntityNeighbors).toHaveBeenLastCalledWith(
@@ -214,7 +373,11 @@ describe('Graph', () => {
     fireEvent.change(screen.getByRole('combobox', { name: 'اختر مشروع الرسم البياني' }), {
       target: { value: secondProject.id },
     });
-
+    expect(graphHandoffMocks.setLocation).toHaveBeenLastCalledWith(
+      '/graph?projectId=project-2',
+    );
+    // The route mock mirrors Wouter's location update on the next render.
+    graph.rerender(<Graph />);
     expect(useGetGraphEntityNeighbors).toHaveBeenLastCalledWith(
       '',
       expect.objectContaining({

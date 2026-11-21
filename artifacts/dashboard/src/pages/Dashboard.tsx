@@ -29,6 +29,7 @@ import { Link, useLocation } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { RefreshButton, RequestError } from '@/components/OperatorResilience';
+import EventAssistantHandoff from '@/components/EventAssistantHandoff';
 import DashboardWorkSummary from '@/components/DashboardWorkSummary';
 import { useMonotonicData } from '@/lib/freshness';
 import { HOME_GOAL_MAX_LENGTH, storeHomeGoalDraft } from '@/lib/home-goal-handoff';
@@ -275,6 +276,15 @@ function OperatorAlertsCard() {
               {alerts.map((alert) => {
                 const copy = getOperatorAlertCopy(alert);
                 const isCatalogUnavailable = alert.kind === 'groq_model_catalog_unavailable';
+                const projectId = alert.projectId?.trim();
+                const destinationHref = copy.destination === 'projects'
+                  ? projectId
+                    ? `/projects/${encodeURIComponent(projectId)}`
+                    : '/projects'
+                  : '/ai';
+                const destinationLabel = copy.destination === 'projects'
+                  ? projectId ? 'افتح المشروع المتأثر' : 'إدارة المشاريع'
+                  : 'إعدادات مزود المساعد';
                 return (
                   <div
                     key={alert.id}
@@ -325,10 +335,10 @@ function OperatorAlertsCard() {
                         <span>عدد مرات الرصد: {alert.occurrenceCount.toLocaleString('ar-EG')}</span>
                       )}
                       <Link
-                        href={copy.destination === 'projects' ? '/projects' : '/ai'}
+                        href={destinationHref}
                         className="text-primary hover:underline"
                       >
-                        {copy.destination === 'projects' ? 'إدارة المشاريع' : 'إعدادات مزود المساعد'}
+                        {destinationLabel}
                       </Link>
                     </div>
                   </div>
@@ -382,8 +392,17 @@ function DashboardForUser({ ownerId }: { ownerId: string | null }) {
     && goalProjectMatch?.kind !== 'unique'
     ? suggestGoalProjects(goalDraft, projects)
     : [];
-  const directGoalProject = !showGoalDestinationPrompt && goalProjectMatch?.kind === 'unique'
-    ? goalProjectMatch.project
+  const onlyProjectWithoutSuggestions = !projectsQuery.isLoading
+    && !projectsQuery.isError
+    && projects.length === 1
+    && goalProjectMatch?.kind === 'none'
+    && goalProjectSuggestions.length === 0
+    ? projects[0]
+    : null;
+  const directGoalProject = !showGoalDestinationPrompt
+    ? goalProjectMatch?.kind === 'unique'
+      ? goalProjectMatch.project
+      : onlyProjectWithoutSuggestions
     : null;
   const dashboardQuery = useGetDashboard();
   const { data: rawDashboard, isLoading, error, refetch, isRefetching, dataUpdatedAt } = dashboardQuery;
@@ -482,8 +501,8 @@ function DashboardForUser({ ownerId }: { ownerId: string | null }) {
     const normalizedGoal = goalDraft.trim();
     if (!normalizedGoal) return;
     setGoalHandoffError('');
-    if (goalProjectMatch?.kind === 'unique') {
-      handoffGoal('project', goalProjectMatch.project.id);
+    if (directGoalProject) {
+      handoffGoal('project', directGoalProject.id);
       return;
     }
     setSelectedGoalProjectId('');
@@ -599,7 +618,7 @@ function DashboardForUser({ ownerId }: { ownerId: string | null }) {
           </p>
         )}
         <p className="mt-3 text-xs leading-5 text-muted-foreground">
-          إذا طابق الهدف مشروعًا واحدًا بوضوح، سيظهر اسمه على زر المتابعة. ينقل الزر النص كمسودة فقط؛ لا يُرسل الهدف ولا يوافق على تغييرات.
+          إذا طابق الهدف مشروعًا واحدًا بوضوح، أو كان لديك مشروع واحد بلا اقتراحات منافسة، سيظهر اسمه على زر المتابعة. ينقل الزر النص كمسودة فقط؛ لا يُرسل الهدف ولا يوافق على تغييرات.
         </p>
         {showGoalDestinationPrompt && (
           <div
@@ -620,7 +639,7 @@ function DashboardForUser({ ownerId }: { ownerId: string | null }) {
                     : goalProjectMatch?.kind === 'ambiguous'
                       ? 'قد يتعلق الهدف بأكثر من مشروع. راجع الاقتراحات واختر واحدًا.'
                       : goalProjectSuggestions.length > 0
-                        ? 'لم يظهر اسم مشروع كامل؛ قد تساعدك هذه الاقتراحات.'
+                        ? 'لم يظهر اسم مشروع كامل؛ راجع أسباب هذه الاقتراحات.'
                       : projects.length === 1
                         ? 'يمكنك اختيار مشروعك الوحيد للمتابعة.'
                       : projects.length === 0
@@ -640,7 +659,7 @@ function DashboardForUser({ ownerId }: { ownerId: string | null }) {
                   : goalProjectMatch?.kind === 'ambiguous'
                     ? 'راجع سبب كل اقتراح واختر وجهة واحدة؛ لن نفتح أي مشروع حتى تختار.'
                     : goalProjectSuggestions.length > 0
-                      ? 'هذه اقتراحات من كلمات مشتركة فقط. اختر مشروعًا صراحةً أو افتح القائمة لاختيار غيره.'
+                      ? 'تعرض الاقتراحات سبب التشابه؛ اختر مشروعًا صراحةً أو افتح القائمة لاختيار غيره.'
                     : projects.length === 1 && goalProjectMatch?.kind === 'none'
                       ? 'لن نستخدم المشروع أو ننقل الهدف إليه حتى تختاره صراحةً.'
                 : projects.length === 0 && !projectsQuery.isLoading
@@ -702,7 +721,9 @@ function DashboardForUser({ ownerId }: { ownerId: string | null }) {
                               >
                                 {suggestion.kind === 'exact'
                                   ? 'ورد اسم المشروع في هدفك.'
-                                  : `تطابقت كلمة ${suggestion.matchedTerms.map((term) => `«${term}»`).join('، ')} من الاسم مع هدفك.`}
+                                  : suggestion.kind === 'partial'
+                                    ? `تطابقت كلمة ${suggestion.matchedTerms.map((term) => `«${term}»`).join('، ')} من الاسم مع هدفك.`
+                                    : `تطابقت كلمات ${suggestion.matchedTerms.map((term) => `«${term}»`).join('، ')} مع وصف المشروع أو تقنياته المسجلة.`}
                               </p>
                             </div>
                             <Button
@@ -917,7 +938,7 @@ function DashboardForUser({ ownerId }: { ownerId: string | null }) {
             </p>
           </Link>
           <Link
-            href="/tasks"
+            href="/tasks?status=completed"
             data-testid="card-completed-work-home"
             className="rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/40"
           >
@@ -927,7 +948,7 @@ function DashboardForUser({ ownerId }: { ownerId: string | null }) {
             </p>
           </Link>
           <Link
-            href="/tasks"
+            href="/tasks?status=failed"
             data-testid="card-failed-work-home"
             className="rounded-xl border border-border bg-card p-4 transition-colors hover:border-destructive/40"
           >
@@ -976,6 +997,7 @@ function DashboardForUser({ ownerId }: { ownerId: string | null }) {
               const href = homeEventLogHref(event);
               const eventLabel = event.message || event.type;
               const hasCorrelationId = Boolean(event.correlationId?.trim());
+              const projectName = event.projectId ? projectNameById.get(event.projectId) : undefined;
               return (
                 <div
                   key={event.id}
@@ -1024,6 +1046,13 @@ function DashboardForUser({ ownerId }: { ownerId: string | null }) {
                         </span>
                       )}
                     </p>
+                    {projectName
+                      && (event.severity === 'error' || event.severity === 'warning')
+                      && (
+                        <div className="mt-2">
+                          <EventAssistantHandoff event={event} projectName={projectName} />
+                        </div>
+                      )}
                   </div>
                 </div>
               );

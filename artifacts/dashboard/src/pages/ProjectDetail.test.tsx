@@ -1,9 +1,13 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ProjectDetail from './ProjectDetail';
+import { useListTasks } from '@workspace/api-client-react';
+import { readGoalDrafts, storeHomeGoalDraft } from '@/lib/home-goal-handoff';
 
 const mocks = vi.hoisted(() => ({
   routeProjectId: 'project-1',
+  user: { id: 'user-1' } as { id: string } | null,
+  setLocation: vi.fn(),
   project: {
     id: 'project-1',
     name: 'مشروع تجريبي',
@@ -30,6 +34,7 @@ const mocks = vi.hoisted(() => ({
       correlationId?: string;
     }>,
   },
+  failedTasks: [] as Array<{ id: string; projectId: string; title: string; status: string }>,
   graphSummary: {
     entityCount: 2,
     relationshipCount: 1,
@@ -48,6 +53,10 @@ const mocks = vi.hoisted(() => ({
   summaryUpdatedAt: Date.parse('2026-10-13T12:00:00.000Z'),
   projectIsRefetching: false,
   projectUpdatedAt: Date.parse('2026-10-14T12:00:00.000Z'),
+}));
+
+vi.mock('@clerk/react', () => ({
+  useUser: () => ({ isLoaded: true, user: mocks.user }),
 }));
 
 vi.mock('@workspace/api-client-react', () => ({
@@ -73,7 +82,13 @@ vi.mock('@workspace/api-client-react', () => ({
     refetch: mocks.refetchSummary,
   }),
   useUpdateProject: () => ({ mutate: mocks.mutate, isPending: false }),
-  useListTasks: vi.fn(),
+  useListTasks: vi.fn(() => ({
+    data: mocks.failedTasks,
+    isLoading: false,
+    isError: false,
+    isFetching: false,
+    refetch: vi.fn(),
+  })),
   useGetGraphSummary: () => ({
     data: mocks.graphSummary,
     isLoading: false,
@@ -92,6 +107,7 @@ vi.mock('@tanstack/react-query', () => ({
 
 vi.mock('wouter', () => ({
   useRoute: () => [true, { id: mocks.routeProjectId }],
+  useLocation: () => ['/projects/project-1', mocks.setLocation],
   Link: 'a',
 }));
 
@@ -123,13 +139,17 @@ vi.mock('@/components/GitPanel', () => ({ default: () => null }));
 describe('ProjectDetail Arabic presentation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.sessionStorage.clear();
     mocks.routeProjectId = 'project-1';
+    mocks.user = { id: 'user-1' };
     mocks.summaryAvailable = true;
     mocks.summaryIsLoading = false;
     mocks.summaryIsError = false;
     mocks.summaryIsFetching = false;
     mocks.summaryUpdatedAt = Date.parse('2026-10-13T12:00:00.000Z');
     mocks.summary.recentEvents = [];
+    mocks.summary.taskCounts.failed = 0;
+    mocks.failedTasks = [];
     mocks.projectIsRefetching = false;
     mocks.projectUpdatedAt = Date.parse('2026-10-14T12:00:00.000Z');
   });
@@ -145,6 +165,48 @@ describe('ProjectDetail Arabic presentation', () => {
     fireEvent.click(screen.getByRole('button', { name: 'معلومات المشروع' }));
     expect(screen.getByText('الحالة')).toBeInTheDocument();
     expect(screen.getByText('active')).toBeInTheDocument();
+  });
+
+  it('opens the knowledge graph with the current project selected', () => {
+    render(<ProjectDetail />);
+
+    expect(screen.getByRole('link', { name: 'استكشف خريطة المشروع: مشروع تجريبي' }))
+      .toHaveAttribute('href', '/graph?projectId=project-1');
+  });
+
+  it('opens the project assistant with a scoped unsent goal draft', () => {
+    render(<ProjectDetail />);
+
+    fireEvent.click(screen.getByTestId('button-project-assistant'));
+
+    const draft = readGoalDrafts('user-1').drafts[0];
+    expect(draft).toMatchObject({
+      source: 'home',
+      projectId: 'project-1',
+      sendAttemptedAt: null,
+    });
+    expect(draft.text).toContain('اسألني أولًا عما أريد إنجازه');
+    expect(draft.text).toContain('لا تغيّر الملفات أو تبدأ أي عمل');
+    expect(mocks.setLocation).toHaveBeenCalledWith(
+      `/projects/project-1/workspace?goalDraftId=${draft.id}#workspace-panel-agent`,
+    );
+    expect(mocks.mutate).not.toHaveBeenCalled();
+  });
+
+  it('stays on the project page when the assistant draft cannot be saved', () => {
+    for (let index = 0; index < 8; index += 1) {
+      expect(storeHomeGoalDraft(`مسودة ${index}`, 'user-1')).not.toBeNull();
+    }
+    render(<ProjectDetail />);
+
+    fireEvent.click(screen.getByTestId('button-project-assistant'));
+
+    expect(screen.getByTestId('text-project-assistant-error')).toHaveTextContent(
+      'تعذر حفظ مسودة طلب المساعدة.',
+    );
+    expect(mocks.setLocation).not.toHaveBeenCalled();
+    expect(mocks.mutate).not.toHaveBeenCalled();
+    expect(readGoalDrafts('user-1').drafts).toHaveLength(8);
   });
 
   it('keeps Strategy Replay opt-in off by default, explains its limits, and preserves the mutation value', () => {
@@ -215,6 +277,10 @@ describe('ProjectDetail Arabic presentation', () => {
     render(<ProjectDetail />);
 
     expect(screen.getByRole('heading', { name: 'مشروع تجريبي' })).toBeInTheDocument();
+    expect(screen.getByTestId('link-project-event-log')).toHaveAttribute(
+      'href',
+      '/events?projectId=project-1',
+    );
     expect(screen.getByTestId('project-summary-status')).toHaveTextContent(
       'تظل بيانات المشروع الأساسية متاحة',
     );
@@ -225,6 +291,74 @@ describe('ProjectDetail Arabic presentation', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'إعادة محاولة الملخص' }));
     expect(mocks.refetchSummary).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens the failed-task list for this project directly from a positive failure count', () => {
+    mocks.summary.taskCounts.failed = 2;
+
+    render(<ProjectDetail />);
+
+    expect(screen.getByTestId('link-project-failed-tasks')).toHaveAttribute(
+      'href',
+      '/tasks?projectId=project-1&status=failed',
+    );
+    expect(screen.getByTestId('link-project-failed-tasks')).toHaveAccessibleName(
+      'اعرض 2 مهمة متعثرة في مشروع مشروع تجريبي',
+    );
+    expect(screen.getByTestId('summary-task-failed')).toHaveTextContent('2');
+  });
+
+  it('opens the only failed task directly while keeping review explicit', () => {
+    mocks.summary.taskCounts.failed = 1;
+    mocks.failedTasks = [{
+      id: 'failed-task-1',
+      projectId: 'project-1',
+      title: 'راجع النتيجة',
+      status: 'failed',
+    }];
+
+    render(<ProjectDetail />);
+
+    expect(useListTasks).toHaveBeenCalledWith(
+      { projectId: 'project-1', status: 'failed', pageSize: 2 },
+      expect.objectContaining({
+        query: expect.objectContaining({
+          enabled: true,
+          queryKey: ['/api/tasks', { projectId: 'project-1', status: 'failed', pageSize: 2 }],
+        }),
+      }),
+    );
+    expect(screen.getByTestId('link-project-failed-tasks')).toHaveAttribute(
+      'href',
+      '/tasks?projectId=project-1&taskId=failed-task-1',
+    );
+    expect(screen.getByTestId('link-project-failed-tasks')).toHaveAccessibleName(
+      'راجع تفاصيل المهمة المتعثرة: راجع النتيجة',
+    );
+  });
+
+  it('keeps the failed-task list fallback when the task read does not match the project', () => {
+    mocks.summary.taskCounts.failed = 1;
+    mocks.failedTasks = [{
+      id: 'failed-task-other-project',
+      projectId: 'project-2',
+      title: 'مهمة خارج المشروع',
+      status: 'failed',
+    }];
+
+    render(<ProjectDetail />);
+
+    expect(screen.getByTestId('link-project-failed-tasks')).toHaveAttribute(
+      'href',
+      '/tasks?projectId=project-1&status=failed',
+    );
+  });
+
+  it('does not offer an empty failed-task shortcut when the project has no failures', () => {
+    render(<ProjectDetail />);
+
+    expect(screen.getByTestId('summary-task-failed')).toHaveTextContent('0');
+    expect(screen.queryByTestId('link-project-failed-tasks')).not.toBeInTheDocument();
   });
 
   it('does not block project details while the optional summary is loading', () => {
@@ -254,7 +388,7 @@ describe('ProjectDetail Arabic presentation', () => {
     expect(screen.getByTestId('summary-task-total')).toHaveTextContent('2');
   });
 
-  it('opens the event log filtered to the project and operation when an event is correlated', () => {
+  it('opens the event log or project assistant directly from a correlated failure', () => {
     mocks.summary.recentEvents = [{
       id: 'event-linked',
       projectId: 'project-1',
@@ -273,6 +407,42 @@ describe('ProjectDetail Arabic presentation', () => {
     );
     expect(screen.getByRole('link', { name: 'عرض سجل الأحداث للعملية: تعذّر تنفيذ المهمة' }))
       .toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('button-event-goal-handoff-event-linked'));
+
+    const draft = readGoalDrafts('user-1').drafts[0];
+    expect(draft).toMatchObject({ source: 'home', projectId: 'project-1' });
+    expect(draft.text).toContain('تعذّر تنفيذ المهمة');
+    expect(mocks.setLocation).toHaveBeenCalledWith(
+      `/projects/project-1/workspace?goalDraftId=${draft.id}#workspace-panel-agent`,
+    );
+  });
+
+  it('offers direct assistant help for warnings but not routine events', () => {
+    mocks.summary.recentEvents = [
+      {
+        id: 'event-warning',
+        projectId: 'project-1',
+        type: 'RuntimeWarning',
+        message: 'يحتاج التشغيل إلى مراجعة',
+        timestamp: '2026-10-14T12:30:00.000Z',
+        severity: 'warning',
+        correlationId: 'operation-warning',
+      },
+      {
+        id: 'event-info',
+        projectId: 'project-1',
+        type: 'ProjectUpdated',
+        message: 'تم تحديث المشروع',
+        timestamp: '2026-10-14T12:31:00.000Z',
+        severity: 'info',
+      },
+    ];
+
+    render(<ProjectDetail />);
+
+    expect(screen.getByTestId('button-event-goal-handoff-event-warning')).toBeInTheDocument();
+    expect(screen.queryByTestId('button-event-goal-handoff-event-info')).not.toBeInTheDocument();
+    expect(screen.getByTestId('link-summary-event-event-warning')).toBeInTheDocument();
   });
 
   it('keeps events without an operation id readable without creating a misleading link', () => {
@@ -314,5 +484,28 @@ describe('ProjectDetail Arabic presentation', () => {
     const { container } = render(<ProjectDetail />);
 
     expect(container.querySelectorAll('div[dir="ltr"]')).toHaveLength(5);
+  });
+
+  it('opens a new task form already scoped to this project', () => {
+    render(<ProjectDetail />);
+
+    expect(screen.getByTestId('link-create-project-task')).toHaveAttribute(
+      'href',
+      '/tasks?projectId=project-1&create=1',
+    );
+    expect(screen.getByTestId('link-create-project-task')).toHaveAccessibleName(
+      'أضف مهمة إلى مشروع مشروع تجريبي',
+    );
+  });
+  it('opens workflow creation already scoped to this project', () => {
+    render(<ProjectDetail />);
+
+    expect(screen.getByTestId('link-create-project-workflow')).toHaveAttribute(
+      'href',
+      '/workflows?projectId=project-1&create=1',
+    );
+    expect(screen.getByTestId('link-create-project-workflow')).toHaveAccessibleName(
+      'إنشاء مسار عمل للمشروع مشروع تجريبي',
+    );
   });
 });

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import {
@@ -10,15 +10,29 @@ import {
   projectsTable,
 } from "@workspace/db";
 import { seedCanonicalMissionGoalCompletion } from "../__tests__/mission-dependency-proof-fixture.js";
+import * as missionRuntimeModule from "./mission-runtime.js";
 import {
+  claimMissionGoalWakeDispatchLease,
+  dispatchMissionGoalWakeIntent,
   dispatchPendingMissionGoalWakes,
   insertMissionGoalWakeIntent,
   MISSION_GOAL_WAKE_DISPATCHED,
+  MISSION_GOAL_WAKE_REQUESTED,
   MISSION_GOAL_WAKE_SUPERSEDED,
   missionGoalWakeIntentId,
 } from "./mission-goal-wake-outbox.js";
 
 const projectIds: string[] = [];
+
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
 
 async function createProject(): Promise<string> {
   const projectId = `mission-goal-wake-outbox-${randomUUID()}`;
@@ -114,7 +128,32 @@ async function createPlanFixture() {
   };
 }
 
+async function expireCurrentMissionGoalWakeLease(intentId: string): Promise<string> {
+  const [intent] = await db.select({
+    payload: eventsTable.payload,
+  }).from(eventsTable)
+    .where(eq(eventsTable.id, intentId))
+    .limit(1);
+  const payload = intent?.payload ?? {};
+  const dispatchLease = payload.dispatchLease as { token?: unknown } | undefined;
+  if (typeof dispatchLease?.token !== "string") {
+    throw new Error("Expected the active Mission Goal wake dispatch lease.");
+  }
+
+  await db.update(eventsTable).set({
+    payload: {
+      ...payload,
+      dispatchLease: {
+        token: dispatchLease.token,
+        expiresAt: new Date(Date.now() - 60_000).toISOString(),
+      },
+    },
+  }).where(eq(eventsTable.id, intentId));
+  return dispatchLease.token;
+}
+
 afterEach(async () => {
+  vi.restoreAllMocks();
   for (const projectId of projectIds.splice(0)) {
     await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
   }
@@ -159,6 +198,7 @@ describe("Mission Goal wake outbox", () => {
       completedAt: fixture.completedAt.toISOString(),
       attemptCount: 0,
     });
+    expect(intent?.payload).not.toHaveProperty("dispatchLease");
 
     // A later durable pass cannot repeat the completed wake.
     expect(await dispatchPendingMissionGoalWakes(10, fixture.projectId)).toBe(0);
@@ -168,6 +208,132 @@ describe("Mission Goal wake outbox", () => {
       .where(eq(aiGoalsTable.id, fixture.successorGoalId))
       .limit(1);
     expect(afterReplay?.status).toBe("waiting_for_event");
+  });
+
+
+  it("serializes cross-replica wake dispatch and reclaims an expired lease", async () => {
+    const fixture = await createPlanFixture();
+    const intentId = await db.transaction((tx) => insertMissionGoalWakeIntent(tx, {
+      missionId: fixture.missionId,
+      projectId: fixture.projectId,
+      goalId: fixture.prerequisiteGoalId,
+      completedAt: fixture.completedAt,
+    }));
+
+    const contenders = await Promise.all([
+      db.transaction((tx) => claimMissionGoalWakeDispatchLease(tx, { intentId })),
+      db.transaction((tx) => claimMissionGoalWakeDispatchLease(tx, { intentId })),
+    ]);
+    const winners = contenders.filter((result) => result.acquired);
+    expect(winners).toHaveLength(1);
+    const firstLease = winners[0]!;
+    if (!firstLease.acquired) throw new Error("Expected one Mission Goal wake lease owner.");
+
+    const [leasedIntent] = await db.select({
+      payload: eventsTable.payload,
+    }).from(eventsTable)
+      .where(eq(eventsTable.id, intentId))
+      .limit(1);
+    expect(leasedIntent?.payload?.dispatchLease).toMatchObject({
+      token: firstLease.token,
+      expiresAt: firstLease.expiresAt,
+    });
+
+    // Another replica's recovery scan must not enqueue work while this lease is active.
+    expect(await dispatchPendingMissionGoalWakes(10, fixture.projectId)).toBe(0);
+
+    // Simulate a process crash. A replacement process may reclaim the exact
+    // intent after the persisted lease expiry without operator intervention.
+    await db.update(eventsTable).set({
+      payload: {
+        ...(leasedIntent?.payload ?? {}),
+        dispatchLease: {
+          token: firstLease.token,
+          expiresAt: new Date(Date.now() - 60_000).toISOString(),
+        },
+      },
+    }).where(eq(eventsTable.id, intentId));
+
+    const recovered = await db.transaction((tx) =>
+      claimMissionGoalWakeDispatchLease(tx, { intentId }),
+    );
+    expect(recovered.acquired).toBe(true);
+    if (!recovered.acquired) throw new Error("Expected an expired wake lease to be recoverable.");
+    expect(recovered.token).not.toBe(firstLease.token);
+
+    const blocked = await db.transaction((tx) =>
+      claimMissionGoalWakeDispatchLease(tx, { intentId }),
+    );
+    expect(blocked).toEqual({ acquired: false, reason: "already_leased" });
+  });
+
+  it("does not acknowledge a Mission Goal wake after its lease expires during delivery", async () => {
+    const fixture = await createPlanFixture();
+    const intentId = await db.transaction((tx) => insertMissionGoalWakeIntent(tx, {
+      missionId: fixture.missionId,
+      projectId: fixture.projectId,
+      goalId: fixture.prerequisiteGoalId,
+      completedAt: fixture.completedAt,
+    }));
+    const wakeGate = createDeferred<number>();
+    const wakeStarted = createDeferred<void>();
+    vi.spyOn(missionRuntimeModule, "wakeReadyMissionGoals").mockImplementation(() => {
+      wakeStarted.resolve(undefined);
+      return wakeGate.promise;
+    });
+
+    const dispatch = dispatchMissionGoalWakeIntent(intentId);
+    await wakeStarted.promise;
+    const leaseToken = await expireCurrentMissionGoalWakeLease(intentId);
+    wakeGate.resolve(0);
+
+    await expect(dispatch).resolves.toBe(false);
+    const [intent] = await db.select({
+      type: eventsTable.type,
+      payload: eventsTable.payload,
+    }).from(eventsTable)
+      .where(eq(eventsTable.id, intentId))
+      .limit(1);
+    expect(intent?.type).toBe(MISSION_GOAL_WAKE_REQUESTED);
+    expect(intent?.payload).toMatchObject({
+      attemptCount: 0,
+      dispatchLease: { token: leaseToken },
+    });
+  });
+
+  it("does not defer a Mission Goal wake after its lease expires during delivery", async () => {
+    const fixture = await createPlanFixture();
+    const intentId = await db.transaction((tx) => insertMissionGoalWakeIntent(tx, {
+      missionId: fixture.missionId,
+      projectId: fixture.projectId,
+      goalId: fixture.prerequisiteGoalId,
+      completedAt: fixture.completedAt,
+    }));
+    const wakeGate = createDeferred<number>();
+    const wakeStarted = createDeferred<void>();
+    vi.spyOn(missionRuntimeModule, "wakeReadyMissionGoals").mockImplementation(() => {
+      wakeStarted.resolve(undefined);
+      return wakeGate.promise;
+    });
+
+    const dispatch = dispatchMissionGoalWakeIntent(intentId);
+    await wakeStarted.promise;
+    const leaseToken = await expireCurrentMissionGoalWakeLease(intentId);
+    wakeGate.reject(new Error("simulated late Mission Goal wake failure"));
+
+    await expect(dispatch).resolves.toBe(false);
+    const [intent] = await db.select({
+      type: eventsTable.type,
+      payload: eventsTable.payload,
+    }).from(eventsTable)
+      .where(eq(eventsTable.id, intentId))
+      .limit(1);
+    expect(intent?.type).toBe(MISSION_GOAL_WAKE_REQUESTED);
+    expect(intent?.payload).toMatchObject({
+      attemptCount: 0,
+      dispatchLease: { token: leaseToken },
+    });
+    expect(intent?.payload).not.toHaveProperty("lastFailureCode");
   });
 
   it("retires a wake intent when a newer Goal state supersedes its completion generation", async () => {

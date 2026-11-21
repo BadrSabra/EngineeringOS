@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
-import { Link, useSearch } from 'wouter';
+import { useUser } from '@clerk/react';
+import { Link, useLocation, useSearch } from 'wouter';
 import {
   useListTasks,
   useExecuteTask,
@@ -48,6 +49,9 @@ import {
   MessageCircle,
   Pencil,
   Trash2,
+  Copy,
+  Plus,
+  Sparkles,
 } from 'lucide-react';
 import { ProviderRecoveryCard } from '@/components/ProviderRecoveryCard';
 import TaskAssistantHandoff from '@/components/TaskAssistantHandoff';
@@ -56,6 +60,7 @@ import { resolveExecutionProofPresentation } from '@/lib/execution-proof-present
 import { executionChatHref } from '@/lib/execution-chat-link';
 import { isTaskFollowUpCandidate } from '@/lib/task-follow-up-filter';
 import { shouldPollTaskDispatchList } from '@/lib/task-dispatch-polling';
+import { storeHomeGoalDraft } from '@/lib/home-goal-handoff';
 
 // ─── Task logs sub-component ──────────────────────────────────────────────────
 // Separated so the hook always runs unconditionally within the mounted component.
@@ -138,6 +143,10 @@ type TaskView = {
     status: 'needs_review' | 'ready' | 'verified';
   } | null;
 };
+
+function taskEventLogHref(projectId: string, correlationId: string): string {
+  return `/events?projectId=${encodeURIComponent(projectId)}&correlationId=${encodeURIComponent(correlationId)}`;
+}
 
 type TaskExecutionReceipt = {
   kind?: string;
@@ -1422,9 +1431,11 @@ function TaskCreateDialog({
   ));
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [executeImmediately, setExecuteImmediately] = useState(false);
   const [priority, setPriority] = useState<CreateTaskInput['priority']>('p2');
   const [dependsOn, setDependsOn] = useState<string[]>([]);
   const [fieldError, setFieldError] = useState('');
+  const onlyProject = projects.length === 1 ? projects[0] : null;
 
   useEffect(() => {
     if (!projectId && projects[0]) setProjectId(String(projects[0].id));
@@ -1440,12 +1451,23 @@ function TaskCreateDialog({
       setFieldError('عنوان المهمة مطلوب.');
       return;
     }
+    if (executeImmediately && !description.trim()) {
+      setFieldError('اكتب ما تريد من المساعد تنفيذه قبل بدء المهمة.');
+      return;
+    }
+    if (executeImmediately && description.trim().length > 12_000) {
+      setFieldError('يجب ألا يتجاوز طلب التنفيذ ١٢٠٠٠ حرف.');
+      return;
+    }
     setFieldError('');
     onSubmit({
       projectId,
       title: title.trim(),
       description: description.trim() || undefined,
       priority,
+      ...(executeImmediately
+        ? { prompt: description.trim(), executeImmediately: true }
+        : {}),
       ...(dependsOn.length > 0 ? { dependsOn } : {}),
     });
   };
@@ -1469,24 +1491,73 @@ function TaskCreateDialog({
                 <bdi dir="auto">{error instanceof Error ? error.message : 'تعذر إنشاء المهمة. حاول مرة أخرى.'}</bdi>
               </div>
             ) : null}
-            <div>
-              <label htmlFor="create-task-project" className="mb-1.5 block text-xs font-semibold text-muted-foreground">المشروع</label>
-              <select id="create-task-project" data-testid="select-create-task-project" value={projectId} onChange={(event) => {
-                setProjectId(event.target.value);
-                setDependsOn([]);
-              }} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary">
-                <option value="">اختر مشروعًا</option>
-                {projects.map((project) => <option key={project.id} value={String(project.id)}>{project.name}</option>)}
-              </select>
-            </div>
+            {onlyProject ? (
+              <div>
+                <p className="mb-1.5 text-xs font-semibold text-muted-foreground">المشروع</p>
+                <p
+                  dir="auto"
+                  data-testid="text-create-task-project"
+                  className="rounded-md border border-border bg-background px-3 py-2 text-sm"
+                >
+                  {onlyProject.name}
+                </p>
+              </div>
+            ) : (
+              <div>
+                <label htmlFor="create-task-project" className="mb-1.5 block text-xs font-semibold text-muted-foreground">المشروع</label>
+                <select id="create-task-project" data-testid="select-create-task-project" value={projectId} onChange={(event) => {
+                  setProjectId(event.target.value);
+                  setDependsOn([]);
+                }} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary">
+                  <option value="">اختر مشروعًا</option>
+                  {projects.map((project) => <option key={project.id} value={String(project.id)}>{project.name}</option>)}
+                </select>
+              </div>
+            )}
             <div>
               <label htmlFor="create-task-title" className="mb-1.5 block text-xs font-semibold text-muted-foreground">عنوان المهمة</label>
-              <input id="create-task-title" data-testid="input-create-task-title" dir="auto" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="ما الذي يجب إنجازه؟" className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none placeholder:text-muted-foreground/60 focus:border-primary" />
+              <input autoFocus id="create-task-title" data-testid="input-create-task-title" dir="auto" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="ما الذي يجب إنجازه؟" className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none placeholder:text-muted-foreground/60 focus:border-primary" />
             </div>
             <div>
-              <label htmlFor="create-task-description" className="mb-1.5 block text-xs font-semibold text-muted-foreground">الوصف <span className="font-normal text-muted-foreground/70">(اختياري)</span></label>
-              <textarea id="create-task-description" data-testid="input-create-task-description" dir="auto" value={description} onChange={(event) => setDescription(event.target.value)} rows={3} placeholder="أضف سياقًا يساعد المتابع أو المساعد الذكي" className="w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-sm outline-none placeholder:text-muted-foreground/60 focus:border-primary" />
+              <label htmlFor="create-task-description" className="mb-1.5 block text-xs font-semibold text-muted-foreground">
+                {executeImmediately ? 'ما المطلوب من المساعد؟' : 'الوصف'}
+                <span className="font-normal text-muted-foreground/70">
+                  {executeImmediately ? ' (مطلوب للتنفيذ)' : ' (اختياري)'}
+                </span>
+              </label>
+              <textarea
+                id="create-task-description"
+                data-testid="input-create-task-description"
+                dir="auto"
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+                rows={3}
+                required={executeImmediately}
+                maxLength={executeImmediately ? 12_000 : undefined}
+                placeholder={executeImmediately
+                  ? 'اكتب النتيجة التي تريد من المساعد إنجازها.'
+                  : 'أضف سياقًا يساعد المتابع أو المساعد الذكي'}
+                className="w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-sm outline-none placeholder:text-muted-foreground/60 focus:border-primary"
+              />
             </div>
+            <label className="flex cursor-pointer items-start gap-3 rounded-md border border-primary/20 bg-primary/[0.04] px-3 py-3">
+              <input
+                type="checkbox"
+                checked={executeImmediately}
+                onChange={(event) => {
+                  setExecuteImmediately(event.target.checked);
+                  setFieldError('');
+                }}
+                data-testid="checkbox-create-task-execute-immediately"
+                className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+              />
+              <span className="space-y-1">
+                <span className="block text-sm font-semibold">ابدأ التنفيذ فور إنشاء المهمة</span>
+                <span className="block text-xs leading-relaxed text-muted-foreground">
+                  عند التحديد، سيُستخدم النص أعلاه كطلب للمساعد. إذا تركته غير محدد، ستُضاف المهمة دون بدء التنفيذ.
+                </span>
+              </span>
+            </label>
             <TaskDependencySelector
               key={projectId}
               projectId={projectId}
@@ -1508,7 +1579,9 @@ function TaskCreateDialog({
             <button type="button" onClick={onClose} disabled={saving} className="rounded-md border border-border px-4 py-2 text-xs font-semibold text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-40">إلغاء</button>
             <button type="submit" disabled={saving || projects.length === 0} data-testid="button-submit-create-task" className="inline-flex items-center justify-center gap-2 rounded-md border border-primary/40 bg-primary/15 px-4 py-2 text-xs font-semibold text-primary hover:bg-primary/25 disabled:cursor-wait disabled:opacity-60">
               {saving ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : null}
-              {saving ? 'جارٍ الإنشاء…' : 'إضافة المهمة'}
+              {saving
+                ? executeImmediately ? 'جارٍ بدء التنفيذ…' : 'جارٍ الإنشاء…'
+                : executeImmediately ? 'إنشاء وبدء التنفيذ' : 'إضافة المهمة'}
             </button>
           </div>
         </form>
@@ -1610,6 +1683,7 @@ export default function Tasks() {
   const routeParams = new URLSearchParams(routeSearch);
   const requestedTaskId = routeParams.get('taskId') ?? '';
   const requestedProjectId = routeParams.get('projectId') ?? '';
+  const requestedCreate = routeParams.get('create') === '1';
   const initialFilters = readTaskListFilters(routeParams);
 
   // A task deep link can change while this route remains mounted. Keep project-owned
@@ -1619,6 +1693,7 @@ export default function Tasks() {
       key={JSON.stringify([requestedProjectId, requestedTaskId, initialFilters])}
       requestedTaskId={requestedTaskId}
       requestedProjectId={requestedProjectId}
+      requestedCreate={requestedCreate}
       initialFilters={initialFilters}
     />
   );
@@ -1627,22 +1702,29 @@ export default function Tasks() {
 function TasksSession({
   requestedTaskId,
   requestedProjectId,
+  requestedCreate,
   initialFilters,
 }: {
   requestedTaskId: string;
   requestedProjectId: string;
+  requestedCreate: boolean;
   initialFilters: TaskListFilters;
 }) {
   const queryClient = useQueryClient();
+  const { isLoaded, user } = useUser();
+  const [, navigate] = useLocation();
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [filterStatus, setFilterStatus] = useState<TaskStatusFilter | ''>(initialFilters.status);
   const [filterPriority, setFilterPriority] = useState<TaskPriorityFilter | ''>(initialFilters.priority);
   const [filterAcceptance, setFilterAcceptance] = useState<TaskAcceptanceFilter | ''>(initialFilters.acceptance);
   const [filterFollowUp, setFilterFollowUp] = useState(initialFilters.followUp);
   const [searchTerm, setSearchTerm] = useState(initialFilters.search);
+  const quickTaskTitleRef = useRef<HTMLInputElement>(null);
   const [expandedTask, setExpandedTask] = useState<string | null>(() => requestedTaskId || null);
   const [logsTab, setLogsTab] = useState<Record<string, 'details' | 'logs'>>({});
   const [createOpen, setCreateOpen] = useState(false);
+  const createIntentHandled = useRef(false);
+  const [quickTaskTitle, setQuickTaskTitle] = useState('');
   const [editingTask, setEditingTask] = useState<{
     id: string;
     title: string;
@@ -1651,6 +1733,7 @@ function TasksSession({
   } | null>(null);
   const [deletingTask, setDeletingTask] = useState<{ id: string; title: string } | null>(null);
   const [deleteError, setDeleteError] = useState('');
+  const [goalHandoffError, setGoalHandoffError] = useState('');
 
   const { data: projects = [], isLoading: projectsLoading, isError: projectsError, error: projectError, refetch: refetchProjects } = useListProjects(undefined, {
     query: { queryKey: getListProjectsQueryKey() },
@@ -1704,6 +1787,22 @@ function TasksSession({
     || Boolean(projectId && tasksLoading);
 
   useEffect(() => {
+    if (!requestedCreate || !projectId || createIntentHandled.current) return;
+    createIntentHandled.current = true;
+    setCreateOpen(true);
+
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('create') === '1') {
+      url.searchParams.delete('create');
+      window.history.replaceState(
+        window.history.state,
+        '',
+        `${url.pathname}${url.search}${url.hash}`,
+      );
+    }
+  }, [projectId, requestedCreate]);
+
+  useEffect(() => {
     if (requestedTaskId && tasks?.some((task) => task.id === requestedTaskId)) {
       setExpandedTask(requestedTaskId);
     }
@@ -1736,7 +1835,30 @@ function TasksSession({
         && t.acceptance
         && acceptanceFilterKey(t.acceptance) === filterAcceptance)),
   ) ?? [];
+  const normalizedTaskSearch = searchTerm.trim().toLowerCase();
+  const exactTaskSearchMatches = normalizedTaskSearch
+    ? visibleTasks.filter((task) => task.title.trim().toLowerCase() === normalizedTaskSearch)
+    : [];
+  const keyboardSearchTask = exactTaskSearchMatches.length === 1
+    ? exactTaskSearchMatches[0]
+    : exactTaskSearchMatches.length === 0 && normalizedTaskSearch && visibleTasks.length === 1
+      ? visibleTasks[0]
+      : undefined;
   const hasActiveTaskFilters = Boolean(searchTerm || filterStatus || filterPriority || filterAcceptance || filterFollowUp);
+  const showTaskProjectSelector = projects.length !== 1 || projectId !== projects[0]?.id;
+  const canQuickCreateTask = Boolean(projectId) && (
+    projects.length === 1
+    || Boolean(requestedProjectId || requestedTaskId || selectedProjectId)
+  );
+  const canCreateTaskFromSearch = Boolean(
+    normalizedTaskSearch
+    && visibleTasks.length === 0
+    && canQuickCreateTask
+    && !filterStatus
+    && !filterPriority
+    && !filterAcceptance
+    && !filterFollowUp,
+  );
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -1787,18 +1909,73 @@ function TasksSession({
     url.searchParams.set('projectId', nextProjectId);
     url.searchParams.delete('taskId');
     window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+    if (nextProjectId !== String(projectId ?? '')) setQuickTaskTitle('');
     setSelectedProjectId(nextProjectId);
   };
 
-  const handleCreateTask = (data: CreateTaskInput) => {
+  const openTaskAssistant = () => {
+    if (!isLoaded || !user?.id || !projectId) return;
+    const draft = storeHomeGoalDraft(
+      'أريد متابعة العمل على هذا المشروع. اسألني عما أريد إنجازه، ثم اقترح خطوات واضحة للمراجعة. لا تنشئ مهامًا ولا تغيّر الملفات قبل موافقتي.',
+      user.id,
+      String(projectId),
+    );
+    if (!draft) {
+      setGoalHandoffError('تعذر حفظ مسودة طلب المساعدة. بقيت في قائمة المهام ولم نغيّرها.');
+      return;
+    }
+    setGoalHandoffError('');
+    navigate(
+      `/projects/${encodeURIComponent(String(projectId))}/workspace?goalDraftId=${encodeURIComponent(draft.id)}#workspace-panel-agent`,
+    );
+  };
+
+  const openTaskSearchResult = () => {
+    if (!keyboardSearchTask) return;
+    const params = new URLSearchParams(window.location.search);
+    params.set('projectId', keyboardSearchTask.projectId);
+    params.set('taskId', keyboardSearchTask.id);
+    navigate(`/tasks?${params.toString()}${window.location.hash}`);
+  };
+
+  const copyTaskLink = async (task: TaskView) => {
+    const url = new URL(window.location.href);
+    url.search = '';
+    url.hash = '';
+    url.searchParams.set('projectId', task.projectId);
+    url.searchParams.set('taskId', task.id);
+
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
+      await navigator.clipboard.writeText(url.toString());
+      toast({
+        title: 'نُسخ رابط المهمة',
+        description: 'يفتح الرابط تفاصيل المهمة ضمن مشروعها.',
+      });
+    } catch {
+      toast({
+        title: 'تعذر نسخ رابط المهمة',
+        description: 'تحقق من إذن الحافظة وحاول مرة أخرى.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleCreateTask = (data: CreateTaskInput, source: 'dialog' | 'quick' = 'dialog') => {
     createTask.mutate(
       { data },
       {
         onSuccess: (created) => {
-          setCreateOpen(false);
+          if (source === 'quick') setQuickTaskTitle('');
+          else setCreateOpen(false);
           selectProject(created.projectId);
           void queryClient.invalidateQueries({ queryKey: getListTasksQueryKey() });
-          toast({ title: 'أُنشئت المهمة', description: `أُضيفت «${created.title}» إلى قائمة مهام المشروع.` });
+          toast({
+            title: data.executeImmediately ? 'أُنشئت المهمة للتنفيذ' : 'أُنشئت المهمة',
+            description: data.executeImmediately
+              ? `أُرسلت «${created.title}» إلى مسار التنفيذ؛ افتح تفاصيلها لمتابعة التقدم.`
+              : `أُضيفت «${created.title}» إلى قائمة مهام المشروع.`,
+          });
         },
         onError: (err: unknown) => {
           toast({
@@ -1809,6 +1986,23 @@ function TasksSession({
         },
       },
     );
+  };
+
+  const handleQuickCreateTask = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const title = quickTaskTitle.trim();
+    if (!projectId || !title || createTask.isPending) return;
+    handleCreateTask({
+      projectId: String(projectId),
+      title,
+      priority: 'p2',
+    }, 'quick');
+  };
+
+  const useSearchAsQuickTaskTitle = () => {
+    if (!canCreateTaskFromSearch) return;
+    setQuickTaskTitle(searchTerm.trim().slice(0, 200));
+    quickTaskTitleRef.current?.focus();
   };
 
   const handleUpdateTask = (data: UpdateTaskInput) => {
@@ -1899,22 +2093,32 @@ function TasksSession({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <select
-            aria-label="مشروع المهام"
-            data-testid="select-task-project"
-            value={projectId ?? ''}
-            onChange={(event) => {
-              selectProject(event.target.value);
-              setExpandedTask(null);
-              setEditingTask(null);
-              setDeletingTask(null);
-              setCreateOpen(false);
-            }}
-            className="rounded-md border border-border bg-secondary px-3 py-2 text-sm"
-          >
-            {!projectId && <option value="">اختر مشروعًا</option>}
-            {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
-          </select>
+          {showTaskProjectSelector ? (
+            <select
+              aria-label="مشروع المهام"
+              data-testid="select-task-project"
+              value={projectId ?? ''}
+              onChange={(event) => {
+                selectProject(event.target.value);
+                setExpandedTask(null);
+                setEditingTask(null);
+                setDeletingTask(null);
+                setCreateOpen(false);
+              }}
+              className="rounded-md border border-border bg-secondary px-3 py-2 text-sm"
+            >
+              {!projectId && <option value="">اختر مشروعًا</option>}
+              {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+            </select>
+          ) : (
+            <span
+              dir="auto"
+              data-testid="text-task-project-context"
+              className="rounded-md border border-border bg-secondary px-3 py-2 text-sm"
+            >
+              {projects[0].name}
+            </span>
+          )}
           <button type="button" onClick={() => setCreateOpen(true)} data-testid="button-open-create-task" aria-label="مهمة جديدة" className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
             <span className="text-base leading-none">+</span>
             مهمة جديدة
@@ -1988,6 +2192,11 @@ function TasksSession({
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter' || !keyboardSearchTask) return;
+                event.preventDefault();
+                openTaskSearchResult();
+              }}
               aria-label="ابحث عن مهمة"
               placeholder="ابحث عن مهمة..."
               dir="auto"
@@ -2006,6 +2215,50 @@ function TasksSession({
         </div>
       </div>
 
+      {canQuickCreateTask && (
+        <form
+          onSubmit={handleQuickCreateTask}
+          aria-label="إضافة مهمة بسرعة"
+          data-testid="form-quick-create-task"
+          dir="rtl"
+          className="flex flex-col gap-3 rounded-lg border border-primary/20 bg-primary/[0.04] p-3 sm:flex-row sm:items-end"
+        >
+          <div className="min-w-0 flex-1">
+            <label htmlFor="quick-create-task-title" className="mb-1 block text-xs font-semibold">
+              أضف مهمة بسرعة
+            </label>
+            <input
+              ref={quickTaskTitleRef}
+              id="quick-create-task-title"
+              type="text"
+              required
+              value={quickTaskTitle}
+              onChange={(event) => setQuickTaskTitle(event.target.value)}
+              placeholder="اكتب خطوة قصيرة ثم اضغط Enter"
+              dir="auto"
+              aria-label="عنوان المهمة السريعة"
+              data-testid="input-quick-create-task-title"
+              disabled={createTask.isPending}
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none placeholder:text-muted-foreground/60 focus:border-primary disabled:opacity-60"
+            />
+            <p className="mt-1 text-[11px] text-muted-foreground" data-testid="text-quick-create-task-project">
+              ستُضاف إلى <bdi dir="auto" className="font-medium text-foreground">
+                {projects.find((project) => project.id === projectId)?.name ?? 'المشروع المحدد'}
+              </bdi>
+            </p>
+          </div>
+          <button
+            type="submit"
+            disabled={createTask.isPending || !quickTaskTitle.trim()}
+            data-testid="button-quick-create-task"
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-wait disabled:opacity-60"
+          >
+            {createTask.isPending ? <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Plus className="h-4 w-4" aria-hidden="true" />}
+            {createTask.isPending ? 'جارٍ الإضافة…' : 'أضف المهمة'}
+          </button>
+        </form>
+      )}
+
       {/* Active filter badge */}
       {hasActiveTaskFilters && (
         <div
@@ -2021,6 +2274,9 @@ function TasksSession({
             <span className="bg-primary/10 border border-primary/30 text-primary px-2 py-0.5 rounded font-mono">
               {searchTerm}
             </span>
+          )}
+          {keyboardSearchTask && (
+            <span className="text-muted-foreground">اضغط Enter لفتح المهمة المطابقة.</span>
           )}
           {filterStatus && (
             <span className="bg-primary/10 border border-primary/30 text-primary px-2 py-0.5 rounded">
@@ -2071,12 +2327,24 @@ function TasksSession({
         ) : projectsError ? (
           <RequestError title="تعذر تحميل المشاريع" retryLabel="إعادة المحاولة" message={projectError instanceof Error ? projectError.message : 'تعذر تحميل المشاريع.'} onRetry={() => void refetchProjects()} />
         ) : !projectId ? (
-          <div role="status" className="rounded-xl border border-border p-6 text-sm">
-            {requestedTaskId && requestedTaskError
-              ? (taskTargetError instanceof Error ? taskTargetError.message : 'تعذر فتح المهمة المطلوبة.')
-              : targetProjectId
-                ? 'المشروع المطلوب غير متاح. اختر مشروعًا آخر صراحةً للمتابعة.'
-                : 'اختر مشروعًا لعرض مهامه. يمكنك إنشاء مشروع من صفحة المشاريع.'}
+          <div className="flex flex-col items-start gap-3 rounded-xl border border-border p-6 text-sm">
+            <p role="status">
+              {requestedTaskId && requestedTaskError
+                ? (taskTargetError instanceof Error ? taskTargetError.message : 'تعذر فتح المهمة المطلوبة.')
+                : targetProjectId
+                  ? 'المشروع المطلوب غير متاح. اختر مشروعًا آخر صراحةً للمتابعة.'
+                  : 'اختر مشروعًا لعرض مهامه. يمكنك إنشاء مشروع من صفحة المشاريع.'}
+            </p>
+            {!requestedTaskId && !targetProjectId && (
+              <Link
+                href="/"
+                aria-label="ابدأ بوصف هدفك في مساحة العمل"
+                data-testid="link-tasks-empty-goal-first"
+                className="inline-flex items-center justify-center rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+              >
+                ابدأ بهدفك
+              </Link>
+            )}
           </div>
         ) : isError ? (
           <RequestError
@@ -2101,8 +2369,44 @@ function TasksSession({
             <p className="text-muted-foreground text-sm">
               {filterAcceptance || filterFollowUp || searchTerm || filterStatus || filterPriority
                 ? 'جرّب عبارة بحث أخرى أو أزل الفلاتر. هذه نتيجة العرض الحالي، لا حكم على كل مهام المشروع.'
-                 : 'يمكنك إنشاء مهمة هنا، أو مراجعة المهام التي تنشأ عن مشكلات يكشفها فحص المشروع.'}
+                 : 'يمكنك إنشاء مهمة يدويًا، أو طلب اقتراح خطوة مناسبة للبدء.'}
             </p>
+            {canCreateTaskFromSearch && (
+              <div className="mt-4 flex flex-col items-center gap-2">
+                <button
+                  type="button"
+                  onClick={useSearchAsQuickTaskTitle}
+                  aria-label="استخدم عبارة البحث عنوانًا للمهمة الجديدة"
+                  data-testid="button-create-task-from-search"
+                  className="inline-flex items-center gap-2 rounded-md border border-primary/35 bg-primary/10 px-4 py-2 text-sm font-semibold text-primary transition-colors hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                  <Plus className="h-4 w-4" aria-hidden="true" />
+                  استخدم «<bdi dir="auto">{searchTerm.trim().slice(0, 80)}</bdi>» عنوانًا لمهمة جديدة
+                </button>
+                <span className="text-xs text-muted-foreground">
+                  ستظهر في حقل الإضافة السريعة لتعديلها قبل الإضافة.
+                </span>
+              </div>
+            )}
+            {!hasActiveTaskFilters && projectId && (
+              <>
+                <button
+                  type="button"
+                  onClick={openTaskAssistant}
+                  disabled={!isLoaded || !user?.id}
+                  data-testid="button-empty-task-assistant"
+                  className="mt-4 inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-wait disabled:opacity-50"
+                >
+                  <Sparkles className="h-4 w-4" aria-hidden="true" />
+                  اسأل المساعد عن الخطوة التالية
+                </button>
+                {goalHandoffError && (
+                  <p className="mt-3 text-xs text-destructive" role="alert" data-testid="text-empty-task-assistant-error">
+                    {goalHandoffError}
+                  </p>
+                )}
+              </>
+            )}
           </div>
         ) : (
           visibleTasks.map((task) => (
@@ -2162,6 +2466,31 @@ function TasksSession({
                 </button>
 
                 <div className="flex items-center gap-2 shrink-0 pe-4">
+                  {typeof task.correlationId === 'string' && task.correlationId.trim() && (
+                    <Link
+                      href={taskEventLogHref(task.projectId, task.correlationId.trim())}
+                      onClick={(event) => event.stopPropagation()}
+                      aria-label={`عرض سجل الأحداث مباشرة للمهمة: ${task.title}`}
+                      data-testid={`link-task-event-log-row-${task.id}`}
+                      title="سجل الأحداث المرتبط بالمهمة"
+                      className="p-1.5 text-muted-foreground hover:bg-secondary hover:text-primary rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    >
+                      <Activity className="w-4 h-4" aria-hidden="true" />
+                    </Link>
+                  )}
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void copyTaskLink(task);
+                    }}
+                    aria-label={`نسخ رابط المهمة: ${task.title}`}
+                    title="نسخ رابط المهمة"
+                    data-testid={`button-copy-task-link-${task.id}`}
+                    className="p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  >
+                    <Copy className="w-4 h-4" aria-hidden="true" />
+                  </button>
                   {(task.status === 'pending' || task.status === 'queued') && (
                     <button
                       onClick={(e) => { e.stopPropagation(); handleAction('execute', task.id); }}
@@ -2257,6 +2586,19 @@ function TasksSession({
                     {getDetailTab(task.id) === 'details' ? (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
+                          {typeof task.correlationId === 'string' && task.correlationId.trim() && (
+                            <div className="mb-4">
+                              <Link
+                                href={taskEventLogHref(task.projectId, task.correlationId.trim())}
+                                aria-label={`عرض سجل الأحداث للمهمة: ${task.title}`}
+                                data-testid={`link-task-event-log-${task.id}`}
+                                className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                              >
+                                <Activity className="h-3.5 w-3.5" aria-hidden="true" />
+                                عرض سجل الأحداث المرتبطة
+                              </Link>
+                            </div>
+                          )}
                           <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
                             Task Details
                           </h4>

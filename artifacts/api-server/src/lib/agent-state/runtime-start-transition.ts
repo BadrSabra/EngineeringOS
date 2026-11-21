@@ -1550,8 +1550,10 @@ export async function dispatchMissionWorldTransitionWakeIntent(
     } else if (expectedKind === "apply_changes") {
       await missionRuntime.wakeApplyChangesMissionGoals(1, projectId, goalId);
     } else {
+      // Recipe reconciliation commits Goal completion and its
+      // MissionGoalWakeRequested intent together, then dispatches that intent
+      // through the durable Goal outbox. Avoid a competing direct dependency scan.
       await missionRuntime.reconcileCompletedMissionRecipeAcceptances(1, projectId, executionId);
-      await missionRuntime.wakeReadyMissionGoals(32, projectId, goalId);
     }
 
     await markMissionWorldTransitionWakeProcessed(intent.id, payload, {
@@ -2711,6 +2713,7 @@ export async function retryPendingRuntimeStartTransitions(limit = 32): Promise<n
     episodeId: aiWorldTransitionsTable.episodeId,
     actionId: aiWorldTransitionsTable.actionId,
     effectBundleId: aiWorldTransitionsTable.effectBundleId,
+    idempotencyKey: aiWorldTransitionsTable.idempotencyKey,
   })
     .from(aiWorldTransitionsTable)
     .where(and(
@@ -2727,17 +2730,9 @@ export async function retryPendingRuntimeStartTransitions(limit = 32): Promise<n
   for (const candidate of candidates) {
     if (!candidate.effectBundleId) continue;
     try {
-      const [transition] = await db.select({ idempotencyKey: aiWorldTransitionsTable.idempotencyKey })
-        .from(aiWorldTransitionsTable).where(and(
-          eq(aiWorldTransitionsTable.projectId, candidate.projectId),
-          eq(aiWorldTransitionsTable.executionId, candidate.executionId),
-          eq(aiWorldTransitionsTable.attempt, candidate.attempt),
-          eq(aiWorldTransitionsTable.episodeId, candidate.episodeId),
-          eq(aiWorldTransitionsTable.actionId, candidate.actionId),
-        )).limit(1);
-      const finalize = transition?.idempotencyKey.startsWith("apply.changes:")
+      const finalize = candidate.idempotencyKey.startsWith("apply.changes:")
         ? finalizeApplyChangesTransition
-        : transition?.idempotencyKey.startsWith("github.delivery:")
+        : candidate.idempotencyKey.startsWith("github.delivery:")
           ? finalizeGitHubDeliveryTransition
           : finalizeRuntimeStartTransition;
       await finalize({

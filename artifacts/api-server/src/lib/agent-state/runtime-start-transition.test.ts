@@ -44,6 +44,7 @@ import {
   recoverAcceptedApplyChangesTransition,
   finalizeApplyChangesTransition,
   finalizeRuntimeStartTransition,
+  dispatchMissionWorldTransitionWakeIntent,
   dispatchPendingMaterializedMissionTransitionWakes,
   retryPendingRuntimeStartTransitions,
 } from "./runtime-start-transition.js";
@@ -2736,6 +2737,55 @@ describe("runtime.start transition retry scheduling", () => {
       expect(status).toBe("materialized");
       expect(dispatchCount).toBe(1);
       expect(enqueue).toHaveBeenCalledTimes(1);
+
+      // Simulate a process crash after the transition committed but before
+      // its wake intent was durably acknowledged by the dispatcher.
+      clearInterval(dispatcher);
+      const [deliveredIntent] = await db.select().from(eventsTable).where(and(
+        eq(eventsTable.projectId, fixture.projectId),
+        eq(eventsTable.goalId, mission.sourceGoalId),
+        eq(eventsTable.type, "AiMissionWorldTransitionWakeRequested"),
+      )).limit(1);
+      expect(typeof deliveredIntent?.payload?.processedAt).toBe("string");
+
+      const pendingPayload = { ...(deliveredIntent?.payload ?? {}) };
+      delete pendingPayload.processedAt;
+      delete pendingPayload.dispatchOutcome;
+      delete pendingPayload.terminalReason;
+      delete pendingPayload.deadLetterAt;
+      delete pendingPayload.dispatchLease;
+      pendingPayload.nextAttemptAt = new Date(Date.now() - 1_000).toISOString();
+      await db.update(eventsTable).set({ payload: pendingPayload })
+        .where(eq(eventsTable.id, deliveredIntent!.id));
+
+      const recoveryDispatcher = startDurableJobDispatcher();
+      try {
+        let recovered = false;
+        const recoveryDeadline = Date.now() + 10_000;
+        while (Date.now() < recoveryDeadline) {
+          const [intent] = await db.select({ payload: eventsTable.payload })
+            .from(eventsTable)
+            .where(eq(eventsTable.id, deliveredIntent!.id))
+            .limit(1);
+          if (typeof intent?.payload?.processedAt === "string") {
+            recovered = true;
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        expect(recovered).toBe(true);
+
+        const recoveredDispatches = await db.select({ id: eventsTable.id })
+          .from(eventsTable).where(and(
+            eq(eventsTable.projectId, fixture.projectId),
+            eq(eventsTable.goalId, mission.targetGoalId),
+            eq(eventsTable.type, "AiGoalRecipeDispatchRequested"),
+          ));
+        expect(recoveredDispatches).toHaveLength(1);
+        expect(enqueue).toHaveBeenCalledTimes(1);
+      } finally {
+        clearInterval(recoveryDispatcher);
+      }
     } finally {
       clearInterval(dispatcher);
     }
@@ -3919,6 +3969,60 @@ describe("Materialized Mission World Transition wake outbox", () => {
       ));
     expect(dispatches).toHaveLength(1);
     expect(enqueue).toHaveBeenCalledOnce();
+  });
+
+  it("uses the durable Goal outbox as the only Recipe continuation wake path", async () => {
+    const fixture = await transitionFixture({ missionHandoff: true });
+    const mission = fixture.missionHandoff;
+    if (!mission) throw new Error("Mission handoff fixture was not created.");
+
+    await db.update(aiWorldTransitionsTable).set({
+      status: "materialized",
+      idempotencyKey: `github.delivery:${fixture.operationId}`,
+    }).where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+
+    const intentId = `mission-world-transition-wake:${fixture.transitionId}`;
+    await db.insert(eventsTable).values({
+      id: intentId,
+      type: "AiMissionWorldTransitionWakeRequested",
+      projectId: fixture.projectId,
+      goalId: mission.sourceGoalId,
+      correlationId: fixture.executionId,
+      severity: "info",
+      message: "A materialized GitHub delivery transition requested a Mission wake",
+      payload: {
+        schemaVersion: 1,
+        transitionId: fixture.transitionId,
+        transitionKind: "github_delivery",
+        projectId: fixture.projectId,
+        missionId: mission.missionId,
+        goalId: mission.sourceGoalId,
+        executionId: fixture.executionId,
+        attempt: 0,
+        episodeId: fixture.episodeId,
+        actionId: fixture.transitionInput.actionId,
+        attemptCount: 0,
+      },
+    });
+
+    const reconcileRecipe = vi.spyOn(
+      missionRuntimeModule,
+      "reconcileCompletedMissionRecipeAcceptances",
+    ).mockResolvedValue(0);
+    const directDependencyWake = vi.spyOn(missionRuntimeModule, "wakeReadyMissionGoals");
+
+    await expect(dispatchMissionWorldTransitionWakeIntent(intentId)).resolves.toBe(true);
+
+    expect(reconcileRecipe).toHaveBeenCalledWith(1, fixture.projectId, fixture.executionId);
+    expect(directDependencyWake).not.toHaveBeenCalled();
+    const [processedIntent] = await db.select({ payload: eventsTable.payload })
+      .from(eventsTable)
+      .where(eq(eventsTable.id, intentId))
+      .limit(1);
+    expect(processedIntent?.payload).toMatchObject({
+      dispatchOutcome: "delivered",
+      processedAt: expect.any(String),
+    });
   });
 });
 

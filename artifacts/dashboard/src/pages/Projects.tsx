@@ -25,11 +25,14 @@ import {
   CheckCircle2,
   AlertTriangle,
   ArrowRight,
+  ChevronDown,
 } from 'lucide-react';
 import { Link } from 'wouter';
 import { DiscoverProjectWizard } from './DiscoverProjectWizard';
 import { readGoalDrafts, storeGoalDraft, updateGoalDraft } from '@/lib/home-goal-handoff';
 import { matchesProjectSearch } from '@/lib/project-search';
+import { suggestProjectNameFromGoal } from '@/lib/project-name-suggestion';
+import { projectStatusLabel } from '@/lib/project-detail-copy';
 
 // Display-only labels; the server status values are never changed.
 const bootstrapStatusLabels: Record<string, string> = {
@@ -43,6 +46,14 @@ function bootstrapStatusLabel(status: string) {
   return bootstrapStatusLabels[status] ?? status;
 }
 
+type ProjectStatusFilter = '' | 'active' | 'scanning' | 'archived';
+
+function readProjectStatusFilter(value: string | null): ProjectStatusFilter {
+  return value === 'active' || value === 'scanning' || value === 'archived'
+    ? value
+    : '';
+}
+
 export default function Projects() {
   const { isLoaded, user } = useUser();
   if (!isLoaded) return <p role="status">جارٍ تحميل الحساب…</p>;
@@ -51,15 +62,18 @@ export default function Projects() {
 }
 
 function ProjectsForAccount({ ownerId }: { ownerId: string }) {
-  const routeDraftId = new URLSearchParams(window.location.search).get('goalDraftId') ?? '';
+  const routeParams = new URLSearchParams(window.location.search);
+  const routeDraftId = routeParams.get('goalDraftId') ?? '';
+  const routeCreate = routeParams.get('create') === '1';
 
   // The same /projects route can receive another goal handoff without unmounting.
   // Bind all create-form and bootstrap state to the exact handoff draft.
   return (
     <ProjectsForAccountSession
-      key={JSON.stringify([ownerId, routeDraftId])}
+      key={JSON.stringify([ownerId, routeDraftId, routeCreate])}
       ownerId={ownerId}
       routeDraftId={routeDraftId}
+      routeCreate={routeCreate}
     />
   );
 }
@@ -67,9 +81,11 @@ function ProjectsForAccount({ ownerId }: { ownerId: string }) {
 function ProjectsForAccountSession({
   ownerId,
   routeDraftId,
+  routeCreate,
 }: {
   ownerId: string;
   routeDraftId: string;
+  routeCreate: boolean;
 }) {
   const [, setLocation] = useLocation();
   const draftSnapshot = readGoalDrafts(ownerId);
@@ -83,7 +99,14 @@ function ProjectsForAccountSession({
     return () => { mounted.current = false; };
   }, []);
   const queryClient = useQueryClient();
-  const { data: rawProjects, isLoading, isError, error } = useListProjects(undefined, {
+  const {
+    data: rawProjects,
+    isLoading,
+    isError,
+    error,
+    isFetching: isProjectsFetching,
+    refetch: refetchProjects,
+  } = useListProjects(undefined, {
     query: {
       queryKey: getListProjectsQueryKey(),
       retry: (failureCount, err) => isRetryableProjectError(err, failureCount),
@@ -93,10 +116,28 @@ function ProjectsForAccountSession({
   // Accept the newest query result, including an authoritative empty collection.
   const projects = rawProjects;
   const [showDiscover, setShowDiscover] = useState(false);
-  const [showCreate, setShowCreate] = useState(Boolean(incomingDraft));
-  const [search, setSearch] = useState('');
+  const [showCreate, setShowCreate] = useState(Boolean(incomingDraft) || routeCreate);
+  const [search, setSearch] = useState(
+    () => new URLSearchParams(window.location.search).get('search') ?? '',
+  );
+  const [statusFilter, setStatusFilter] = useState<ProjectStatusFilter>(
+    () => readProjectStatusFilter(new URLSearchParams(window.location.search).get('status')),
+  );
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const [projectName, setProjectName] = useState(incomingDraft?.bootstrap?.projectName ?? '');
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (search.trim()) url.searchParams.set('search', search);
+    else url.searchParams.delete('search');
+    if (statusFilter) url.searchParams.set('status', statusFilter);
+    else url.searchParams.delete('status');
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+  }, [search, statusFilter]);
+  const suggestedProjectName = incomingDraft && !incomingDraft.bootstrap?.projectName
+    ? suggestProjectNameFromGoal(incomingDraft.text)
+    : '';
+  const [projectName, setProjectName] = useState(
+    incomingDraft?.bootstrap?.projectName ?? suggestedProjectName,
+  );
   const [projectDescription, setProjectDescription] = useState(incomingDraft?.text ?? '');
   const [bootstrapId, setBootstrapId] = useState(incomingDraft?.bootstrap?.operationId ?? '');
   const [initialOperation, setInitialOperation] = useState<ProjectBootstrapOperation | null>(null);
@@ -153,6 +194,11 @@ function ProjectsForAccountSession({
   const resetCreate = () => {
     createGeneration.current++;
     setShowCreate(false);
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('create') === '1') {
+      url.searchParams.delete('create');
+      window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+    }
     setProjectName('');
     setProjectDescription('');
     setBootstrapId('');
@@ -168,6 +214,12 @@ function ProjectsForAccountSession({
   const openCreate = () => {
     idempotencyKey.current = '';
     setShowCreate(true);
+  };
+
+  const openCreateFromSearch = () => {
+    setProjectName(search.trim().slice(0, 80));
+    setProjectDescription('');
+    openCreate();
   };
 
   const submitCreate = (event: React.FormEvent<HTMLFormElement>) => {
@@ -230,7 +282,11 @@ function ProjectsForAccountSession({
   }, [error]);
 
   const normalizedSearch = search.trim().toLowerCase();
-  const filtered = projects?.filter((project) => matchesProjectSearch(project, search));
+  const searchMatches = projects?.filter((project) => matchesProjectSearch(project, search));
+  const filtered = searchMatches?.filter((project) =>
+    !statusFilter || project.status === statusFilter,
+  );
+  const hasActiveFilters = Boolean(normalizedSearch || statusFilter);
 
   return (
     <>
@@ -275,6 +331,11 @@ function ProjectsForAccountSession({
                 <label className="block space-y-2">
                   <span className="text-sm font-medium">اسم المشروع</span>
                   <input autoFocus required maxLength={80} readOnly={Boolean(currentDraft?.bootstrap)} value={projectName} onChange={(event) => { setProjectName(event.target.value); idempotencyKey.current = ''; }} placeholder="مثال: دفتر ملاحظات الورشة" dir="auto" data-testid="input-project-name" className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none transition focus:border-primary/60 focus:ring-2 focus:ring-primary/15" />
+                  {suggestedProjectName && projectName === suggestedProjectName && (
+                    <span data-testid="text-project-name-suggestion" className="block text-xs text-muted-foreground">
+                      اقترحنا الاسم من هدفك؛ يمكنك تعديله قبل الإنشاء.
+                    </span>
+                  )}
                   <span dir="ltr" className="block text-left font-mono text-[10px] text-muted-foreground">{projectName.length}/80</span>
                 </label>
                 <label className="block space-y-2">
@@ -356,7 +417,15 @@ function ProjectsForAccountSession({
                 ref={searchInputRef}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={(event) => {
+                  const isComposing = event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229;
+                  const project = filtered?.length === 1 ? filtered[0] : undefined;
+                  if (event.key !== 'Enter' || isComposing || !project) return;
+                  event.preventDefault();
+                  setLocation(`/projects/${encodeURIComponent(project.id)}/workspace`);
+                }}
                 aria-label="ابحث عن مشروع بكلمات من الاسم أو الوصف أو التقنية"
+                aria-describedby="project-search-keyboard-status"
                 placeholder="ابحث بكلمة أو أكثر من الاسم أو الوصف أو التقنية..."
                 dir="auto"
                 data-testid="input-project-search"
@@ -364,6 +433,17 @@ function ProjectsForAccountSession({
                   normalizedSearch ? 'pl-9 pr-9' : 'pl-9 pr-4'
                 }`}
               />
+                <span id="project-search-keyboard-status" aria-live="polite" aria-atomic="true" className="sr-only">
+                  {hasActiveFilters && filtered?.length === 1
+                    ? 'مشروع واحد مطابق. اضغط Enter لفتح مساحة العمل.'
+                    : hasActiveFilters && filtered && filtered.length > 1
+                      ? 'توجد عدة مشاريع مطابقة. اختر المشروع المطلوب من النتائج.'
+                      : normalizedSearch && searchMatches?.length === 0 && filtered?.length === 0
+                        ? 'لا توجد مشاريع مطابقة. يمكنك استخدام عبارة البحث اسمًا لمشروع جديد.'
+                        : hasActiveFilters && filtered?.length === 0
+                          ? 'لا توجد مشاريع تطابق هذه الاختيارات. غيّر حالة المشروع أو امسح الفلاتر.'
+                        : ''}
+                </span>
               {normalizedSearch && (
                 <button
                   type="button"
@@ -378,6 +458,24 @@ function ProjectsForAccountSession({
                   <X className="h-3.5 w-3.5" aria-hidden="true" />
                 </button>
               )}
+            </div>
+            <div>
+              <label htmlFor="project-status-filter" className="sr-only">
+                فلتر المشاريع حسب الحالة
+              </label>
+              <select
+                id="project-status-filter"
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(readProjectStatusFilter(event.target.value))}
+                data-testid="select-project-status-filter"
+                dir="rtl"
+                className="h-9 rounded-md border border-border bg-card px-3 text-sm outline-none transition focus:border-primary focus:ring-1 focus:ring-primary"
+              >
+                <option value="">كل الحالات</option>
+                <option value="active">نشطة</option>
+                <option value="scanning">قيد الفحص</option>
+                <option value="archived">مؤرشفة</option>
+              </select>
             </div>
             <button
               onClick={() => setShowDiscover(true)}
@@ -414,10 +512,19 @@ function ProjectsForAccountSession({
               {projectLoadFailure.message}
             </p>
             <button
-              onClick={() => window.location.reload()}
+              type="button"
+              onClick={() => void refetchProjects()}
+              disabled={isProjectsFetching}
+              aria-busy={isProjectsFetching}
+              data-testid="button-retry-project-list"
               className="bg-secondary hover:bg-secondary/80 text-foreground px-4 py-2 rounded-md text-sm font-medium transition-colors border border-border"
             >
-              تحديث الصفحة
+              {isProjectsFetching ? (
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  جارٍ تحديث المشاريع…
+                </span>
+              ) : 'أعد محاولة تحميل المشاريع'}
             </button>
           </div>
         )}
@@ -428,14 +535,52 @@ function ProjectsForAccountSession({
               <Radar className="w-7 h-7 text-primary/60" />
             </div>
             <h3 className="font-semibold text-lg mb-1">
-              {normalizedSearch ? 'لا توجد مشاريع تطابق بحثك' : 'لا توجد مشاريع بعد'}
+              {normalizedSearch && statusFilter
+                ? 'لا توجد مشاريع تطابق البحث والحالة'
+                : normalizedSearch
+                  ? 'لا توجد مشاريع تطابق بحثك'
+                  : statusFilter
+                    ? 'لا توجد مشاريع بهذه الحالة'
+                    : 'لا توجد مشاريع بعد'}
             </h3>
             <p className="text-sm text-muted-foreground max-w-xs mb-5">
-              {normalizedSearch
-                ? 'جرّب اسم المشروع أو وصفه أو إحدى تقنياته.'
-                : 'يمكنك تجهيز مشروع، أو استكشاف مشروع موجود، أو البدء بوصف النتيجة التي تريدها.'}
+              {normalizedSearch && statusFilter
+                ? 'غيّر عبارة البحث أو حالة المشروع، أو اعرض كل المشاريع.'
+                : normalizedSearch
+                  ? 'جرّب اسم المشروع أو وصفه أو إحدى تقنياته.'
+                  : statusFilter
+                    ? 'غيّر حالة المشروع أو اعرض كل المشاريع.'
+                    : 'يمكنك تجهيز مشروع، أو استكشاف مشروع موجود، أو البدء بوصف النتيجة التي تريدها.'}
             </p>
-            {!normalizedSearch && (
+            {normalizedSearch && !statusFilter && searchMatches?.length === 0 && filtered?.length === 0 && (
+              <div className="mb-5 flex flex-col items-center gap-2">
+                <button
+                  type="button"
+                  onClick={openCreateFromSearch}
+                  data-testid="button-create-project-from-search"
+                  className="inline-flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/10 px-5 py-2.5 text-sm font-semibold text-primary transition-colors hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                  <Plus className="h-4 w-4" aria-hidden="true" />
+                  استخدم «<bdi dir="auto">{search.trim().slice(0, 80)}</bdi>» اسمًا لمشروع جديد
+                </button>
+                <span className="text-xs text-muted-foreground">سيفتح النموذج لتعديل الاسم وإضافة وصف قبل البدء.</span>
+              </div>
+            )}
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch('');
+                  setStatusFilter('');
+                  searchInputRef.current?.focus();
+                }}
+                data-testid="button-clear-project-filters"
+                className="mb-5 rounded-md border border-border px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                اعرض كل المشاريع
+              </button>
+            )}
+            {!hasActiveFilters && (
               <div className="flex flex-wrap justify-center gap-3">
                 <Link
                   href="/"
@@ -513,7 +658,7 @@ function ProjectsForAccountSession({
                         : 'bg-muted/50 text-muted-foreground border-border'
                     }`}
                   >
-                    {project.status}
+                    {projectStatusLabel(project.status)}
                   </div>
                 </div>
 
@@ -521,15 +666,44 @@ function ProjectsForAccountSession({
                   <p className="text-xs text-muted-foreground line-clamp-2">{project.description}</p>
                 )}
 
-                <div className="text-sm text-muted-foreground font-mono truncate bg-secondary/50 px-3 py-2 rounded-md border border-border/50">
-                  {project.rootPath}
-                </div>
+                <details
+                  data-testid={`details-project-technical-${project.id}`}
+                  className="group rounded-lg border border-border/50 bg-secondary/30 px-3 py-2"
+                >
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-medium text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+                    <span>تفاصيل تقنية</span>
+                    <ChevronDown
+                      className="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-180"
+                      aria-hidden="true"
+                    />
+                  </summary>
+                  <div className="mt-2 grid gap-2 border-t border-border/50 pt-2 text-xs sm:grid-cols-2">
+                    {project.language && (
+                      <p>
+                        <span className="text-muted-foreground">لغة المشروع: </span>
+                        <bdi dir="ltr" className="font-mono">{project.language}</bdi>
+                      </p>
+                    )}
+                    {project.framework && (
+                      <p>
+                        <span className="text-muted-foreground">إطار العمل: </span>
+                        <bdi dir="ltr" className="font-mono">{project.framework}</bdi>
+                      </p>
+                    )}
+                    <p className="min-w-0 sm:col-span-2">
+                      <span className="text-muted-foreground">مسار الملفات:</span>
+                      <code dir="ltr" className="mt-1 block break-all rounded bg-background/60 px-2 py-1 text-[11px]">
+                        {project.rootPath}
+                      </code>
+                    </p>
+                  </div>
+                </details>
 
                 <div className="mt-auto flex flex-wrap items-end justify-between gap-3 pt-3 border-t border-border/50">
                   <div className="grid min-w-0 flex-1 grid-cols-2 gap-3">
                     <div>
                       <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1 flex items-center gap-1">
-                        <ShieldCheck className="w-3 h-3" /> Quality
+                        <ShieldCheck className="w-3 h-3" /> الجودة
                       </div>
                       <div className="font-mono font-bold text-lg flex items-baseline gap-1">
                         <span
@@ -548,7 +722,7 @@ function ProjectsForAccountSession({
                     </div>
                     <div>
                       <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1">
-                        Last Scan
+                        آخر فحص
                       </div>
                       <div className="text-sm font-medium">
                         {project.lastScanAt

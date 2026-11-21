@@ -98,6 +98,7 @@
   "dependencies": {
     "@clerk/react": "^6.17.7",
     "@clerk/themes": "^2.4.57",
-    "react-markdown": "^10.1.0"
+    "react-markdown": "^10.1.0",
+    "@clerk/localizations": "4.25.0"
   }
 }

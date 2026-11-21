@@ -1,6 +1,9 @@
 export type GoalRoutingProject = {
   id: string;
   name: string;
+  description?: string | null;
+  language?: string | null;
+  framework?: string | null;
 };
 
 export type GoalProjectMatch =
@@ -10,7 +13,7 @@ export type GoalProjectMatch =
 
 export type GoalProjectSuggestion = {
   project: GoalRoutingProject;
-  kind: 'exact' | 'partial';
+  kind: 'exact' | 'partial' | 'context';
   matchedTerms: string[];
 };
 
@@ -85,6 +88,42 @@ function partialProjectSuggestions(
     .map(({ project, kind, matchedTerms }) => ({ project, kind, matchedTerms }));
 }
 
+function contextProjectSuggestions(
+  goal: string,
+  projects: readonly GoalRoutingProject[],
+): GoalProjectSuggestion[] {
+  const goalWords = new Set(specificWords(goal));
+  if (goalWords.size === 0) return [];
+
+  return projects
+    .map((project, index) => {
+      const descriptionWords = [...new Set(specificWords(project.description ?? ''))];
+      const technologyWords = [...new Set([
+        ...specificWords(project.language ?? ''),
+        ...specificWords(project.framework ?? ''),
+      ])];
+      const matchedDescription = descriptionWords.filter((word) => goalWords.has(word));
+      const matchedTechnology = technologyWords.filter((word) => goalWords.has(word));
+
+      // A single word from a long description is too weak; an exact framework
+      // or language mention can still be useful as a reviewable suggestion.
+      if (matchedTechnology.length === 0 && matchedDescription.length < 2) return null;
+
+      const matchedTerms = [...new Set([...matchedTechnology, ...matchedDescription])].slice(0, 4);
+      return {
+        project,
+        kind: 'context' as const,
+        matchedTerms,
+        score: matchedTechnology.length * 3 + matchedDescription.length,
+        index,
+      };
+    })
+    .filter((candidate): candidate is NonNullable<typeof candidate> => candidate !== null)
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .slice(0, 3)
+    .map(({ project, kind, matchedTerms }) => ({ project, kind, matchedTerms }));
+}
+
 export function matchGoalToProject(
   goal: string,
   projects: readonly GoalRoutingProject[],
@@ -114,7 +153,8 @@ export function matchGoalToProject(
 /**
  * Return explanatory choices without selecting or routing to any project.
  * Exact mentions are useful when the goal mentions several projects. Partial
- * word overlap is advisory and never authorizes a route on its own.
+ * word overlap and project metadata matches are advisory and never authorize a
+ * route on their own.
  */
 export function suggestGoalProjects(
   goal: string,
@@ -138,5 +178,8 @@ export function suggestGoalProjects(
     projects,
     new Set(exactMatches.map((project) => project.id)),
   );
-  return [...exactSuggestions, ...partialSuggestions];
+  const contextSuggestions = exactSuggestions.length === 0 && partialSuggestions.length === 0
+    ? contextProjectSuggestions(goal, projects)
+    : [];
+  return [...exactSuggestions, ...partialSuggestions, ...contextSuggestions];
 }

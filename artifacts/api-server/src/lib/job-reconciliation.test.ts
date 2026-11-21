@@ -31,6 +31,7 @@ import {
   failStaleRunningJobs,
   failStaleDiscoverySessions,
   getDurableJobHealth,
+  reconcileExpiredTaskExecutions,
   reconcileStaleAiTasks,
   reconcileStuckJobs,
   GITHUB_DELIVERY_RECOVERY_BATCH_SIZE,
@@ -51,6 +52,20 @@ import {
   DELIVERY_TREE_DIGEST_VERSION,
   hashDeliveryTree,
 } from "./delivery-workspace.js";
+
+// Allow one startup cleanup pass to fail without replacing the real implementation
+// for the rest of this DB-backed reconciliation suite.
+const { sweepExpiredUploadsMock } = vi.hoisted(() => ({
+  sweepExpiredUploadsMock: vi.fn(),
+}));
+vi.mock("./upload-store.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./upload-store.js")>();
+  return {
+    ...actual,
+    sweepExpiredUploads: (...args: Parameters<typeof actual.sweepExpiredUploads>) =>
+      sweepExpiredUploadsMock(...args) ?? actual.sweepExpiredUploads(...args),
+  };
+});
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
@@ -104,6 +119,47 @@ async function insertProject(status: "active" | "scanning"): Promise<string> {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe("reconcileStuckJobs", () => {
+  it("continues independent startup passes when an auxiliary cleanup pass fails", async () => {
+    const projectId = await insertProject("scanning");
+    projectCleanup.push(projectId);
+
+    const scanId = randomUUID();
+    const taskId = randomUUID();
+    const now = new Date();
+    await db.insert(scanJobsTable).values({
+      id: scanId,
+      projectId,
+      status: "queued",
+      createdAt: now,
+    });
+    await db.insert(tasksTable).values({
+      id: taskId,
+      projectId,
+      title: "reconcile-after-independent-pass-failure",
+      status: "running",
+      retryCount: 1,
+      maxRetries: 3,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    sweepExpiredUploadsMock.mockRejectedValueOnce(new Error("temporary upload-store failure"));
+
+    const result = await reconcileStuckJobs();
+
+    expect(result.scanJobs).toBeGreaterThanOrEqual(1);
+    expect(result.aiTasks).toBeGreaterThanOrEqual(1);
+    expect(result.expiredUploads).toBe(0);
+
+    const [task] = await db.select({ status: tasksTable.status, retryCount: tasksTable.retryCount })
+      .from(tasksTable)
+      .where(eq(tasksTable.id, taskId));
+    expect(task).toEqual({ status: "verifying", retryCount: 2 });
+
+    await db.delete(taskLogsTable).where(eq(taskLogsTable.taskId, taskId));
+    await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
+  });
+
   const projectCleanup: string[] = [];
   const sessionCleanup: string[] = [];
 
@@ -651,10 +707,10 @@ describe("reconcileStuckJobs", () => {
       });
 
       try {
-        const [reconciledTasks, reconciledExecutions] = await Promise.all([
-          reconcileStaleAiTasks(),
-          reconcileAiExecutions({ expiredOnly: true }),
-        ]);
+        const {
+          tasks: reconciledTasks,
+          executions: reconciledExecutions,
+        } = await reconcileExpiredTaskExecutions();
         expect(reconciledTasks).toBe(1);
         expect(reconciledExecutions).toBe(1);
 

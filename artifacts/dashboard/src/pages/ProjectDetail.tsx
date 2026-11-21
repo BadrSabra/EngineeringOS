@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { useRoute } from 'wouter';
+import { useUser } from '@clerk/react';
+import { useLocation, useRoute } from 'wouter';
 import GitPanel from '@/components/GitPanel';
 import {
   useGetProject,
@@ -17,6 +18,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import {
   ArrowRight,
   Activity,
+  Plus,
   Settings,
   Play,
   ShieldAlert,
@@ -31,15 +33,18 @@ import {
   GitMerge,
   X,
   ExternalLink,
+  Sparkles,
 } from 'lucide-react';
 import { Link } from 'wouter';
 import { RefreshButton, RequestError } from '@/components/OperatorResilience';
+import EventAssistantHandoff from '@/components/EventAssistantHandoff';
 import { useMonotonicData } from '@/lib/freshness';
 import WorkspaceRuntimePanel from '@/components/WorkspaceRuntimePanel';
 import ProjectAiBudgetPanel from '@/components/ProjectAiBudgetPanel';
 import ProjectPluginsPanel from '@/components/ProjectPluginsPanel';
 import BrowserValidationProfilesPanel from '@/components/BrowserValidationProfilesPanel';
 import { formatProjectTimestamp, projectStatusLabel } from '@/lib/project-detail-copy';
+import { storeHomeGoalDraft } from '@/lib/home-goal-handoff';
 
 export default function ProjectDetail() {
   const [, params] = useRoute('/projects/:id');
@@ -52,6 +57,8 @@ export default function ProjectDetail() {
 
 function ProjectDetailSession({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient();
+  const { isLoaded, user } = useUser();
+  const [, setLocation] = useLocation();
 
   const projectQuery = useGetProject(projectId, {
     query: {
@@ -67,6 +74,24 @@ function ProjectDetailSession({ projectId }: { projectId: string }) {
   const project = useMonotonicData(rawProject, rawProject?.updatedAt);
   const updateProject = useUpdateProject();
   const [strategyReplayOptInError, setStrategyReplayOptInError] = useState<string | null>(null);
+  const [assistantHandoffError, setAssistantHandoffError] = useState<string | null>(null);
+
+  const openProjectAssistant = () => {
+    if (!isLoaded || !user?.id || !projectId) return;
+    const draft = storeHomeGoalDraft(
+      'أريد العمل على هذا المشروع. اسألني أولًا عما أريد إنجازه، ثم ساعدني على تحديد خطوة مناسبة. لا تغيّر الملفات أو تبدأ أي عمل قبل أن أراجع المقترح وأوافق.',
+      user.id,
+      projectId,
+    );
+    if (!draft) {
+      setAssistantHandoffError('تعذر حفظ مسودة طلب المساعدة. بقيت في صفحة المشروع ولم نغيّر شيئًا.');
+      return;
+    }
+    setAssistantHandoffError(null);
+    setLocation(
+      `/projects/${encodeURIComponent(projectId)}/workspace?goalDraftId=${encodeURIComponent(draft.id)}#workspace-panel-agent`,
+    );
+  };
 
   const setStrategyReplayOptIn = (nextValue: boolean) => {
     setStrategyReplayOptInError(null);
@@ -91,11 +116,28 @@ function ProjectDetailSession({ projectId }: { projectId: string }) {
     query: { enabled: !!projectId, queryKey: getGetProjectSummaryQueryKey(projectId) },
   });
 
-  // Prefetch tasks into the query cache for the Tasks tab (result not used directly here).
+  // Prefetch tasks into the query cache for the Tasks tab.
   useListTasks(
     { projectId },
     { query: { enabled: !!projectId, queryKey: getListTasksQueryKey({ projectId }) } },
   );
+
+  const failedTasksQuery = useListTasks(
+    { projectId, status: 'failed', pageSize: 2 },
+    {
+      query: {
+        enabled: !!projectId && summary?.taskCounts.failed === 1,
+        queryKey: getListTasksQueryKey({ projectId, status: 'failed', pageSize: 2 }),
+        staleTime: 10_000,
+      },
+    },
+  );
+  const matchingFailedTasks = failedTasksQuery.data?.filter(
+    (task) => task.projectId === projectId && task.status === 'failed',
+  );
+  const soleFailedTask = summary?.taskCounts.failed === 1 && matchingFailedTasks?.length === 1
+    ? matchingFailedTasks[0]
+    : undefined;
 
   const { data: graphSummary, isLoading: loadingGraphSummary, isError: graphSummaryError } = useGetGraphSummary(projectId, {
     query: { enabled: !!projectId, queryKey: getGetGraphSummaryQueryKey(projectId), staleTime: 60_000 },
@@ -256,7 +298,7 @@ function ProjectDetailSession({ projectId }: { projectId: string }) {
             </span>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
           <Link
             href={`/projects/${encodeURIComponent(projectId)}/workspace`}
             data-testid="link-project-workspace"
@@ -265,6 +307,27 @@ function ProjectDetailSession({ projectId }: { projectId: string }) {
             <Activity className="h-4 w-4" aria-hidden="true" />
             مساحة العمل
           </Link>
+          <Link
+            href={`/workflows?projectId=${encodeURIComponent(projectId)}&create=1`}
+            aria-label={`إنشاء مسار عمل للمشروع ${project.name}`}
+            data-testid="link-create-project-workflow"
+            className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          >
+            <GitMerge className="h-4 w-4" aria-hidden="true" />
+            مسار عمل جديد
+          </Link>
+          <button
+            type="button"
+            onClick={openProjectAssistant}
+            disabled={!isLoaded || !user?.id}
+            data-testid="button-project-assistant"
+            aria-label={`اسأل مساعد المشروع ${project.name}`}
+            title="ستراجع المسودة قبل إرسالها"
+            className="inline-flex items-center gap-2 rounded-md border border-primary/35 bg-primary/10 px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-wait disabled:opacity-50"
+          >
+            <Sparkles className="h-4 w-4" aria-hidden="true" />
+            اسأل المساعد
+          </button>
           <RefreshButton onRefresh={async () => { await Promise.all([refetchProject(), refetchSummary()]); }} isRefreshing={projectRefreshing || summaryFetching} lastUpdated={compositeLastUpdatedAt} label="تحديث المشروع" />
           <button
             onClick={() => setShowProjectInfo((v) => !v)}
@@ -289,6 +352,11 @@ function ProjectDetailSession({ projectId }: { projectId: string }) {
               </>
             )}
           </button>
+          {assistantHandoffError && (
+            <p role="alert" data-testid="text-project-assistant-error" className="basis-full text-xs text-destructive">
+              {assistantHandoffError}
+            </p>
+          )}
         </div>
       </div>
 
@@ -402,8 +470,10 @@ function ProjectDetailSession({ projectId }: { projectId: string }) {
               <Network className="w-4 h-4 text-primary" /> خريطة العلاقات
             </h2>
             <Link
-              href="/graph"
+              href={`/graph?projectId=${encodeURIComponent(project.id)}`}
               className="text-xs text-primary hover:underline flex items-center gap-1"
+              aria-label={`استكشف خريطة المشروع: ${project.name}`}
+              data-testid="link-project-graph"
             >
               استكشف الخريطة <ExternalLink className="w-3 h-3" />
             </Link>
@@ -512,9 +582,19 @@ function ProjectDetailSession({ projectId }: { projectId: string }) {
 
         {/* Task breakdown */}
         <div className="bg-card border border-border rounded-xl p-5 shadow-sm">
-          <h2 className="font-semibold flex items-center gap-2 mb-4">
-            <Activity className="w-4 h-4 text-primary" /> ملخص المهام
-          </h2>
+          <div className="mb-4 flex items-center justify-between gap-2">
+            <h2 className="font-semibold flex items-center gap-2">
+              <Activity className="w-4 h-4 text-primary" /> ملخص المهام
+            </h2>
+            <Link
+              href={`/tasks?projectId=${encodeURIComponent(projectId)}&create=1`}
+              aria-label={`أضف مهمة إلى مشروع ${project.name}`}
+              data-testid="link-create-project-task"
+              className="flex shrink-0 items-center gap-1 rounded text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              <Plus className="h-3 w-3" aria-hidden="true" /> مهمة جديدة
+            </Link>
+          </div>
           {summary ? (
             <div className="grid grid-cols-2 gap-3">
               <div className="bg-secondary/50 border border-border rounded-lg p-3 text-center">
@@ -529,10 +609,30 @@ function ProjectDetailSession({ projectId }: { projectId: string }) {
                 <div className="text-2xl font-bold font-mono text-emerald-500">{summary.taskCounts.completed}</div>
                 <div className="text-xs text-emerald-500/80 uppercase mt-1 tracking-wider">مكتملة</div>
               </div>
-              <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3 text-center">
-                <div className="text-2xl font-bold font-mono text-destructive">{summary.taskCounts.failed}</div>
-                <div className="text-xs text-destructive/80 uppercase mt-1 tracking-wider">فاشلة</div>
-              </div>
+              {summary.taskCounts.failed > 0 ? (
+                <Link
+                  href={soleFailedTask
+                    ? `/tasks?projectId=${encodeURIComponent(projectId)}&taskId=${encodeURIComponent(soleFailedTask.id)}`
+                    : `/tasks?projectId=${encodeURIComponent(projectId)}&status=failed`}
+                  aria-label={soleFailedTask
+                    ? `راجع تفاصيل المهمة المتعثرة: ${soleFailedTask.title}`
+                    : `اعرض ${summary.taskCounts.failed} مهمة متعثرة في مشروع ${project.name}`}
+                  data-testid="link-project-failed-tasks"
+                  className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-center transition-colors hover:bg-destructive/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive"
+                >
+                  <div className="text-2xl font-bold font-mono text-destructive" data-testid="summary-task-failed">
+                    {summary.taskCounts.failed}
+                  </div>
+                  <div className="mt-1 text-xs uppercase tracking-wider text-destructive/80">فاشلة</div>
+                </Link>
+              ) : (
+                <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-center">
+                  <div className="text-2xl font-bold font-mono text-destructive" data-testid="summary-task-failed">
+                    {summary.taskCounts.failed}
+                  </div>
+                  <div className="mt-1 text-xs uppercase tracking-wider text-destructive/80">فاشلة</div>
+                </div>
+              )}
             </div>
           ) : (
             <p className="text-sm text-muted-foreground" data-testid="summary-task-counts-unavailable">
@@ -543,9 +643,19 @@ function ProjectDetailSession({ projectId }: { projectId: string }) {
 
         {/* Recent events */}
         <div className="bg-card border border-border rounded-xl p-5 shadow-sm flex flex-col">
-          <h2 className="font-semibold flex items-center gap-2 mb-4">
-            <Clock className="w-4 h-4 text-primary" /> الأحداث الأخيرة
-          </h2>
+          <div className="mb-4 flex items-center justify-between gap-2">
+            <h2 className="font-semibold flex items-center gap-2">
+              <Clock className="w-4 h-4 text-primary" /> الأحداث الأخيرة
+            </h2>
+            <Link
+              href={`/events?projectId=${encodeURIComponent(projectId)}`}
+              aria-label={`اعرض كل أحداث مشروع ${project.name}`}
+              data-testid="link-project-event-log"
+              className="flex shrink-0 items-center gap-1 rounded text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              سجل الأحداث <ExternalLink className="h-3 w-3" aria-hidden="true" />
+            </Link>
+          </div>
           <div className="flex-1 overflow-y-auto space-y-2">
             {!summary ? (
               <p className="text-sm text-muted-foreground" data-testid="summary-events-unavailable">
@@ -580,8 +690,13 @@ function ProjectDetailSession({ projectId }: { projectId: string }) {
                         {evt.message || evt.type}
                       </div>
                     )}
-                    <div className="text-[10px] text-muted-foreground font-mono">
-                      {new Date(evt.timestamp).toLocaleTimeString()}
+                    <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-[10px] text-muted-foreground font-mono">
+                        {new Date(evt.timestamp).toLocaleTimeString()}
+                      </div>
+                      {(evt.severity === 'error' || evt.severity === 'warning') && (
+                        <EventAssistantHandoff event={evt} projectName={project.name} />
+                      )}
                     </div>
                   </div>
                 </div>

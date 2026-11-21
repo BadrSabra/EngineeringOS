@@ -1,15 +1,16 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import axe from 'axe-core';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useLocation } from 'wouter';
 import type { AiExecutionProjection } from '@workspace/api-client-react';
-import { readGoalDrafts } from '@/lib/home-goal-handoff';
+import { readGoalDrafts, storeHomeGoalDraft } from '@/lib/home-goal-handoff';
 import Tasks from './Tasks';
 
 const createTaskMutate = vi.hoisted(() => vi.fn());
 const updateTaskMutate = vi.hoisted(() => vi.fn());
 const deleteTaskMutate = vi.hoisted(() => vi.fn());
+const toastMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@clerk/react', () => ({
   useUser: () => ({ isLoaded: true, user: { id: 'owner-a' } }),
@@ -36,7 +37,7 @@ vi.mock('@workspace/api-client-react', () => ({
 }));
 
 vi.mock('@/hooks/use-toast', () => ({
-  useToast: () => ({ toast: vi.fn() }),
+  useToast: () => ({ toast: toastMock }),
 }));
 
 import {
@@ -56,6 +57,7 @@ import {
 } from '@workspace/api-client-react';
 
 const mutation = () => ({ mutate: vi.fn(), isPending: false });
+let originalClipboardDescriptor: PropertyDescriptor | undefined;
 
 const recoveryCases = [
   {
@@ -168,6 +170,7 @@ function taskListFixture(dependencies: Record<string, string[]> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  originalClipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
   window.sessionStorage.clear();
   window.history.replaceState({}, '', '/tasks');
   vi.mocked(useListProjects).mockReturnValue({
@@ -218,6 +221,14 @@ beforeEach(() => {
   } as ReturnType<typeof useDeleteTask>);
 });
 
+afterEach(() => {
+  if (originalClipboardDescriptor) {
+    Object.defineProperty(navigator, 'clipboard', originalClipboardDescriptor);
+  } else {
+    Reflect.deleteProperty(navigator, 'clipboard');
+  }
+});
+
 function renderTaskAcceptanceWithRetryAt(retryAt: string) {
   vi.mocked(useGetTask).mockReturnValue({
     data: {
@@ -255,6 +266,60 @@ function renderTaskAcceptanceWithRetryAt(retryAt: string) {
 }
 
 describe('project-scoped task list contracts', () => {
+  it('opens a task event log directly from the collapsed task row', () => {
+    const fixture = taskListFixture();
+    vi.mocked(useListTasks).mockReturnValue({
+      ...fixture,
+      data: fixture.data?.map((task) => (
+        task.id === 'task-auth' ? { ...task, correlationId: 'trace/123' } : task
+      )),
+    } as ReturnType<typeof useListTasks>);
+
+    renderPage();
+
+    expect(screen.getByRole('button', {
+      name: 'عرض تفاصيل المهمة: Repair provider authentication',
+    })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByTestId('link-task-event-log-row-task-auth'))
+      .toHaveAttribute('href', '/events?projectId=project-1&correlationId=trace%2F123');
+    expect(screen.queryByTestId('link-task-event-log-task-auth')).not.toBeInTheDocument();
+  });
+
+  it('does not offer a task event-log shortcut without a correlation id', () => {
+    const fixture = taskListFixture();
+    vi.mocked(useListTasks).mockReturnValue({
+      ...fixture,
+      data: fixture.data?.map((task) => (
+        task.id === 'task-auth' ? { ...task, correlationId: '  ' } : task
+      )),
+    } as ReturnType<typeof useListTasks>);
+
+    renderPage();
+
+    expect(screen.queryByTestId('link-task-event-log-row-task-auth')).not.toBeInTheDocument();
+  });
+
+  it('opens event history scoped to the task project and correlation id', () => {
+    const fixture = taskListFixture();
+    vi.mocked(useListTasks).mockReturnValue({
+      ...fixture,
+      data: fixture.data?.map((task) => (
+        task.id === 'task-auth' ? { ...task, correlationId: 'trace/123' } : task
+      )),
+    } as ReturnType<typeof useListTasks>);
+
+    renderPage();
+    fireEvent.click(screen.getByRole('button', {
+      name: 'عرض تفاصيل المهمة: Repair provider authentication',
+    }));
+
+    expect(screen.getByTestId('link-task-event-log-task-auth'))
+      .toHaveAttribute('href', '/events?projectId=project-1&correlationId=trace%2F123');
+    expect(screen.getByRole('link', {
+      name: 'عرض سجل الأحداث للمهمة: Repair provider authentication',
+    })).toBeInTheDocument();
+  });
+
   it('offers the project assistant from a failed task detail', () => {
     renderPage();
     fireEvent.click(screen.getByRole('button', {
@@ -343,6 +408,9 @@ describe('project-scoped task list contracts', () => {
       expect.anything(),
       expect.objectContaining({ query: expect.objectContaining({ enabled: false }) }),
     );
+    expect(screen.getByRole('link', {
+      name: 'ابدأ بوصف هدفك في مساحة العمل',
+    })).toHaveAttribute('href', '/');
   });
 
   it('restores task search and filters from a copied task-list link', () => {
@@ -365,6 +433,97 @@ describe('project-scoped task list contracts', () => {
       }),
       expect.anything(),
     );
+  });
+
+  it('opens a safe task search match and preserves project, filters, and hash in the link', () => {
+    window.history.replaceState(
+      {},
+      '',
+      '/tasks?projectId=project-1&status=failed&priority=p1&search=Repair%20provider%20authentication#task-results',
+    );
+    renderPage();
+
+    const searchInput = screen.getByRole('textbox', { name: 'ابحث عن مهمة' });
+    expect(screen.getByText('اضغط Enter لفتح المهمة المطابقة.')).toBeInTheDocument();
+    fireEvent.keyDown(searchInput, { key: 'Enter', code: 'Enter' });
+
+    const params = new URLSearchParams(window.location.search);
+    expect(params.get('projectId')).toBe('project-1');
+    expect(params.get('taskId')).toBe('task-auth');
+    expect(params.get('status')).toBe('failed');
+    expect(params.get('priority')).toBe('p1');
+    expect(params.get('search')).toBe('Repair provider authentication');
+    expect(window.location.hash).toBe('#task-results');
+    expect(screen.getByRole('button', {
+      name: 'طي تفاصيل المهمة: Repair provider authentication',
+    })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('copies a direct task link with project context and without temporary list filters', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    window.history.replaceState(
+      {},
+      '',
+      '/dashboard/tasks?status=failed&priority=p1&search=Repair#task-results',
+    );
+    renderPage();
+
+    fireEvent.click(screen.getByTestId('button-copy-task-link-task-auth'));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    const copiedUrl = new URL(writeText.mock.calls[0]![0] as string);
+    expect(copiedUrl.pathname).toBe('/dashboard/tasks');
+    expect([...copiedUrl.searchParams.entries()]).toEqual([
+      ['projectId', 'project-1'],
+      ['taskId', 'task-auth'],
+    ]);
+    expect(copiedUrl.hash).toBe('');
+    expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'نُسخ رابط المهمة',
+    }));
+  });
+
+  it('shows an error when the browser rejects copying a task link', async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error('Clipboard denied'));
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    renderPage();
+
+    fireEvent.click(screen.getByTestId('button-copy-task-link-task-auth'));
+
+    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'تعذر نسخ رابط المهمة',
+      variant: 'destructive',
+    })));
+  });
+
+  it('does not guess which task to open when exact task titles are duplicated', () => {
+    const fixture = taskListFixture();
+    const duplicate = { ...fixture.data?.[0], id: 'task-auth-copy' };
+    vi.mocked(useListTasks).mockReturnValue({
+      ...fixture,
+      data: [...(fixture.data ?? []), duplicate],
+    } as ReturnType<typeof useListTasks>);
+    window.history.replaceState(
+      {},
+      '',
+      '/tasks?projectId=project-1&search=Repair%20provider%20authentication',
+    );
+    renderPage();
+
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'ابحث عن مهمة' }), {
+      key: 'Enter',
+      code: 'Enter',
+    });
+
+    expect(new URLSearchParams(window.location.search).has('taskId')).toBe(false);
+    expect(screen.queryByText('اضغط Enter لفتح المهمة المطابقة.')).not.toBeInTheDocument();
   });
 
   it('filters the active-work shortcut to queued, running, and verifying tasks', () => {
@@ -573,11 +732,13 @@ describe('project-scoped task list contracts', () => {
   it('does not fall back to the first project for an unavailable explicit target', () => {
     window.history.replaceState({}, '', '/tasks?projectId=unavailable-project');
     renderPage();
+    expect(screen.getByTestId('select-task-project')).toBeInTheDocument();
     expect(useListTasks).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ query: expect.objectContaining({ enabled: false }) }),
     );
     expect(screen.getByRole('status')).toHaveTextContent('المشروع المطلوب غير متاح');
+    expect(screen.queryByTestId('link-tasks-empty-goal-first')).not.toBeInTheDocument();
     expect(screen.queryByText('Repair provider authentication')).not.toBeInTheDocument();
   });
 
@@ -697,6 +858,91 @@ describe('project-scoped task list contracts', () => {
     expect(screen.getByRole('status')).toHaveTextContent('لا توجد مهام في هذا العرض');
   });
 
+  it('turns an unmatched search into an editable quick-create title without starting work', () => {
+    window.history.replaceState({}, '', '/tasks?projectId=project-1');
+    renderPage();
+
+    const searchInput = screen.getByRole('textbox', { name: 'ابحث عن مهمة' });
+    fireEvent.change(searchInput, { target: { value: 'Draft onboarding checklist' } });
+    fireEvent.click(screen.getByTestId('button-create-task-from-search'));
+
+    const quickTitle = screen.getByTestId('input-quick-create-task-title');
+    expect(quickTitle).toHaveValue('Draft onboarding checklist');
+    expect(quickTitle).toHaveFocus();
+    expect(searchInput).toHaveValue('Draft onboarding checklist');
+    expect(screen.queryByText('Repair provider authentication')).not.toBeInTheDocument();
+    expect(createTaskMutate).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog', { name: 'إضافة مهمة' })).not.toBeInTheDocument();
+
+    fireEvent.submit(screen.getByTestId('form-quick-create-task'));
+
+    expect(createTaskMutate).toHaveBeenCalledWith(
+      {
+        data: {
+          projectId: 'project-1',
+          title: 'Draft onboarding checklist',
+          priority: 'p2',
+        },
+      },
+      expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
+    );
+    expect(vi.mocked(useExecuteTask).mock.results.at(-1)!.value.mutate).not.toHaveBeenCalled();
+  });
+
+  it('does not offer task creation from search when another task filter is active', () => {
+    window.history.replaceState({}, '', '/tasks?projectId=project-1&status=running');
+    renderPage();
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'ابحث عن مهمة' }), {
+      target: { value: 'Draft onboarding checklist' },
+    });
+
+    expect(screen.getByRole('status')).toHaveTextContent('لا توجد مهام تطابق بحثك');
+    expect(screen.queryByTestId('button-create-task-from-search')).not.toBeInTheDocument();
+    expect(createTaskMutate).not.toHaveBeenCalled();
+  });
+
+  it('opens the scoped project assistant from an empty task list without creating a task', () => {
+    window.history.replaceState({}, '', '/tasks?projectId=project-1');
+    vi.mocked(useListTasks).mockReturnValue({
+      ...taskListFixture(),
+      data: [],
+    } as ReturnType<typeof useListTasks>);
+    renderPage();
+
+    fireEvent.click(screen.getByTestId('button-empty-task-assistant'));
+
+    const draft = readGoalDrafts('owner-a').drafts[0];
+    expect(draft).toMatchObject({ projectId: 'project-1', sendAttemptedAt: null });
+    expect(draft.text).toContain('اسألني عما أريد إنجازه');
+    expect(draft.text).toContain('لا تنشئ مهامًا ولا تغيّر الملفات');
+    expect(window.location.pathname).toBe('/projects/project-1/workspace');
+    expect(new URLSearchParams(window.location.search).get('goalDraftId')).toBe(draft.id);
+    expect(window.location.hash).toBe('#workspace-panel-agent');
+    expect(createTaskMutate).not.toHaveBeenCalled();
+  });
+
+  it('stays on the task list if the assistant draft cannot be saved', () => {
+    window.history.replaceState({}, '', '/tasks?projectId=project-1');
+    vi.mocked(useListTasks).mockReturnValue({
+      ...taskListFixture(),
+      data: [],
+    } as ReturnType<typeof useListTasks>);
+    for (let index = 0; index < 8; index += 1) {
+      expect(storeHomeGoalDraft(`مسودة ${index}`, 'owner-a', 'project-1')).not.toBeNull();
+    }
+    renderPage();
+
+    fireEvent.click(screen.getByTestId('button-empty-task-assistant'));
+
+    expect(screen.getByTestId('text-empty-task-assistant-error')).toHaveTextContent(
+      'تعذر حفظ مسودة طلب المساعدة.',
+    );
+    expect(window.location.pathname).toBe('/tasks');
+    expect(createTaskMutate).not.toHaveBeenCalled();
+    expect(readGoalDrafts('owner-a').drafts).toHaveLength(8);
+  });
+
   it('retries a failed list read without replacing the error with an empty result or executing a task', () => {
     const refetch = vi.fn();
     vi.mocked(useListTasks).mockReturnValue({
@@ -721,6 +967,7 @@ describe('project-scoped task list contracts', () => {
     fireEvent.change(screen.getByRole('combobox', { name: 'تصفية المهام حسب الحالة' }), { target: { value: 'running' } });
     expect(screen.getByRole('status')).toHaveTextContent('لا توجد مهام تطابق الفلاتر');
     expect(screen.getByRole('status')).toHaveTextContent('لا حكم على كل مهام المشروع');
+    expect(screen.queryByTestId('button-empty-task-assistant')).not.toBeInTheDocument();
     expect(useListTasks).toHaveBeenLastCalledWith(
       expect.objectContaining({ projectId: 'project-1', status: 'running' }), expect.anything(),
     );
@@ -769,7 +1016,9 @@ describe('project-scoped task list contracts', () => {
 
     fireEvent.click(screen.getByTestId('button-clear-task-filters'));
 
-    expect(screen.getByTestId('select-task-project')).toHaveValue('project-1');
+    expect(screen.queryByTestId('select-task-project')).not.toBeInTheDocument();
+    expect(screen.getByTestId('text-task-project-context')).toHaveTextContent('Test Project');
+    expect(new URLSearchParams(window.location.search).get('projectId')).toBe('project-1');
     expect(screen.getByRole('combobox', { name: 'تصفية المهام حسب الحالة' })).toHaveValue('');
     expect(screen.getByRole('combobox', { name: 'تصفية المهام حسب الأولوية' })).toHaveValue('');
     expect(screen.getByRole('combobox', { name: 'تصفية المهام حسب القبول' })).toHaveValue('');
@@ -2135,6 +2384,64 @@ describe('Task live log identity', () => {
 });
 
 describe('Task creation', () => {
+  it('quick-adds a task to the explicit project without opening the full dialog', () => {
+    renderPage();
+
+    const quickCreateForm = screen.getByTestId('form-quick-create-task');
+    expect(screen.queryByRole('dialog', { name: 'إضافة مهمة' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('text-quick-create-task-project')).toHaveTextContent('Test Project');
+    fireEvent.change(screen.getByTestId('input-quick-create-task-title'), {
+      target: { value: 'راجع صفحة النتائج' },
+    });
+    fireEvent.submit(quickCreateForm);
+
+    expect(createTaskMutate).toHaveBeenCalledWith(
+      {
+        data: {
+          projectId: 'project-1',
+          title: 'راجع صفحة النتائج',
+          priority: 'p2',
+        },
+      },
+      expect.objectContaining({
+        onSuccess: expect.any(Function),
+        onError: expect.any(Function),
+      }),
+    );
+    expect(screen.queryByRole('dialog', { name: 'إضافة مهمة' })).not.toBeInTheDocument();
+
+    const mutationOptions = createTaskMutate.mock.calls[0]?.[1] as {
+      onSuccess: (created: { projectId: string; title: string }) => void;
+    };
+    act(() => mutationOptions.onSuccess({
+      projectId: 'project-1',
+      title: 'راجع صفحة النتائج',
+    }));
+    expect(screen.getByTestId('input-quick-create-task-title')).toHaveValue('');
+  });
+
+  it('requires an explicit project before showing quick task creation', () => {
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [
+        { id: 'project-1', name: 'First Project' },
+        { id: 'project-2', name: 'Second Project' },
+      ],
+      isLoading: false,
+      isError: false,
+      error: null,
+    } as ReturnType<typeof useListProjects>);
+
+    renderPage();
+    expect(screen.queryByTestId('form-quick-create-task')).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByTestId('select-task-project'), {
+      target: { value: 'project-2' },
+    });
+
+    expect(screen.getByTestId('form-quick-create-task')).toBeInTheDocument();
+    expect(screen.getByTestId('text-quick-create-task-project')).toHaveTextContent('Second Project');
+  });
+
   it('keeps the Arabic form local until submit and resets cancelled input on reopen', () => {
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: 'مهمة جديدة' }));
@@ -2172,10 +2479,40 @@ describe('Task creation', () => {
     expect(screen.getByTestId('select-create-task-project')).toHaveValue('project-2');
   });
 
+  it('opens a new-task deep link for the requested project without submitting it', async () => {
+    window.history.replaceState({}, '', '/tasks?projectId=project-2&create=1');
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [
+        { id: 'project-1', name: 'First Project' },
+        { id: 'project-2', name: 'Second Project' },
+      ],
+      isLoading: false,
+      isError: false,
+      error: null,
+    } as ReturnType<typeof useListProjects>);
+
+    renderPage();
+
+    const dialog = await screen.findByRole('dialog', { name: 'إضافة مهمة' });
+    expect(screen.getByTestId('select-create-task-project')).toHaveValue('project-2');
+    expect(document.activeElement).toBe(screen.getByTestId('input-create-task-title'));
+    expect(new URL(window.location.href).searchParams.get('projectId')).toBe('project-2');
+    expect(new URL(window.location.href).searchParams.has('create')).toBe(false);
+    expect(createTaskMutate).not.toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'إغلاق نافذة المهمة' }));
+    expect(screen.queryByRole('dialog', { name: 'إضافة مهمة' })).not.toBeInTheDocument();
+    expect(createTaskMutate).not.toHaveBeenCalled();
+  });
+
   it('opens a clear form and sends the selected project and task fields', () => {
     renderPage();
 
+    expect(screen.queryByTestId('select-task-project')).not.toBeInTheDocument();
+    expect(screen.getByTestId('text-task-project-context')).toHaveTextContent('Test Project');
     fireEvent.click(screen.getByRole('button', { name: 'مهمة جديدة' }));
+    expect(screen.queryByTestId('select-create-task-project')).not.toBeInTheDocument();
+    expect(screen.getByTestId('text-create-task-project')).toHaveTextContent('Test Project');
     fireEvent.change(screen.getByTestId('input-create-task-title'), {
       target: { value: 'Add a health check' },
     });
@@ -2224,6 +2561,64 @@ describe('Task creation', () => {
       },
       expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
     );
+  });
+
+  it('starts execution only after explicit opt-in and a non-empty prompt', () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'مهمة جديدة' }));
+    fireEvent.change(screen.getByTestId('input-create-task-title'), {
+      target: { value: 'أضف فحصًا للصفحة' },
+    });
+    fireEvent.change(screen.getByTestId('input-create-task-description'), {
+      target: { value: 'أضف فحصًا آليًا لصفحة النتائج وشغّل الاختبارات ذات الصلة.' },
+    });
+    fireEvent.click(screen.getByTestId('checkbox-create-task-execute-immediately'));
+    fireEvent.click(screen.getByTestId('button-submit-create-task'));
+
+    expect(createTaskMutate).toHaveBeenCalledWith(
+      {
+        data: {
+          projectId: 'project-1',
+          title: 'أضف فحصًا للصفحة',
+          description: 'أضف فحصًا آليًا لصفحة النتائج وشغّل الاختبارات ذات الصلة.',
+          priority: 'p2',
+          prompt: 'أضف فحصًا آليًا لصفحة النتائج وشغّل الاختبارات ذات الصلة.',
+          executeImmediately: true,
+        },
+      },
+      expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
+    );
+  });
+
+  it('does not send immediate execution without a prompt', () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'مهمة جديدة' }));
+    fireEvent.change(screen.getByTestId('input-create-task-title'), {
+      target: { value: 'مهمة بلا طلب' },
+    });
+    fireEvent.click(screen.getByTestId('checkbox-create-task-execute-immediately'));
+    const dialog = screen.getByRole('dialog', { name: 'إضافة مهمة' });
+    fireEvent.submit(dialog.querySelector('form')!);
+
+    expect(screen.getByText('اكتب ما تريد من المساعد تنفيذه قبل بدء المهمة.')).toBeInTheDocument();
+    expect(createTaskMutate).not.toHaveBeenCalled();
+  });
+
+  it('keeps an overlong prompt out of the immediate execution request', () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'مهمة جديدة' }));
+    fireEvent.change(screen.getByTestId('input-create-task-title'), {
+      target: { value: 'مهمة ذات طلب طويل' },
+    });
+    fireEvent.change(screen.getByTestId('input-create-task-description'), {
+      target: { value: 'x'.repeat(12_001) },
+    });
+    fireEvent.click(screen.getByTestId('checkbox-create-task-execute-immediately'));
+    const dialog = screen.getByRole('dialog', { name: 'إضافة مهمة' });
+    fireEvent.submit(dialog.querySelector('form')!);
+
+    expect(screen.getByText('يجب ألا يتجاوز طلب التنفيذ ١٢٠٠٠ حرف.')).toBeInTheDocument();
+    expect(createTaskMutate).not.toHaveBeenCalled();
   });
 
   it('clears prerequisite selections when the task moves to another project', () => {

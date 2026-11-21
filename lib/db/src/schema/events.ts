@@ -62,6 +62,23 @@ export const eventsTable = pgTable("events", {
   index("idx_events_mission_goal_wake_pending")
     .on(t.timestamp, t.id)
     .where(sql`${t.type} IN ('MissionGoalWakeRequested', 'MissionGoalWakeDeferred')`),
+  // Current-plan manual Goal starts are consumed by the durable lifecycle worker.
+  index("idx_events_mission_goal_start_pending")
+    .on(t.timestamp, t.id)
+    .where(sql`${t.type} IN ('MissionGoalStartRequested', 'MissionGoalStartDeferred')`),
+  // Bounded recovery for approval-triggered Mission Goal dispatch.
+  index("idx_events_mission_goal_approval_pending")
+    .on(t.timestamp, t.id)
+    .where(sql`${t.type} IN ('MissionGoalApprovalDispatchRequested', 'MissionGoalApprovalDispatchDeferred')`),
+  // The Mission event inbox is read by exact Goal/project scope, not by a
+  // global scan of unprocessed event history.
+  index("idx_events_mission_inbox_pending_goal")
+    .on(t.projectId, t.goalId, t.timestamp, t.id)
+    .where(sql`${t.type} = 'AiMissionExternalEventReceived' AND ${t.payload}->>'processedAt' IS NULL`),
+  // Only pending/deferred wake requests participate in the lifecycle queue.
+  index("idx_events_mission_wake_pending")
+    .on(t.timestamp, t.id)
+    .where(sql`${t.type} IN ('AiMissionEventWakeRequested', 'AiMissionEventWakeDeferred')`),
   // Partial uniqueness is intentionally limited to verified GitHub delivery
   // records; generic/manual activity events may share the same correlation ID.
   // Ordered, bounded startup recovery of incomplete verified GitHub deliveries.
@@ -77,6 +94,11 @@ export const eventsTable = pgTable("events", {
   uniqueIndex("uq_events_github_delivery_recovery")
     .on(t.projectId, t.correlationId)
     .where(sql`${t.type} = 'GitPushRecoveryRequired' AND ${t.correlationId} IS NOT NULL`),
+  // The global Task auto-execution dispatcher reads only pending/deferred
+  // intents in timestamp/id order; exclude unrelated activity events.
+  index("idx_events_task_auto_execution_pending")
+    .on(t.timestamp, t.id)
+    .where(sql`${t.type} IN ('TaskAutoExecutionDispatchRequested', 'TaskAutoExecutionDeferred')`),
   // Bounded lookup of durable Mission world-transition wake intents.
   index("idx_events_mission_world_transition_wake_pending")
     .on(t.timestamp, t.id)

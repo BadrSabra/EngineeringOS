@@ -13,7 +13,11 @@ import {
   aiExecutionAcceptancesTable,
 } from "@workspace/db";
 import { randomUUID } from "crypto";
-import { insertTaskAutoExecutionIntent } from "../lib/task-auto-execution-outbox.js";
+import {
+  TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE,
+  insertTaskAutoExecutionIntent,
+  taskAutoExecutionIntentId,
+} from "../lib/task-auto-execution-outbox.js";
 import { executeTaskLifecycle } from "../lib/task-execution-service.js";
 
 // PR-C: hoist mock fn so vi.mock factory can close over it before module eval.
@@ -1168,6 +1172,7 @@ describe("Task lifecycle", () => {
   });
 
   it("retries a failed task and increments retryCount, refusing once maxRetries is hit", async () => {
+    mockScheduleAiTaskExecution.mockClear();
     const { taskId } = await createTask();
     await db.update(tasksTable).set({
       status: "failed",
@@ -1187,10 +1192,85 @@ describe("Task lifecycle", () => {
     expect(retried.body.retryCount).toBe(1);
     expect(retried.body.correlationId).toEqual(expect.any(String));
     expect(retried.body.agentResponse).toBeNull();
+    expect(mockScheduleAiTaskExecution).not.toHaveBeenCalled();
 
     await db.update(tasksTable).set({ status: "failed" }).where(eq(tasksTable.id, taskId));
     const secondRetry = await request(app).post(`/api/tasks/${taskId}/retry`);
     expect(secondRetry.status).toBe(409);
+  });
+
+  it("persists and wakes prompt-backed retries through the Task Outbox", async () => {
+    const { projectId, taskId } = await createTask({
+      prompt: "Continue the failed AI task from its persisted task contract.",
+    });
+    await db.update(tasksTable).set({
+      status: "failed",
+      maxRetries: 1,
+    }).where(eq(tasksTable.id, taskId));
+    mockScheduleAiTaskExecution.mockClear();
+    mockScheduleAiTaskExecution.mockImplementation(async () => {
+      // The scheduler is invoked only after the transaction commits both
+      // the Task generation and its durable dispatch intent.
+      const [intent] = await db.select().from(eventsTable)
+        .where(eq(eventsTable.id, taskAutoExecutionIntentId(taskId)));
+      expect(intent?.type).toBe(TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE);
+      expect(intent?.projectId).toBe(projectId);
+      expect(intent?.taskId).toBe(taskId);
+      expect(intent?.payload).toMatchObject({
+        userId: "test-user",
+        taskRetryCount: 1,
+      });
+    });
+
+    const retried = await request(app).post(`/api/tasks/${taskId}/retry`);
+    expect(retried.status).toBe(202);
+    expect(retried.body.status).toBe("verifying");
+    expect(retried.body.retryCount).toBe(1);
+    expect(retried.body.correlationId).toEqual(expect.any(String));
+    expect(mockScheduleAiTaskExecution).toHaveBeenCalledWith(
+      taskId,
+      "test-user",
+      undefined,
+      1,
+      retried.body.correlationId,
+    );
+
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, taskAutoExecutionIntentId(taskId)));
+    expect(intent?.payload).toMatchObject({
+      userId: "test-user",
+      taskRetryCount: 1,
+      taskCorrelationId: retried.body.correlationId,
+    });
+    const [task] = await db.select().from(tasksTable).where(eq(tasksTable.id, taskId));
+    expect(task?.status).toBe("verifying");
+    mockScheduleAiTaskExecution.mockReset();
+  });
+
+  it("keeps the committed Task Outbox intent when the local retry wake fails", async () => {
+    const { projectId, taskId } = await createTask({
+      prompt: "Resume this task automatically after the retry is accepted.",
+    });
+    await db.update(tasksTable).set({
+      status: "failed",
+      maxRetries: 1,
+    }).where(eq(tasksTable.id, taskId));
+    mockScheduleAiTaskExecution.mockClear();
+    mockScheduleAiTaskExecution.mockRejectedValueOnce(new Error("local queue unavailable"));
+
+    const retried = await request(app).post(`/api/tasks/${taskId}/retry`);
+    expect(retried.status).toBe(202);
+    expect(retried.body.status).toBe("verifying");
+
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, taskAutoExecutionIntentId(taskId)));
+    expect(intent?.type).toBe(TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE);
+    expect(intent?.projectId).toBe(projectId);
+    expect(intent?.payload).toMatchObject({
+      userId: "test-user",
+      taskRetryCount: 1,
+      taskCorrelationId: retried.body.correlationId,
+    });
   });
 
   it("rolls back a task to cancelled", async () => {
@@ -1424,6 +1504,108 @@ describe("PR-C — AI auto-trigger on verifying", () => {
     }
     return { projectId, taskId };
   }
+
+  it("creates and durably dispatches a prompted Task in one request when explicitly requested", async () => {
+    const projectId = await insertProject();
+    cleanup.push(projectId);
+    const prompt = "Inspect the failing tests and implement the smallest safe fix.";
+    const response = await request(app).post("/api/tasks").send({
+      projectId,
+      title: "one-step-execution",
+      priority: "p1",
+      prompt,
+      executeImmediately: true,
+    });
+
+    expect(response.status).toBe(201);
+    expect(response.body).toMatchObject({
+      projectId,
+      title: "one-step-execution",
+      status: "verifying",
+      prompt,
+    });
+    const [generation] = await db.select({
+      retryCount: tasksTable.retryCount,
+      correlationId: tasksTable.correlationId,
+    }).from(tasksTable).where(eq(tasksTable.id, response.body.id));
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${response.body.id}`));
+
+    expect(intent).toMatchObject({
+      type: "TaskAutoExecutionDispatchRequested",
+      projectId,
+      taskId: response.body.id,
+      payload: {
+        userId: "test-user",
+        taskRetryCount: generation!.retryCount,
+        taskCorrelationId: generation!.correlationId,
+      },
+    });
+    expect(mockScheduleAiTaskExecution).toHaveBeenCalledOnce();
+    expect(mockScheduleAiTaskExecution).toHaveBeenCalledWith(
+      response.body.id,
+      "test-user",
+      undefined,
+      generation!.retryCount,
+      generation!.correlationId,
+    );
+  });
+
+  it("keeps prompted Tasks pending unless immediate execution is explicitly requested", async () => {
+    const projectId = await insertProject();
+    cleanup.push(projectId);
+    const response = await request(app).post("/api/tasks").send({
+      projectId,
+      title: "prompted-draft",
+      priority: "p2",
+      prompt: "Keep this task as a draft.",
+    });
+
+    expect(response.status).toBe(201);
+    expect(response.body.status).toBe("pending");
+    expect(response.body.prompt).toBe("Keep this task as a draft.");
+    expect(mockScheduleAiTaskExecution).not.toHaveBeenCalled();
+    await expect(db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${response.body.id}`)))
+      .resolves.toHaveLength(0);
+  });
+
+  it("rejects immediate Task execution when no non-empty prompt is supplied", async () => {
+    const projectId = await insertProject();
+    cleanup.push(projectId);
+    const response = await request(app).post("/api/tasks").send({
+      projectId,
+      title: "missing-execution-prompt",
+      priority: "p2",
+      executeImmediately: true,
+    });
+
+    expect(response.status).toBe(400);
+    expect(mockScheduleAiTaskExecution).not.toHaveBeenCalled();
+    const created = await db.select({ id: tasksTable.id }).from(tasksTable)
+      .where(eq(tasksTable.projectId, projectId));
+    expect(created).toHaveLength(0);
+  });
+
+  it("keeps the successful Task create response when local queue wake-up fails", async () => {
+    const projectId = await insertProject();
+    cleanup.push(projectId);
+    mockScheduleAiTaskExecution.mockRejectedValueOnce(new Error("simulated queue wake failure"));
+
+    const response = await request(app).post("/api/tasks").send({
+      projectId,
+      title: "durable-create-after-wake-failure",
+      priority: "p2",
+      prompt: "Run after the durable dispatcher wakes the queue.",
+      executeImmediately: true,
+    });
+
+    expect(response.status).toBe(201);
+    expect(response.body.status).toBe("verifying");
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, `task-auto-execution-deferred:${response.body.id}`));
+    expect(intent?.type).toBe("TaskAutoExecutionDispatchRequested");
+  });
 
   it("execute route: schedules AI when task enters verifying with a prompt", async () => {
     const { taskId } = await createTaskWithPrompt("Fix the auth middleware");
