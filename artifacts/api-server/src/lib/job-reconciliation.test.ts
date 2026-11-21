@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { createHash, randomUUID } from "crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -35,6 +35,7 @@ import {
   reconcileStaleAiTasks,
   reconcileStuckJobs,
   GITHUB_DELIVERY_RECOVERY_BATCH_SIZE,
+  STALE_AI_TASK_RECOVERY_BATCH_SIZE,
   requeueStalePendingJobs,
   runDurableDispatchStages,
   STALE_PENDING_TIMEOUT_MS,
@@ -946,6 +947,143 @@ describe("reconcileStuckJobs", () => {
     // Cleanup
     await db.delete(taskLogsTable).where(eq(taskLogsTable.taskId, taskId));
     await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
+  });
+
+  it("recovers abandoned AI Tasks in bounded batches with one log per updated row", async () => {
+    vi.mocked(invalidateContextCache).mockClear();
+
+    const projectId = await insertProject("active");
+    projectCleanup.push(projectId);
+    const taskIds = Array.from(
+      { length: STALE_AI_TASK_RECOVERY_BATCH_SIZE + 1 },
+      () => randomUUID(),
+    );
+    const now = new Date();
+    await db.insert(tasksTable).values(taskIds.map((id) => ({
+      id,
+      projectId,
+      title: "bounded stale task recovery",
+      status: "running" as const,
+      retryCount: 0,
+      maxRetries: 1,
+      createdAt: now,
+      updatedAt: now,
+    })));
+
+    expect(await reconcileStaleAiTasks()).toBe(STALE_AI_TASK_RECOVERY_BATCH_SIZE);
+    const firstPassTasks = await db.select({ status: tasksTable.status })
+      .from(tasksTable)
+      .where(eq(tasksTable.projectId, projectId));
+    expect(firstPassTasks.filter((task) => task.status === "verifying")).toHaveLength(
+      STALE_AI_TASK_RECOVERY_BATCH_SIZE,
+    );
+    expect(firstPassTasks.filter((task) => task.status === "running")).toHaveLength(1);
+
+    const firstPassLogs = await db.select({
+      taskId: taskLogsTable.taskId,
+      level: taskLogsTable.level,
+      correlationId: taskLogsTable.correlationId,
+    }).from(taskLogsTable).where(inArray(taskLogsTable.taskId, taskIds));
+    expect(firstPassLogs).toHaveLength(STALE_AI_TASK_RECOVERY_BATCH_SIZE);
+    expect(firstPassLogs.every((log) => log.level === "warn")).toBe(true);
+
+    expect(await reconcileStaleAiTasks()).toBe(1);
+    const allLogs = await db.select({
+      taskId: taskLogsTable.taskId,
+      level: taskLogsTable.level,
+      correlationId: taskLogsTable.correlationId,
+    }).from(taskLogsTable).where(inArray(taskLogsTable.taskId, taskIds));
+    expect(allLogs).toHaveLength(taskIds.length);
+    expect(new Set(allLogs.map((log) => log.taskId)).size).toBe(taskIds.length);
+    expect(new Set(allLogs.map((log) => log.correlationId)).size).toBe(taskIds.length);
+    expect(vi.mocked(invalidateContextCache)).toHaveBeenNthCalledWith(1, projectId);
+    expect(vi.mocked(invalidateContextCache)).toHaveBeenNthCalledWith(2, projectId);
+    expect(vi.mocked(invalidateContextCache)).toHaveBeenCalledTimes(2);
+  });
+
+  it("allows concurrent stale-Task reconcilers to recover one row only once", async () => {
+    vi.mocked(invalidateContextCache).mockClear();
+
+    const projectId = await insertProject("active");
+    projectCleanup.push(projectId);
+    const taskId = randomUUID();
+    const now = new Date();
+    await db.insert(tasksTable).values({
+      id: taskId,
+      projectId,
+      title: "concurrent stale task recovery",
+      status: "running",
+      retryCount: 0,
+      maxRetries: 2,
+      leaseUntil: new Date(now.getTime() - 60_000),
+      workerId: randomUUID(),
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const results = await Promise.all([
+      reconcileStaleAiTasks(),
+      reconcileStaleAiTasks(),
+    ]);
+    expect(results.reduce((total, count) => total + count, 0)).toBe(1);
+
+    const [task] = await db.select({
+      status: tasksTable.status,
+      retryCount: tasksTable.retryCount,
+      workerId: tasksTable.workerId,
+      leaseUntil: tasksTable.leaseUntil,
+    }).from(tasksTable).where(eq(tasksTable.id, taskId));
+    expect(task).toMatchObject({
+      status: "verifying",
+      retryCount: 1,
+      workerId: null,
+      leaseUntil: null,
+    });
+
+    const logs = await db.select().from(taskLogsTable)
+      .where(eq(taskLogsTable.taskId, taskId));
+    expect(logs).toHaveLength(1);
+    expect(logs[0]?.level).toBe("warn");
+    expect(vi.mocked(invalidateContextCache)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(invalidateContextCache)).toHaveBeenCalledWith(projectId);
+  });
+
+  it("does not recover a running AI Task with a live worker lease", async () => {
+    vi.mocked(invalidateContextCache).mockClear();
+
+    const projectId = await insertProject("active");
+    projectCleanup.push(projectId);
+    const taskId = randomUUID();
+    const now = new Date();
+    const workerId = randomUUID();
+    await db.insert(tasksTable).values({
+      id: taskId,
+      projectId,
+      title: "live worker lease",
+      status: "running",
+      retryCount: 0,
+      maxRetries: 2,
+      workerId,
+      leaseUntil: new Date(now.getTime() + 60_000),
+      lastHeartbeatAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    expect(await reconcileStaleAiTasks()).toBe(0);
+    const [task] = await db.select({
+      status: tasksTable.status,
+      workerId: tasksTable.workerId,
+      leaseUntil: tasksTable.leaseUntil,
+    }).from(tasksTable).where(eq(tasksTable.id, taskId));
+    expect(task?.status).toBe("running");
+    expect(task?.workerId).toBe(workerId);
+    expect(task?.leaseUntil?.getTime()).toBeGreaterThan(now.getTime());
+
+    const logs = await db.select().from(taskLogsTable)
+      .where(eq(taskLogsTable.taskId, taskId));
+    expect(logs).toHaveLength(0);
+    expect(vi.mocked(invalidateContextCache)).not.toHaveBeenCalledWith(projectId);
   });
 
   // ── AI tasks: terminal states untouched ───────────────────────────────────
