@@ -22,6 +22,8 @@ const transitions: Record<TaskTransitionActor, ReadonlySet<string>> = {
   retry: new Set([
     "failed->queued",
     "cancelled->queued",
+    "failed->verifying",
+    "cancelled->verifying",
     "pending->verifying",
     "queued->verifying",
   ]),
