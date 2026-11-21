@@ -97,6 +97,7 @@ import {
   reconcileApprovedMissionDecisionDispatches,
   reconcileAutomaticMissionReplans,
 } from "./mission-auto-replan.js";
+import { dispatchPendingMissionReplans } from "./mission-replan-outbox.js";
 import { reconcilePendingMissionPlanOutcomes } from "./mission-strategy-plan-outcome-store.js";
 import { reconcilePendingMissionDecisionShadows } from "./mission-strategy-shadow-store.js";
 import { resolveMissionDecisionShadowProjectScope } from "./mission-decision-shadow-scope.js";
@@ -143,9 +144,9 @@ async function reconcileMissionPlanOutcomesIfDue(projectId?: string): Promise<nu
   }
 }
 
-async function reconcileMissionDecisionShadowsIfDue(projectId?: string): Promise<number> {
+function resolveMissionDecisionShadowProjectId(projectId?: string): string | null {
   const enabled = process.env.MISSION_DECISION_SHADOW_MODE === "1";
-  if (!enabled) return 0;
+  if (!enabled) return null;
   const configuredProjectId = process.env.MISSION_DECISION_SHADOW_PROJECT_ID;
   const canaryProjectId = resolveMissionDecisionShadowProjectScope({
     enabled,
@@ -159,13 +160,18 @@ async function reconcileMissionDecisionShadowsIfDue(projectId?: string): Promise
         "Mission decision shadow mode is enabled without a valid single-project allowlist; reconciliation is skipped",
       );
     }
-    return 0;
+    return null;
   }
-  const scopedProjectId = resolveMissionDecisionShadowProjectScope({
+  return resolveMissionDecisionShadowProjectScope({
     enabled,
     configuredProjectId: canaryProjectId,
     requestedProjectId: projectId,
   });
+}
+
+async function reconcileMissionDecisionShadowsForProject(
+  scopedProjectId: string | null,
+): Promise<number> {
   if (!scopedProjectId) return 0;
   const scopeKey = scopedProjectId;
   const now = Date.now();
@@ -182,6 +188,7 @@ async function reconcileMissionDecisionShadowsIfDue(projectId?: string): Promise
     return 0;
   }
 }
+
 
 /**
  * Legacy delivery journals may complete a recorded promotion only when each
@@ -1234,6 +1241,8 @@ export function dispatchPersistedPendingJobs(): Promise<number> {
 
 async function dispatchPersistedPendingJobsOnce(): Promise<number> {
   const pageLimit = 100;
+  // Snapshot environment-backed scope before the first asynchronous stage.
+  const decisionShadowProjectId = resolveMissionDecisionShadowProjectId();
   const stages: DurableDispatchStage[] = [
     {
       name: "scans",
@@ -1293,7 +1302,8 @@ async function dispatchPersistedPendingJobsOnce(): Promise<number> {
       run: () => dispatchPendingTaskObservationOutbox(pageLimit),
     },
     { name: "task-recovery", run: () => dispatchAutonomousTaskRecoveries() },
-    { name: "mission-replans", run: () => reconcileAutomaticMissionReplans() },
+    { name: "mission-replan-outbox", run: () => dispatchPendingMissionReplans(pageLimit) },
+    { name: "mission-replan-recovery", run: () => reconcileAutomaticMissionReplans() },
     { name: "decision-dispatch", run: () => reconcileApprovedMissionDecisionDispatches() },
     { name: "mission-goal-wakes", run: () => dispatchPendingMissionGoalWakes(pageLimit) },
     { name: "mission-goal-approvals", run: () => dispatchPendingMissionGoalApprovals(pageLimit) },
@@ -1312,7 +1322,10 @@ async function dispatchPersistedPendingJobsOnce(): Promise<number> {
     { name: "project-bootstrap", run: () => dispatchProjectBootstrapJobs() },
     { name: "plugin-runs", run: () => dispatchPendingPluginRuns() },
     { name: "mission-outcomes", run: () => reconcileMissionPlanOutcomesIfDue() },
-    { name: "decision-shadows", run: () => reconcileMissionDecisionShadowsIfDue() },
+    {
+      name: "decision-shadows",
+      run: () => reconcileMissionDecisionShadowsForProject(decisionShadowProjectId),
+    },
   ];
 
   const startAt = durableDispatchRotation % stages.length;
@@ -1628,12 +1641,15 @@ export function startDurableJobDispatcher(): NodeJS.Timeout {
 export function startScopedMissionLifecycleDispatcher(
   projectId: string,
 ): NodeJS.Timeout {
+  // Capture the allowlisted shadow scope before async lifecycle stages begin.
+  const decisionShadowProjectId = resolveMissionDecisionShadowProjectId(projectId);
   const dispatch = async () => {
     try {
       await dispatchAutonomousTaskRecoveries({ projectId });
+      await dispatchPendingMissionReplans(32, projectId);
       await reconcileAutomaticMissionReplans(16, projectId);
       await reconcileMissionPlanOutcomesIfDue(projectId);
-      await reconcileMissionDecisionShadowsIfDue(projectId);
+      await reconcileMissionDecisionShadowsForProject(decisionShadowProjectId);
       await dispatchPendingMissionRecipes(32, projectId);
       await reconcileCompletedMissionRecipeAcceptances(32, projectId);
       await dispatchPendingMissionEventWakes(32, projectId);
