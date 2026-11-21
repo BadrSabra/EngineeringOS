@@ -2389,6 +2389,15 @@ describe("Mission goal runtime", () => {
       trigger: "resume",
     });
 
+    const scheduledIntents = await db.select({
+      type: eventsTable.type,
+      payload: eventsTable.payload,
+    }).from(eventsTable).where(eq(eventsTable.goalId, due.goalId));
+    expect(scheduledIntents.some((intent) =>
+      intent.type === "AiMissionEventWakeRequested"
+      && intent.payload?.source === "scheduled_wake",
+    )).toBe(true);
+
     expect(await wakeDueMissionGoals()).toBe(1);
     expect(await wakeDueMissionGoals()).toBe(0);
 

@@ -3631,23 +3631,46 @@ export async function runMissionGoal(params: {
     if (action.kind === "wait") {
       const now = new Date();
       const nextStatus = action.reason === "approval" ? "waiting_for_approval" : "waiting_for_event";
+      const wakeAt = action.reason === "event" && action.wakeAt
+        ? new Date(action.wakeAt)
+        : null;
+      const sameScheduledWait = Boolean(
+        wakeAt
+        && goal.status === "waiting_for_event"
+        && goal.blockedReason === null
+        && goal.nextWakeAt?.getTime() === wakeAt.getTime(),
+      );
+      // Keep the wait generation stable when an identical wait is resumed.
+      // The durable timer intent is bound to this exact updatedAt value.
+      const waitGenerationAt = sameScheduledWait ? goal.updatedAt : now;
       const enteringEventWait = action.reason === "event"
         && (goal.status !== "waiting_for_event" || goal.blockedReason !== null);
       await tx.update(aiGoalsTable)
         .set({
           status: nextStatus,
           nextWakeAt: action.wakeAt ? new Date(action.wakeAt) : null,
-          updatedAt: now,
+          updatedAt: waitGenerationAt,
         })
         .where(eq(aiGoalsTable.id, goal.id));
-      if (enteringEventWait) {
+      if (enteringEventWait || (wakeAt && !sameScheduledWait)) {
         const { insertMissionEventWakeIntent } = await import("./mission-event-wake-outbox.js");
-        eventWaitIntentId = await insertMissionEventWakeIntent(tx, {
-          projectId: goal.projectId,
-          goalId: goal.id,
-          source: "goal_entered_event_wait",
-          generationAt: now,
-        });
+        if (enteringEventWait) {
+          eventWaitIntentId = await insertMissionEventWakeIntent(tx, {
+            projectId: goal.projectId,
+            goalId: goal.id,
+            source: "goal_entered_event_wait",
+            generationAt: waitGenerationAt,
+          });
+        }
+        if (wakeAt && !sameScheduledWait) {
+          await insertMissionEventWakeIntent(tx, {
+            projectId: goal.projectId,
+            goalId: goal.id,
+            source: "scheduled_wake",
+            wakeAt,
+            generationAt: waitGenerationAt,
+          });
+        }
       }
       return { status: "waiting" as const, goalId: goal.id };
     }
@@ -4487,6 +4510,146 @@ export async function wakeRuntimeTransitionMissionGoals(
     if (result.status === "scheduled" || result.status === "completed") woken += 1;
   }
   return woken;
+}
+
+const SCHEDULED_MISSION_WAKE_REPLAN_REASON =
+  "Scheduled wake reached; replan from current project evidence.";
+
+/**
+ * Materialize one due timer against the exact Goal wait generation stored in
+ * the Mission event Outbox. The durable intent only wakes the normal replan
+ * coordinator; it does not grant execution or acceptance authority.
+ *
+ * If the legacy scheduled-wait sweeper wins the race, its deterministic
+ * replan projection is recognized so the Outbox can still start the planner
+ * immediately rather than waiting for another Mission-wide scan.
+ */
+export async function wakeScheduledMissionGoal(input: {
+  intentId: string;
+  projectId: string;
+  goalId: string;
+  wakeAt: string;
+  generationAt: string;
+}): Promise<string | undefined> {
+  const wakeAt = new Date(input.wakeAt);
+  const generationAt = new Date(input.generationAt);
+  if (
+    !input.intentId.trim()
+    || !input.projectId.trim()
+    || !input.goalId.trim()
+    || !Number.isFinite(wakeAt.getTime())
+    || !Number.isFinite(generationAt.getTime())
+  ) return undefined;
+
+  const [candidate] = await db
+    .select({
+      missionId: aiGoalsTable.missionId,
+      projectId: aiGoalsTable.projectId,
+    })
+    .from(aiGoalsTable)
+    .where(and(
+      eq(aiGoalsTable.id, input.goalId),
+      eq(aiGoalsTable.projectId, input.projectId),
+    ))
+    .limit(1);
+  if (!candidate) return undefined;
+
+  return db.transaction(async (tx) => {
+    // Maintain the shared Mission-before-Goal lock order.
+    const [mission] = await tx
+      .select()
+      .from(aiMissionsTable)
+      .where(and(
+        eq(aiMissionsTable.id, candidate.missionId),
+        eq(aiMissionsTable.projectId, candidate.projectId),
+      ))
+      .for("update");
+    if (!mission) return undefined;
+
+    const [goal] = await tx
+      .select()
+      .from(aiGoalsTable)
+      .where(and(
+        eq(aiGoalsTable.id, input.goalId),
+        eq(aiGoalsTable.missionId, mission.id),
+        eq(aiGoalsTable.projectId, input.projectId),
+      ))
+      .for("update");
+    if (!goal) return undefined;
+
+    const action = GoalNextActionSchema.safeParse(goal.nextAction);
+    const alreadyDue = goal.status === "needs_replan"
+      && action.success
+      && action.data.kind === "replan"
+      && action.data.reason === SCHEDULED_MISSION_WAKE_REPLAN_REASON
+      && mission.status === "needs_replan";
+    if (alreadyDue) return mission.id;
+
+    const currentWait = goal.status === "waiting_for_event"
+      && goal.nextWakeAt?.getTime() === wakeAt.getTime()
+      // updatedAt may advance for unrelated Goal metadata changes while the
+      // same wait remains active; it must not invalidate a persisted timer.
+      && goal.updatedAt.getTime() >= generationAt.getTime()
+      && action.success
+      && action.data.kind === "wait"
+      && action.data.reason === "event"
+      && Boolean(action.data.wakeAt)
+      && new Date(action.data.wakeAt!).getTime() === wakeAt.getTime();
+    if (!currentWait) return undefined;
+    // Terminal/operator-owned Mission states must not be revived by an old timer.
+    const missionCanReplan = !["blocked", "cancelled", "completed", "failed"].includes(mission.status);
+    if (!missionCanReplan) return undefined;
+
+    const clockResult = await tx.execute(
+      sql`SELECT clock_timestamp() AT TIME ZONE 'UTC' AS now`,
+    );
+    const clockValue = (clockResult.rows as Array<{ now: Date | string }>)[0]?.now;
+    const now = clockValue instanceof Date ? clockValue : new Date(String(clockValue ?? ""));
+    if (!clockValue || !Number.isFinite(now.getTime()) || wakeAt.getTime() > now.getTime()) {
+      return undefined;
+    }
+
+    await tx.update(aiGoalsTable)
+      .set({
+        status: "needs_replan",
+        nextAction: {
+          kind: "replan",
+          reason: SCHEDULED_MISSION_WAKE_REPLAN_REASON,
+        },
+        nextWakeAt: null,
+        blockedReason: null,
+        updatedAt: now,
+      })
+      .where(eq(aiGoalsTable.id, goal.id));
+
+    await tx.update(aiMissionsTable)
+      .set({ status: "needs_replan", updatedAt: now })
+      .where(and(
+        eq(aiMissionsTable.id, mission.id),
+        eq(aiMissionsTable.status, mission.status),
+      ));
+
+    const wakeEventId = "mission-goal-wake-due:" +
+      createHash("sha256").update(input.intentId).digest("hex");
+    await tx.insert(eventsTable).values({
+      id: wakeEventId,
+      type: "AiGoalWakeDue",
+      projectId: goal.projectId,
+      goalId: goal.id,
+      severity: "info",
+      message: `AI goal "${goal.title}" scheduled wake time reached`,
+      timestamp: now,
+      payload: {
+        missionId: mission.id,
+        previousStatus: goal.status,
+        intentId: input.intentId,
+        wakeAt: input.wakeAt,
+        generationAt: input.generationAt,
+      },
+    }).onConflictDoNothing();
+
+    return mission.id;
+  });
 }
 
 /**
