@@ -4,6 +4,7 @@ import { Search, Filter, X } from 'lucide-react';
 import { RefreshButton } from '@/components/OperatorResilience';
 import EventAssistantHandoff from '@/components/EventAssistantHandoff';
 import { Link } from 'wouter';
+import { eventTypeLabel } from '@/lib/event-copy';
 
 const SEVERITIES = ['info', 'warning', 'error', 'success'] as const;
 const PAGE_SIZE = 50;
@@ -248,7 +249,7 @@ export default function Events() {
             <div className="p-2 border-b border-border bg-card/50 flex gap-4 text-xs text-muted-foreground sticky top-0 z-10 shadow-sm backdrop-blur-md">
               <div className="w-32">الوقت</div>
               <div className="w-16">المستوى</div>
-              <div className="w-32">النوع</div>
+              <div className="w-40">ماذا حدث</div>
               <div className="w-48 truncate">المشروع</div>
               <div className="w-56 truncate">العملية</div>
               <div className="flex-1">الرسالة</div>
@@ -292,6 +293,7 @@ export default function Events() {
                 <div className="space-y-0.5">
                   {(events || []).map((evt) => {
                     const eventProject = projects?.find((project) => project.id === evt.projectId);
+                    const typeLabel = eventTypeLabel(evt.type);
                     const color =
                       evt.severity === 'error'
                         ? 'text-red-400 bg-red-950/20'
@@ -327,8 +329,19 @@ export default function Events() {
                             </button>
                           ) : severityLabel(evt.severity)}
                         </div>
-                        <div className="w-32 shrink-0">
-                          <div className="truncate opacity-80"><bdi dir="ltr">{evt.type}</bdi></div>
+                        <div className="w-40 shrink-0">
+                          <div
+                            className="truncate opacity-80"
+                            title={typeLabel === evt.type ? undefined : evt.type}
+                            data-testid={`text-event-type-${evt.id}`}
+                          >
+                            <bdi dir="auto">{typeLabel}</bdi>
+                            {typeLabel !== evt.type && (
+                              <span className="sr-only">
+                                {' '}الرمز التقني: <bdi dir="ltr">{evt.type}</bdi>
+                              </span>
+                            )}
+                          </div>
                           {evt.workflowId && (
                             <Link
                               href={`/workflows?projectId=${encodeURIComponent(evt.projectId)}&workflowId=${encodeURIComponent(evt.workflowId)}`}

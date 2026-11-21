@@ -2,6 +2,7 @@ import React from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import Events from "./Events";
+import { eventTypeLabel } from "@/lib/event-copy";
 
 const mocks = vi.hoisted(() => ({
   isLoaded: true,
@@ -65,6 +66,12 @@ beforeEach(() => {
 });
 
 describe("Events", () => {
+  it("translates common event codes while preserving unknown types", () => {
+    expect(eventTypeLabel("ScanCompleted")).toBe("اكتمل فحص المشروع");
+    expect(eventTypeLabel("TaskExecutionFailed")).toBe("تعثر تنفيذ الخطوة");
+    expect(eventTypeLabel("ProviderSpecificEvent")).toBe("ProviderSpecificEvent");
+  });
+
   it("wraps search and event actions into a narrow-screen control layout", () => {
     render(<Events />);
 
@@ -93,6 +100,10 @@ describe("Events", () => {
 
     expect(screen.getByText("Alpha scan completed")).toBeInTheDocument();
     expect(screen.getByText("Beta task failed")).toBeInTheDocument();
+    expect(screen.getByTestId("text-event-type-event-1")).toHaveTextContent("اكتمل فحص المشروع");
+    expect(screen.getByTestId("text-event-type-event-1")).toHaveAttribute("title", "ScanCompleted");
+    expect(screen.getByTestId("text-event-type-event-2")).toHaveTextContent("تعثر تنفيذ الخطوة");
+    expect(screen.getByTestId("text-event-type-event-2")).toHaveAttribute("title", "TaskFailed");
     expect(screen.getByText("عرض 1–2 من 2")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "الأقدم" })).toBeDisabled();
   });
