@@ -525,17 +525,24 @@ router.patch("/tasks/:taskId", async (req, res) => {
     });
   }
 
-  // PR-C: auto-trigger AI execution when a manual PATCH sets status → verifying
-  // and the task has a generated prompt. The intent was committed atomically
-  // with the status transition; this call only wakes the local queue.
+  // The Task transition and Outbox intent have committed. The local queue is
+  // only a low-latency wake-up; a failure must not turn the committed update
+  // into an ambiguous client error because the durable dispatcher can recover it.
   if (body.status === "verifying" && updated[0].prompt) {
-    await scheduleAiTaskExecution(
-      taskId,
-      req.userId,
-      undefined,
-      updated[0].retryCount,
-      updated[0].correlationId,
-    );
+    try {
+      await scheduleAiTaskExecution(
+        taskId,
+        req.userId,
+        undefined,
+        updated[0].retryCount,
+        updated[0].correlationId,
+      );
+    } catch (error) {
+      logger.warn(
+        { error, taskId, projectId: project.id, correlationId },
+        "Task status transition committed with a durable execution intent; local queue wake-up failed",
+      );
+    }
   }
 
   invalidateContextCache(project.id);
@@ -927,16 +934,24 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
 
     invalidateContextCache(project.id);
 
-    // PR-C: the durable intent was committed with the Task transition. Wake
-    // the local queue without waiting for the AI execution itself.
+    // The verification result and Outbox intent have committed. Keep the
+    // response successful if the process-local queue cannot be woken; the
+    // durable dispatcher remains responsible for recovering this Task.
     if (finalStatus === "verifying" && taskToExecute.prompt) {
-      await scheduleAiTaskExecution(
-        taskId,
-        req.userId,
-        undefined,
-        updated.retryCount,
-        updated.correlationId,
-      );
+      try {
+        await scheduleAiTaskExecution(
+          taskId,
+          req.userId,
+          undefined,
+          updated.retryCount,
+          updated.correlationId,
+        );
+      } catch (error) {
+        logger.warn(
+          { error, taskId, projectId: project.id, correlationId },
+          "Task execution result committed with a durable execution intent; local queue wake-up failed",
+        );
+      }
     }
 
     return res.status(202).json(await projectCurrentTaskExecutionReceipt(updated));
