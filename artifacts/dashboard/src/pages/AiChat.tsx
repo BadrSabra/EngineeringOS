@@ -67,6 +67,17 @@ import { AgentExecutionProofPanel, type AgentExecutionProofStatus, historicalAud
 export { AI_CHAT_SELECTION_STORAGE_PREFIX, parseAiChatRouteTarget, parseAiChatSelection } from './ai-chat/session-state';
 export { BenchmarkMissionControlPanel, auditExportFilename, auditRedactionCategoryLabel, auditExportFailureMessage, historicalAuditStatusLabel, historicalAuditDispositionLabel } from './ai-chat/execution-proof';
 
+function normalizeSessionTitle(value: string): string {
+  return value
+    .normalize('NFKD')
+    .replace(/[\u064B-\u065F\u0670\u0640]/g, '')
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLocaleLowerCase('ar');
+}
+
 export default function AiChat({
   workspaceProjectId,
   workspaceMode = false,
@@ -111,6 +122,7 @@ export default function AiChat({
   const [deliveryPolicyExpanded, setDeliveryPolicyExpanded] = useState(false);
   const [historicalAuditsExpanded, setHistoricalAuditsExpanded] = useState(false);
   const [moreActionsExpanded, setMoreActionsExpanded] = useState(false);
+  const [sessionSearchState, setSessionSearchState] = useState({ projectId: '', query: '' });
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   const [sessionCreationPending, setSessionCreationPending] = useState(false);
   // Keep task and goal-draft handoffs tied to the live route. useState would
@@ -1009,6 +1021,13 @@ export default function AiChat({
       },
     },
   );
+  const sessionSearch = sessionSearchState.projectId === selectedProjectId
+    ? sessionSearchState.query
+    : '';
+  const normalizedSessionSearch = normalizeSessionTitle(sessionSearch);
+  const visibleSessions = normalizedSessionSearch
+    ? sessions.filter((session) => normalizeSessionTitle(session.title).includes(normalizedSessionSearch))
+    : sessions;
 
   useEffect(() => {
     const routeProjectId = chatRouteTarget?.projectId;
@@ -3574,6 +3593,36 @@ export default function AiChat({
         <div className="drawer-scroll-region min-h-0 flex-1 overflow-y-auto overscroll-contain md:flex md:flex-col md:overflow-hidden">
           <div className="sessions-history relative z-10 shrink-0 md:min-h-0 md:flex-1 md:overflow-y-auto">
             <div className="p-2 flex flex-col gap-1">
+            {selectedProjectId && !sessionHistoryLoading && !sessionsError && sessions.length > 0 && (
+              <div className="relative mb-1">
+                <label htmlFor="chat-session-search" className="sr-only">ابحث في محادثات المشروع</label>
+                <input
+                  id="chat-session-search"
+                  type="search"
+                  aria-label="ابحث في محادثات المشروع"
+                  data-testid="input-chat-session-search"
+                  value={sessionSearch}
+                  onChange={(event) => setSessionSearchState({
+                    projectId: selectedProjectId,
+                    query: event.target.value,
+                  })}
+                  placeholder="ابحث باسم المحادثة"
+                  dir="auto"
+                  className="h-9 w-full rounded-md border border-border bg-secondary px-2.5 pe-8 text-xs text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                />
+                {sessionSearch && (
+                  <button
+                    type="button"
+                    aria-label="مسح بحث المحادثات"
+                    data-testid="button-clear-chat-session-search"
+                    onClick={() => setSessionSearchState({ projectId: selectedProjectId, query: '' })}
+                    className="absolute inset-y-0 left-1 flex items-center rounded px-1.5 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <X className="h-3.5 w-3.5" aria-hidden="true" />
+                  </button>
+                )}
+              </div>
+            )}
             {!selectedProjectId ? (
               <p className="px-2 py-2 text-xs text-muted-foreground" data-testid="text-sessions-select-project">
                 اختر مشروعًا لعرض محادثاته.
@@ -3597,8 +3646,12 @@ export default function AiChat({
                   ? 'لا توجد محادثات في القائمة الحالية. قد يبقى تنفيذ محفوظ متاحًا في هذه المحادثة.'
                   : 'لا توجد محادثات في هذا العرض بعد. ابدأ محادثة من الزر أعلاه أو اكتب سؤالًا.'}
               </p>
+            ) : visibleSessions.length === 0 ? (
+              <p className="px-2 py-2 text-xs text-muted-foreground" role="status" data-testid="text-chat-session-search-empty">
+                لا توجد محادثات تطابق البحث.
+              </p>
             ) : (
-            sessions.map((s) => (
+            visibleSessions.map((s) => (
               <button
                 key={s.id}
                 aria-label={s.title}
