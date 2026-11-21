@@ -14,7 +14,7 @@ This document records the server-owned Task dispatch contract. The database even
 | Scheduler repair / deferred redispatch | **artifacts/api-server/src/routes/ai/tasks.ts** | **scheduleAiTaskExecution** idempotently verifies/repairs an intent before local enqueue; **dispatchDeferredAiTaskExecutions** reads due durable intents after restart or queue backpressure. |
 | Task cancellation / deletion | **artifacts/api-server/src/routes/tasks.ts**, rollback and DELETE handlers | The reserved Outbox row is retired in the same transaction as the transition to cancelled or deletion; the ordinary Task lifecycle/audit events remain. |
 
-There is one logical Outbox identity per Task, keyed by **task-auto-execution-deferred:<taskId>**. The event key is stable; the generation and authorization identity are enforced by the payload and the Task row lock.
+There is one logical Outbox identity per Task, keyed by **task-auto-execution-deferred:<taskId>**. The event key is stable; the generation and authorization identity are enforced by the payload and the Task row lock. Local queue single-flight/deduplication is instead scoped to the persisted generation (**Task ID + retry count + correlation ID**), so a still-pending closure for an older generation cannot suppress the wake for its replacement. The closure remains generation-fenced, and the database claim remains authoritative.
 
 ## Outbox identity
 

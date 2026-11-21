@@ -6,6 +6,7 @@ const {
   reconcileAutomaticMissionReplans,
   reconcileApprovedMissionDecisionDispatches,
   dispatchPendingMissionRecipes,
+  reconcileCompletedMissionRecipeAcceptances,
   dispatchPendingMissionEventWakes,
   dispatchPendingShadowReplays,
   dispatchPendingMissionChatHandoffs,
@@ -21,6 +22,7 @@ const {
   reconcileAutomaticMissionReplans: vi.fn(async () => 0),
   reconcileApprovedMissionDecisionDispatches: vi.fn(async () => 0),
   dispatchPendingMissionRecipes: vi.fn(async () => 0),
+  reconcileCompletedMissionRecipeAcceptances: vi.fn(async () => 0),
   dispatchPendingMissionEventWakes: vi.fn(async () => 0),
   dispatchPendingShadowReplays: vi.fn(async () => 0),
   dispatchPendingMissionChatHandoffs: vi.fn(async () => 0),
@@ -44,6 +46,7 @@ vi.mock("./mission-auto-replan.js", () => ({
 }));
 vi.mock("./mission-runtime.js", () => ({
   dispatchPendingMissionRecipes,
+  reconcileCompletedMissionRecipeAcceptances,
   wakeDueMissionGoals,
   wakeReadyMissionGoals,
   wakeRuntimeTransitionMissionGoals,
@@ -86,6 +89,7 @@ describe("Mission decision shadow scheduler integration", () => {
     reconcileAutomaticMissionReplans.mockClear();
     reconcileApprovedMissionDecisionDispatches.mockClear();
     dispatchPendingMissionRecipes.mockClear();
+    reconcileCompletedMissionRecipeAcceptances.mockClear();
     dispatchPendingMissionEventWakes.mockClear();
     dispatchPendingShadowReplays.mockClear();
     dispatchPendingMissionChatHandoffs.mockClear();
