@@ -447,7 +447,7 @@ function buildWorldStateSummary(loaded: LoadedProjectContext): string {
     }
   };
   const safeLabel = (value: string | null | undefined): string =>
-    (value ?? "unspecified").replace(/[\\r\\n\\t]+/g, " ").slice(0, 100);
+    (value ?? "unspecified").replace(/[\u0000-\u001F\u007F]+/g, " ").slice(0, 100);
   const lines = [
     `World State evidence: ${selection.selected.length}/${facts.length} facts selected for project revision ${safeLabel(loaded.contextManifest.projectRevision)}.`,
     `Current-revision facts: ${selection.currentRevisionFacts}; contradictions: ${selection.contradictionFacts}; older-revision facts withheld: ${selection.olderRevisionFacts}; stale-environment facts withheld: ${selection.staleEnvironmentFacts}; superseded/retracted facts withheld: ${selection.retiredFacts}.`,
