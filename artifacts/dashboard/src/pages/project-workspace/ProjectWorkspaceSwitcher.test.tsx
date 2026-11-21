@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
     isFetching: false,
     refetch: vi.fn(),
   },
+  setLocation: vi.fn(),
 }));
 
 vi.mock('@workspace/api-client-react', () => ({
@@ -18,6 +19,7 @@ vi.mock('@workspace/api-client-react', () => ({
 }));
 
 vi.mock('wouter', () => ({
+  useLocation: () => ['/projects/current/workspace', mocks.setLocation],
   Link: ({
     href,
     children,
@@ -134,5 +136,89 @@ describe('Project workspace project switcher', () => {
 
     fireEvent.change(search, { target: { value: 'مشروع غير موجود' } });
     expect(screen.getByRole('status')).toHaveTextContent('لا توجد مشاريع تطابق البحث');
+  });
+
+  it('opens a unique normalized project match with Enter', () => {
+    mocks.projectsQuery.data = [
+      { id: 'current', name: 'المشروع الحالي' },
+      { id: 'management', name: 'إِدارةُ المشاريع' },
+      { id: 'reports', name: 'التقارير' },
+      { id: 'mobile', name: 'تطبيق الجوال' },
+      { id: 'api', name: 'واجهة الخدمات' },
+      { id: 'sales', name: 'المبيعات' },
+      { id: 'support', name: 'دعم العملاء' },
+    ];
+
+    render(
+      <ProjectWorkspaceSwitcher
+        currentProjectId="current"
+        currentProjectName="المشروع الحالي"
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('button-workspace-project-switcher'));
+    const search = screen.getByRole('searchbox', { name: 'ابحث عن مشروع' });
+    fireEvent.change(search, { target: { value: 'ادارة' } });
+
+    expect(screen.getByTestId('text-workspace-project-enter-hint'))
+      .toHaveTextContent('اضغط Enter لفتح إِدارةُ المشاريع');
+    fireEvent.keyDown(search, { key: 'Enter' });
+
+    expect(mocks.setLocation).toHaveBeenCalledWith('/projects/management/workspace');
+  });
+
+  it('prefers the unique exact project name over broader matches', () => {
+    mocks.projectsQuery.data = [
+      { id: 'current', name: 'المشروع الحالي' },
+      { id: 'exact', name: 'إدارة' },
+      { id: 'broader', name: 'إدارة المشاريع' },
+      { id: 'reports', name: 'التقارير' },
+      { id: 'mobile', name: 'تطبيق الجوال' },
+      { id: 'api', name: 'واجهة الخدمات' },
+      { id: 'sales', name: 'المبيعات' },
+    ];
+
+    render(
+      <ProjectWorkspaceSwitcher
+        currentProjectId="current"
+        currentProjectName="المشروع الحالي"
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('button-workspace-project-switcher'));
+    const search = screen.getByRole('searchbox', { name: 'ابحث عن مشروع' });
+    fireEvent.change(search, { target: { value: 'ادارة' } });
+    fireEvent.keyDown(search, { key: 'Enter' });
+
+    expect(mocks.setLocation).toHaveBeenCalledWith('/projects/exact/workspace');
+  });
+
+  it('does not guess when a project search has multiple matches', () => {
+    mocks.projectsQuery.data = [
+      { id: 'current', name: 'المشروع الحالي' },
+      { id: 'support', name: 'دعم العملاء' },
+      { id: 'team-support', name: 'دعم الفرق' },
+      { id: 'reports', name: 'التقارير' },
+      { id: 'mobile', name: 'تطبيق الجوال' },
+      { id: 'api', name: 'واجهة الخدمات' },
+      { id: 'sales', name: 'المبيعات' },
+    ];
+
+    render(
+      <ProjectWorkspaceSwitcher
+        currentProjectId="current"
+        currentProjectName="المشروع الحالي"
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('button-workspace-project-switcher'));
+    const search = screen.getByRole('searchbox', { name: 'ابحث عن مشروع' });
+    fireEvent.change(search, { target: { value: 'دعم' } });
+    fireEvent.keyDown(search, { key: 'Enter' });
+
+    expect(screen.getByTestId('link-switch-workspace-project-support')).toBeInTheDocument();
+    expect(screen.getByTestId('link-switch-workspace-project-team-support')).toBeInTheDocument();
+    expect(screen.queryByTestId('text-workspace-project-enter-hint')).not.toBeInTheDocument();
+    expect(mocks.setLocation).not.toHaveBeenCalled();
   });
 });

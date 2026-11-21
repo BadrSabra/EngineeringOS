@@ -1,6 +1,6 @@
 import { ChevronDown, RefreshCw } from 'lucide-react';
 import { useId, useState } from 'react';
-import { Link } from 'wouter';
+import { Link, useLocation } from 'wouter';
 import {
   getListProjectsQueryKey,
   useListProjects,
@@ -39,6 +39,7 @@ export default function ProjectWorkspaceSwitcher({
   currentProjectName,
 }: ProjectWorkspaceSwitcherProps) {
   const searchId = useId();
+  const [, setLocation] = useLocation();
   const [projectSearch, setProjectSearch] = useState('');
   const projectsQuery = useListProjects(undefined, {
     query: { queryKey: getListProjectsQueryKey() },
@@ -101,6 +102,14 @@ export default function ProjectWorkspaceSwitcher({
     ? otherProjects.filter((project) =>
       normalizeProjectSearch(project.name).includes(normalizedQuery))
     : otherProjects;
+  const exactMatches = normalizedQuery
+    ? visibleProjects.filter((project) => normalizeProjectSearch(project.name) === normalizedQuery)
+    : [];
+  const keyboardTarget = exactMatches.length === 1
+    ? exactMatches[0]
+    : exactMatches.length === 0 && visibleProjects.length === 1
+      ? visibleProjects[0]
+      : null;
 
   return (
     <details
@@ -135,8 +144,22 @@ export default function ProjectWorkspaceSwitcher({
               dir="auto"
               aria-label="ابحث عن مشروع"
               data-testid="input-workspace-project-search"
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter' || !keyboardTarget) return;
+                event.preventDefault();
+                setLocation(`/projects/${encodeURIComponent(keyboardTarget.id)}/workspace`);
+              }}
               className="h-9 w-full rounded-md border border-border bg-background px-2.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             />
+            {keyboardTarget && (
+              <p
+                role="status"
+                data-testid="text-workspace-project-enter-hint"
+                className="mt-1 px-1 text-[10px] text-muted-foreground"
+              >
+                اضغط Enter لفتح {keyboardTarget.name}
+              </p>
+            )}
           </div>
         )}
         <ul aria-label="المشاريع الأخرى" className="space-y-1">
