@@ -277,9 +277,41 @@ function MetricsSession({
 
       {projectsError ? (
         <RequestError message="تعذّر تحميل المشاريع لعرض المؤشرات." retryLabel="حاول مجددًا" onRetry={() => void refetchProjects()} />
+      ) : !projectsLoaded ? (
+        <div
+          role="status"
+          data-testid="metrics-projects-loading"
+          className="h-64 bg-card border border-border rounded-xl flex items-center justify-center text-muted-foreground"
+        >
+          جارٍ تحميل قائمة المشاريع…
+        </div>
       ) : !effectiveProjectId ? (
-        <div className="h-64 bg-card border border-border rounded-xl flex items-center justify-center text-muted-foreground">
-          اختر مشروعًا لعرض مؤشراته.
+        <div
+          role="status"
+          data-testid="metrics-no-project"
+          className="min-h-64 bg-card border border-border rounded-xl flex flex-col items-center justify-center gap-3 px-4 py-8 text-center text-muted-foreground"
+        >
+          <BarChart3 className="w-8 h-8 text-primary/60" aria-hidden="true" />
+          <p>لا يوجد مشروع لعرض مؤشراته بعد.</p>
+          <p className="max-w-md text-xs">
+            ابدأ بوصف هدفك، أو افتح قائمة المشاريع لاختيار مشروع موجود.
+          </p>
+          <div className="mt-1 flex flex-wrap justify-center gap-2">
+            <Link
+              href="/"
+              data-testid="link-metrics-empty-goal"
+              className="inline-flex min-h-10 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              ابدأ بهدفك
+            </Link>
+            <Link
+              href="/projects"
+              data-testid="link-metrics-empty-projects"
+              className="inline-flex min-h-10 items-center justify-center rounded-md border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              اعرض مشاريعي
+            </Link>
+          </div>
         </div>
       ) : isLoading ? (
         <div className="h-96 bg-card border border-border rounded-xl animate-pulse"></div>
