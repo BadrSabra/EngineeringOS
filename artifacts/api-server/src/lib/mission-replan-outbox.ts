@@ -31,6 +31,10 @@ type MissionReplanPayloadBase = {
   lastFailureCode?: string;
 };
 
+type MissionReplanAdmissionReason =
+  | { reasonCode: "dependency_proof_unproven" | "dependency_failed" }
+  | { reasonCode: "planner_requested"; blockedReason: string };
+
 type MissionReplanPayload = MissionReplanPayloadBase & (
   | {
       source: "execution_acceptance";
@@ -38,12 +42,11 @@ type MissionReplanPayload = MissionReplanPayloadBase & (
       attempt: number;
       acceptanceId: string;
     }
-  | {
+  | ({
       source: "goal_admission";
       admissionKey: string;
-      reasonCode: "dependency_proof_unproven" | "dependency_failed";
       sourcePlanRevision: string | null;
-    }
+    } & MissionReplanAdmissionReason)
 );
 
 export type MissionReplanDispatchLeaseClaim =
@@ -89,16 +92,36 @@ function parsePayload(value: unknown): MissionReplanPayload | null {
     if (
       typeof value.admissionKey !== "string"
       || value.admissionKey.trim().length === 0
-      || (value.reasonCode !== "dependency_proof_unproven" && value.reasonCode !== "dependency_failed")
       || !(value.sourcePlanRevision === null || typeof value.sourcePlanRevision === "string")
     ) return null;
-    return {
-      ...base,
-      source,
-      admissionKey: value.admissionKey,
-      reasonCode: value.reasonCode,
-      sourcePlanRevision: value.sourcePlanRevision,
-    };
+    if (
+      value.reasonCode === "dependency_proof_unproven"
+      || value.reasonCode === "dependency_failed"
+    ) {
+      return {
+        ...base,
+        source,
+        admissionKey: value.admissionKey,
+        reasonCode: value.reasonCode,
+        sourcePlanRevision: value.sourcePlanRevision,
+      };
+    }
+    if (
+      value.reasonCode === "planner_requested"
+      && typeof value.blockedReason === "string"
+      && value.blockedReason.trim().length > 0
+      && value.blockedReason.length <= 5_000
+    ) {
+      return {
+        ...base,
+        source,
+        admissionKey: value.admissionKey,
+        reasonCode: value.reasonCode,
+        blockedReason: value.blockedReason,
+        sourcePlanRevision: value.sourcePlanRevision,
+      };
+    }
+    return null;
   }
   if (
     source !== "execution_acceptance"
@@ -185,16 +208,21 @@ export function missionReplanAdmissionIntentId(input: {
   missionId: string;
   projectId: string;
   goalId: string;
-  reasonCode: "dependency_proof_unproven" | "dependency_failed";
   planRevision: string | null;
-}): string {
-  const identityHash = createHash("sha256").update(JSON.stringify([
+} & MissionReplanAdmissionReason): string {
+  if (input.reasonCode === "planner_requested"
+    && (!input.blockedReason.trim() || input.blockedReason.length > 5_000)) {
+    throw new Error("mission_replan_admission_reason_invalid");
+  }
+  const identity = [
     input.missionId,
     input.projectId,
     input.goalId,
     input.reasonCode,
     input.planRevision,
-  ])).digest("hex");
+    ...(input.reasonCode === "planner_requested" ? [input.blockedReason] : []),
+  ];
+  const identityHash = createHash("sha256").update(JSON.stringify(identity)).digest("hex");
   return `mission-replan:admission:${identityHash}`;
 }
 
@@ -204,16 +232,17 @@ export async function insertMissionAdmissionReplanIntent(
     missionId: string;
     projectId: string;
     goalId: string;
-    reasonCode: "dependency_proof_unproven" | "dependency_failed";
     planRevision: string | null;
     requestedAt: Date;
-  },
+  } & MissionReplanAdmissionReason,
 ): Promise<string> {
   if (
     !input.missionId.trim()
     || !input.projectId.trim()
     || !input.goalId.trim()
     || (input.planRevision !== null && !input.planRevision.trim())
+    || (input.reasonCode === "planner_requested"
+      && (!input.blockedReason.trim() || input.blockedReason.length > 5_000))
   ) {
     throw new Error("mission_replan_admission_identity_invalid");
   }
@@ -226,7 +255,9 @@ export async function insertMissionAdmissionReplanIntent(
     goalId: input.goalId,
     source: "goal_admission",
     admissionKey: id,
-    reasonCode: input.reasonCode,
+    ...(input.reasonCode === "planner_requested"
+      ? { reasonCode: input.reasonCode, blockedReason: input.blockedReason }
+      : { reasonCode: input.reasonCode }),
     sourcePlanRevision: input.planRevision,
     attemptCount: 0,
     nextAttemptAt: input.requestedAt.toISOString(),
@@ -237,7 +268,7 @@ export async function insertMissionAdmissionReplanIntent(
     projectId: input.projectId,
     goalId: input.goalId,
     severity: "warning",
-    message: "A Mission Goal dependency admission failure requested an automatic replan.",
+    message: "A Mission Goal admission requested an automatic replan.",
     timestamp: input.requestedAt,
     payload,
   }).onConflictDoNothing();
@@ -566,8 +597,13 @@ export async function dispatchMissionReplanIntent(id: string): Promise<boolean> 
     const activePlanRevision = typeof autonomyPolicy.activePlanRevision === "string"
       ? autonomyPolicy.activePlanRevision
       : null;
+    const expectedAdmissionBlockedReason = payload.source === "goal_admission"
+      ? payload.reasonCode === "planner_requested"
+        ? payload.blockedReason
+        : payload.reasonCode
+      : undefined;
     const admissionIntentStale = payload.source === "goal_admission" && (
-      goal?.blockedReason !== payload.reasonCode
+      goal?.blockedReason !== expectedAdmissionBlockedReason
       || currentPlanRevision !== payload.sourcePlanRevision
       || (activePlanRevision !== null && activePlanRevision !== payload.sourcePlanRevision)
     );

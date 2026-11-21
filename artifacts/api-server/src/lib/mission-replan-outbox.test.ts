@@ -88,6 +88,40 @@ async function createIntent(fixture: Awaited<ReturnType<typeof createFixture>>) 
   }));
 }
 
+async function createPlannerRequestedIntent(
+  fixture: Awaited<ReturnType<typeof createFixture>>,
+  blockedReason: string,
+) {
+  const planRevision = "planner-admission-plan-" + fixture.goalId;
+  await db.update(aiMissionsTable).set({
+    status: "needs_replan",
+    autonomyPolicy: {
+      mode: "autonomous",
+      maxAutoReplans: 3,
+      activePlanRevision: planRevision,
+    },
+  }).where(eq(aiMissionsTable.id, fixture.missionId));
+  await db.update(aiGoalsTable).set({
+    status: "needs_replan",
+    blockedReason,
+    successCriteria: {
+      kind: "mission_plan_step",
+      planRevision: { hash: planRevision },
+    },
+  }).where(eq(aiGoalsTable.id, fixture.goalId));
+
+  const intentId = await db.transaction((tx) => insertMissionAdmissionReplanIntent(tx, {
+    projectId: fixture.projectId,
+    missionId: fixture.missionId,
+    goalId: fixture.goalId,
+    reasonCode: "planner_requested",
+    blockedReason,
+    planRevision,
+    requestedAt: fixture.now,
+  }));
+  return { intentId, planRevision, blockedReason };
+}
+
 async function createAdmissionIntent(
   fixture: Awaited<ReturnType<typeof createFixture>>,
   reasonCode: "dependency_proof_unproven" | "dependency_failed" = "dependency_proof_unproven",
@@ -277,6 +311,71 @@ describe("Mission replan Outbox", () => {
       reasonCode: "dependency_failed",
       sourcePlanRevision: admission.planRevision,
       dispatchOutcome: "replanned",
+    });
+  });
+
+  it("dispatches a planner-requested Goal replan without an execution acceptance", async () => {
+    const fixture = await createFixture();
+    const blockedReason = "source revision changed";
+    const request = await createPlannerRequestedIntent(fixture, blockedReason);
+    expect(request.intentId).toBe(missionReplanAdmissionIntentId({
+      missionId: fixture.missionId,
+      projectId: fixture.projectId,
+      goalId: fixture.goalId,
+      reasonCode: "planner_requested",
+      blockedReason,
+      planRevision: request.planRevision,
+    }));
+
+    autoReplanMission.mockResolvedValue({
+      status: "replanned",
+      missionId: fixture.missionId,
+      revision: "planner-admission-replan-v1",
+      plan: {},
+      runs: [],
+    });
+
+    expect(await dispatchPendingMissionReplans(10, fixture.projectId)).toBe(1);
+    expect(autoReplanMission).toHaveBeenCalledOnceWith(fixture.missionId);
+    const [intent] = await db.select({
+      type: eventsTable.type,
+      payload: eventsTable.payload,
+    }).from(eventsTable)
+      .where(eq(eventsTable.id, request.intentId))
+      .limit(1);
+    expect(intent?.type).toBe(MISSION_REPLAN_DISPATCHED);
+    expect(intent?.payload).toMatchObject({
+      source: "goal_admission",
+      reasonCode: "planner_requested",
+      blockedReason,
+      sourcePlanRevision: request.planRevision,
+      dispatchOutcome: "replanned",
+      planRevision: "planner-admission-replan-v1",
+    });
+    expect(intent?.payload).not.toHaveProperty("executionId");
+    expect(intent?.payload).not.toHaveProperty("acceptanceId");
+    expect(intent?.payload).not.toHaveProperty("attempt");
+  });
+
+  it("supersedes a planner-requested replan when its blocked reason changes", async () => {
+    const fixture = await createFixture();
+    const request = await createPlannerRequestedIntent(fixture, "source revision changed");
+    await db.update(aiGoalsTable)
+      .set({ blockedReason: "a newer planner decision" })
+      .where(eq(aiGoalsTable.id, fixture.goalId));
+
+    expect(await dispatchPendingMissionReplans(10, fixture.projectId)).toBe(0);
+    expect(autoReplanMission).not.toHaveBeenCalled();
+    const [intent] = await db.select({
+      type: eventsTable.type,
+      payload: eventsTable.payload,
+    }).from(eventsTable)
+      .where(eq(eventsTable.id, request.intentId))
+      .limit(1);
+    expect(intent?.type).toBe(MISSION_REPLAN_SUPERSEDED);
+    expect(intent?.payload).toMatchObject({
+      source: "goal_admission",
+      reason: "mission_or_goal_state_changed",
     });
   });
 

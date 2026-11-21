@@ -2320,10 +2320,21 @@ describe("Mission goal runtime", () => {
     });
   });
 
-  it("moves a replan action to needs_replan without creating another execution", async () => {
+  it("persists a planner-requested replan in the Mission Outbox before dispatch", async () => {
+    const blockedReason = "source revision changed";
     const fixture = await createMissionFixture({
       kind: "replan",
-      reason: "source revision changed",
+      reason: blockedReason,
+    });
+    const dispatch = vi.spyOn(missionReplanOutboxModule, "dispatchMissionReplanIntent")
+      .mockResolvedValue(false);
+    const intentId = missionReplanAdmissionIntentId({
+      missionId: fixture.missionId,
+      projectId: fixture.projectId,
+      goalId: fixture.goalId,
+      reasonCode: "planner_requested",
+      blockedReason,
+      planRevision: null,
     });
 
     const result = await runMissionGoal({
@@ -2334,6 +2345,7 @@ describe("Mission goal runtime", () => {
 
     expect(result.status).toBe("blocked");
     expect(result.reason).toBe("replan_required");
+    expect(dispatch).toHaveBeenCalledOnceWith(intentId);
     const [goal] = await db
       .select({ status: aiGoalsTable.status, blockedReason: aiGoalsTable.blockedReason })
       .from(aiGoalsTable)
@@ -2342,11 +2354,29 @@ describe("Mission goal runtime", () => {
       .select({ status: aiMissionsTable.status })
       .from(aiMissionsTable)
       .where(eq(aiMissionsTable.id, fixture.missionId));
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, intentId))
+      .limit(1);
     expect(goal).toEqual({
       status: "needs_replan",
-      blockedReason: "source revision changed",
+      blockedReason,
     });
     expect(mission?.status).toBe("needs_replan");
+    expect(intent).toMatchObject({
+      id: intentId,
+      type: MISSION_REPLAN_REQUESTED,
+      payload: {
+        source: "goal_admission",
+        reasonCode: "planner_requested",
+        blockedReason,
+        sourcePlanRevision: null,
+      },
+    });
+    const executions = await db.select({ id: aiExecutionsTable.id })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.goalId, fixture.goalId));
+    expect(executions).toHaveLength(0);
+    dispatch.mockRestore();
   });
 
   it("commits the Mission Task outbox intent before attempting the local queue wake", async () => {

@@ -77,6 +77,7 @@ import { scheduleAiTaskExecution } from "../routes/ai/tasks.js";
 import { insertTaskAutoExecutionIntent } from "./task-auto-execution-outbox.js";
 import {
   dispatchMissionReplanIntent,
+  insertMissionAdmissionReplanIntent,
   insertMissionReplanIntent,
 } from "./mission-replan-outbox.js";
 import { createMissionEventEnvelope, type MissionEventEnvelope } from "./mission-events.js";
@@ -3724,19 +3725,29 @@ export async function runMissionGoal(params: {
     }
 
     if (action.kind === "replan") {
+      const now = new Date();
       await tx.update(aiGoalsTable)
         .set({
           status: "needs_replan",
           blockedReason: action.reason,
           nextWakeAt: null,
-          updatedAt: new Date(),
+          updatedAt: now,
         })
         .where(eq(aiGoalsTable.id, goal.id));
       if (mission.status !== "blocked") {
         await tx.update(aiMissionsTable)
-          .set({ status: "needs_replan", updatedAt: new Date() })
+          .set({ status: "needs_replan", updatedAt: now })
           .where(eq(aiMissionsTable.id, mission.id));
       }
+      missionReplanIntentId = await insertMissionAdmissionReplanIntent(tx, {
+        missionId: mission.id,
+        projectId: goal.projectId,
+        goalId: goal.id,
+        reasonCode: "planner_requested",
+        blockedReason: action.reason,
+        planRevision: goalRevision ?? null,
+        requestedAt: now,
+      });
       return { status: "blocked" as const, goalId: goal.id, reason: "replan_required" };
     }
 
