@@ -59,6 +59,7 @@ import {
   classifyRequest,
   resolveExecutionDecision,
   resolveTurnIntent,
+  toContextIntent,
   buildProjectQueryObjective,
   resolveActiveEvidenceContract,
   isWriteCapableTurn,
@@ -6472,16 +6473,7 @@ router.post("/ai/chat", async (req, res) => {
       plan: contextExecutionPlan,
       operationId: analysisCorrelation.operationId,
       ...(validRootPath ? { sourceRoot: validRootPath } : {}),
-      intent: {
-        kind: turnIntent.kind,
-        classification: String(turnIntent.classification),
-        operationMode: turnIntent.operationMode,
-        phases: turnIntent.phases.map((phase) => String(phase)),
-        requiresEvidence: turnIntent.requiresEvidence,
-        contextMode: turnIntent.contextMode,
-        compoundExecution: turnIntent.compoundExecution,
-        compoundWrite: turnIntent.compoundWrite,
-      },
+      intent: toContextIntent(turnIntent),
     });
     const shouldReusePreviouslyAcceptedEvidence =
       turnIntent.kind === "PROJECT_QUERY" || turnIntent.classification.implementationPlanMode;
@@ -9726,16 +9718,9 @@ export async function handleChatStream(req: Request, res: Response) {
       plan: streamExecutionPlan,
       operationId: analysisCorrelation.operationId,
       ...(validRootPath ? { sourceRoot: validRootPath } : {}),
-      intent: {
-        kind: streamTurnIntent.kind,
-        classification: String(streamTurnIntent.classification),
-        operationMode: streamTurnIntent.operationMode,
-        phases: streamTurnIntent.phases.map((phase) => String(phase)),
+      intent: toContextIntent(streamTurnIntent, {
         requiresEvidence: sourceEvidenceRequiredForTurn,
-        contextMode: streamTurnIntent.contextMode,
-        compoundExecution: streamTurnIntent.compoundExecution,
-        compoundWrite: streamTurnIntent.compoundWrite,
-      },
+      }),
     });
     const shouldReusePreviouslyAcceptedEvidence =
       streamTurnIntent.kind === "PROJECT_QUERY" || streamTurnIntent.classification.implementationPlanMode;
