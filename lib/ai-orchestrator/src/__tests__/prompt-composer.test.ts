@@ -15,6 +15,7 @@ describe("prompt composer", () => {
       recentTasks: "Tasks A",
       recentEvents: "Events A",
       workflows: "Workflows A",
+      worldState: "revision-bound runtime observations",
       metricsVerified: true,
     };
 
@@ -34,6 +35,9 @@ describe("prompt composer", () => {
     expect(result).toContain("Tasks A");
     expect(result).toContain("**Recent Events:**");
     expect(result).toContain("Events A");
+    expect(result).toContain("**Trusted World State:**");
+    expect(result).toContain("revision-bound runtime observations");
+    expect(result).toContain("UNTRUSTED_CONTENT source=checkpoint");
   });
 
   it("wraps durable session memory as untrusted evidence", () => {
@@ -93,6 +97,28 @@ describe("prompt composer", () => {
     expect(result).toContain("**Recent Events:**");
     expect(result).toContain("Events A");
     expect(result).not.toContain("**Workflows:**");
+  });
+
+  it("renders World State only when the selected profile or execution plan requests it", () => {
+    const context = {
+      project: "Project A",
+      latestMetrics: "Metrics A",
+      graphSummary: "Graph A",
+      recentTasks: "Tasks A",
+      recentEvents: "Events A",
+      workflows: "Workflows A",
+      worldState: "Trusted fact: environment.status=ready",
+      metricsVerified: true,
+    };
+
+    const chat = promptContextOverview(context, "chat-normal");
+    const taskPlan = resolveExecutionDecision("task-runner");
+    const task = promptContextOverview(context, "chat-normal", { plan: taskPlan });
+
+    expect(chat).not.toContain("Trusted World State");
+    expect(task).toContain("**Trusted World State:**");
+    expect(task).toContain("environment.status=ready");
+    expect(task).toContain("source=checkpoint");
   });
 
   it("uses the execution plan manifest instead of the caller's profile", () => {
