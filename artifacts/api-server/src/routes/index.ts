@@ -14,6 +14,7 @@ import aiRouter from "./ai.js";
 import gitRouter from "./git.js";
 import uploadRouter from "./upload.js";
 import runtimeRouter from "./runtime.js";
+import applyProofGraphsRouter from "./apply-proof-graphs.js";
 import workspaceEventsRouter from "./workspace-events.js";
 import previewBuildsRouter from "./preview-builds.js";
 
@@ -38,5 +39,6 @@ router.use(aiRouter);
 router.use(gitRouter);
 router.use(uploadRouter);
 router.use(runtimeRouter);
+router.use(applyProofGraphsRouter);
 
 export default router;
