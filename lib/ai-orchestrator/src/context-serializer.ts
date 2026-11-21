@@ -6,6 +6,7 @@ import type {
   ContextLoadSection,
 } from "./context-loader.js";
 import type { ContextHealth, ContextSliceHealth } from "./schemas/context.schema.js";
+import { selectWorldStateContextFacts } from "./world-state-context-selection.js";
 
 function buildMissingSummary(section: string): string {
   return `${section} not loaded — request it through buildProjectContext({ sections: [...] })`;
@@ -430,8 +431,14 @@ function buildWorldStateSummary(loaded: LoadedProjectContext): string {
   if (stateSummary) return stateSummary;
   if (facts.length === 0) return "No trusted World State facts are available yet.";
 
-  const current = facts.filter((fact) => fact.status === "believed" || fact.status === "confirmed");
-  const contradictions = facts.filter((fact) => fact.status === "contradicted");
+  // World State facts are revision-bound evidence. Keep only facts that match
+  // this context's repository revision and have not been marked stale by the
+  // environment projection; retain a bounded contradiction budget separately
+  // so a long list of positive facts cannot hide counterevidence.
+  const selection = selectWorldStateContextFacts(
+    facts,
+    loaded.contextManifest.projectRevision,
+  );
   const safeValue = (value: unknown): string => {
     try {
       return JSON.stringify(value).slice(0, 240);
@@ -439,16 +446,28 @@ function buildWorldStateSummary(loaded: LoadedProjectContext): string {
       return "[unserializable server-owned value]";
     }
   };
+  const safeLabel = (value: string | null | undefined): string =>
+    (value ?? "unspecified").replace(/[\\r\\n\\t]+/g, " ").slice(0, 100);
   const lines = [
-    `Trusted facts: ${facts.length} (current: ${current.length}, contradictions: ${contradictions.length})`,
+    `World State evidence: ${selection.selected.length}/${facts.length} facts selected for project revision ${safeLabel(loaded.contextManifest.projectRevision)}.`,
+    `Current-revision facts: ${selection.currentRevisionFacts}; contradictions: ${selection.contradictionFacts}; older-revision facts withheld: ${selection.olderRevisionFacts}; stale-environment facts withheld: ${selection.staleEnvironmentFacts}; superseded/retracted facts withheld: ${selection.retiredFacts}.`,
   ];
-  for (const fact of [...current, ...contradictions].slice(0, 32)) {
+
+  for (const { fact, kind } of selection.selected) {
     lines.push(
-      `- [${fact.status}] ${fact.subject} ${fact.predicate} = ${safeValue(fact.value)} (revision: ${fact.projectRevision})`,
+      `- [${kind}; environment=${fact.environmentFreshness}; task-scope=${safeLabel(fact.taskScope)}; environment-revision=${safeLabel(fact.environmentRevision)}] ${safeLabel(fact.subject)} ${safeLabel(fact.predicate)} = ${safeValue(fact.value)} (project revision: ${safeLabel(fact.projectRevision)})`,
     );
   }
-  if (facts.length > 32) lines.push("- Additional World State facts omitted by the bounded projection.");
-  return lines.join("\n");
+  if (selection.omittedContradictions > 0) {
+    lines.push(`- ${selection.omittedContradictions} additional current-revision contradiction(s) omitted by the contradiction cap.`);
+  }
+  if (selection.omittedCurrentFacts > 0) {
+    lines.push(`- ${selection.omittedCurrentFacts} additional current-revision fact(s) omitted by the context cap.`);
+  }
+  if (selection.selected.length === 0) {
+    lines.push("No World State fact met the current project-revision and environment-freshness criteria.");
+  }
+  return lines.join("\\n");
 }
 
 function sha256(value: string): string {
