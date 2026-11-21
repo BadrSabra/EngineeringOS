@@ -122,7 +122,7 @@ export async function loadDashboardWorkSummary(userId: string): Promise<Dashboar
       title: missions.title,
       status: missions.status,
       updatedAt: missions.updatedAt,
-      autonomyPolicy: sql<Record<string, unknown>>`jsonb_build_object('activePlanRevision', ${missions.autonomyPolicy}->'activePlanRevision')`,
+      autonomyPolicy: sql<Record<string, unknown>>`jsonb_build_object('activePlanRevision', ${missions.autonomyPolicy}->'activePlanRevision')`.as("autonomyPolicy"),
       position: sql<number>`row_number() over (
         partition by ${missionSection}
         order by ${missions.updatedAt} desc, ${missions.id} asc
@@ -192,7 +192,7 @@ export async function loadDashboardWorkSummary(userId: string): Promise<Dashboar
       linkedTaskId: executions.linkedTaskId,
       // Do not load checkpoints, diagnostics, resumable credentials or
       // arbitrarily large request bodies into the dashboard inventory.
-      request: sql<string>`CASE WHEN length(${executions.request}) <= 32000 THEN ${executions.request} ELSE '' END`,
+      request: sql<string>`CASE WHEN length(${executions.request}) <= 32000 THEN ${executions.request} ELSE '' END`.as("request"),
       position: sql<number>`row_number() over (
         partition by ${executionSection}
         order by ${executions.updatedAt} desc, ${executions.id} asc
