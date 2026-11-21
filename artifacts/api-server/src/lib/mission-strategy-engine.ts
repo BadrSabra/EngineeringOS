@@ -10,8 +10,17 @@ import {
   type WorldStateFailureDiagnosis,
 } from "./world-state-failure-diagnosis.js";
 
-const POLICY_VERSION = "mission-recovery-strategy-v1";
+const POLICY_VERSION = "mission-recovery-strategy-v2-cost-aware";
 const MAX_STRATEGY_PATHS = 24;
+
+// Relative policy work units, not provider spend, tokens, or wall-clock estimates.
+const DECISION_COST_WEIGHTS = {
+  addedGoal: 4,
+  addedReadOnlyGoal: 1,
+  addedAnalysisGoal: 2,
+  addedMutatingGoal: 8,
+  changedGoal: 3,
+} as const;
 
 type FailureSummary = {
   kind: string;
@@ -21,17 +30,31 @@ type FailureSummary = {
   requiresApproval: boolean;
 };
 
-type CandidateEvaluation = {
+type CandidateEvaluationDraft = {
   strategyId: string;
   eligible: boolean;
-  utilityScore: number;
+  qualityScore: number;
   criteria: {
     evidenceCoverage: number;
     diagnosisFit: number;
-    extraReadOnlyGoals: number;
     mutationRequired: boolean;
   };
   reasonCode: string;
+};
+
+type MissionRecoveryDecisionCost = {
+  addedGoalCount: number;
+  addedReadOnlyGoalCount: number;
+  addedAnalysisGoalCount: number;
+  addedMutatingGoalCount: number;
+  changedGoalCount: number;
+  estimatedWorkUnits: number;
+};
+
+type CandidateEvaluation = Omit<CandidateEvaluationDraft, "criteria"> & {
+  criteria: CandidateEvaluationDraft["criteria"] & { extraReadOnlyGoals: number };
+  utilityScore: number;
+  decisionCost: MissionRecoveryDecisionCost;
 };
 
 export type MissionStrategyDecision = {
@@ -196,7 +219,7 @@ function decisionSource(input: StrategyInput, reasonCode: string): MissionStrate
 }
 
 function projectCandidatePlan(
-  candidate: CandidateEvaluation,
+  candidate: Pick<CandidateEvaluationDraft, "strategyId" | "eligible" | "reasonCode">,
   steps: GeneralTaskPlanStep[],
   input: {
     addedStepIds: string[];
@@ -222,6 +245,62 @@ function projectCandidatePlan(
       approvalRequired: step.approvalRequired,
     })),
   };
+}
+
+/**
+ * Prices only the structural delta against the supplied plan. The score is a
+ * deterministic relative-work heuristic; it is not a claim about money,
+ * provider tokens, duration, outcome probability, or proof strength.
+ */
+function rankCandidatesByDecisionCost(
+  candidates: CandidateEvaluationDraft[],
+  projections: MissionStrategyCandidatePlanProjection[],
+): CandidateEvaluation[] {
+  const projectionByStrategy = new Map(projections.map((projection) => [
+    projection.strategyId,
+    projection,
+  ] as const));
+  return candidates.map((candidate) => {
+    const projection = projectionByStrategy.get(candidate.strategyId);
+    if (!projection) {
+      throw new Error(`strategy candidate lacks plan projection: ${candidate.strategyId}`);
+    }
+    const addedStepIds = new Set(projection.addedStepIds);
+    const addedActions = projection.actions.filter((action) => addedStepIds.has(action.stepId));
+    const addedReadOnlyGoalCount = addedActions.filter((action) => action.readOnly).length;
+    const addedAnalysisGoalCount = addedActions.filter((action) => action.kind === "analyze").length;
+    const addedMutatingGoalCount = addedActions.filter((action) => !action.readOnly).length;
+    const addedGoalCount = addedStepIds.size;
+    const changedGoalCount = new Set(projection.changedStepIds).size;
+    const estimatedWorkUnits =
+      addedGoalCount * DECISION_COST_WEIGHTS.addedGoal
+      + addedReadOnlyGoalCount * DECISION_COST_WEIGHTS.addedReadOnlyGoal
+      + addedAnalysisGoalCount * DECISION_COST_WEIGHTS.addedAnalysisGoal
+      + addedMutatingGoalCount * DECISION_COST_WEIGHTS.addedMutatingGoal
+      + changedGoalCount * DECISION_COST_WEIGHTS.changedGoal;
+    const decisionCost: MissionRecoveryDecisionCost = {
+      addedGoalCount,
+      addedReadOnlyGoalCount,
+      addedAnalysisGoalCount,
+      addedMutatingGoalCount,
+      changedGoalCount,
+      estimatedWorkUnits,
+    };
+    return {
+      ...candidate,
+      criteria: {
+        ...candidate.criteria,
+        extraReadOnlyGoals: addedReadOnlyGoalCount,
+      },
+      decisionCost,
+      utilityScore: candidate.qualityScore - estimatedWorkUnits,
+    };
+  }).sort((left, right) =>
+    Number(right.eligible) - Number(left.eligible)
+    || right.utilityScore - left.utilityScore
+    || left.decisionCost.estimatedWorkUnits - right.decisionCost.estimatedWorkUnits
+    || left.strategyId.localeCompare(right.strategyId),
+  );
 }
 
 function selectedDecision(
@@ -347,15 +426,14 @@ function runtimeStrategy(input: StrategyInput): MissionStrategySelection {
     return { status: "not_applicable", reason: "runtime_reason_unsupported" };
   }
 
-  const candidates: CandidateEvaluation[] = [
+  const candidates: CandidateEvaluationDraft[] = [
     {
       strategyId: "runtime.direct-status-first",
       eligible: true,
-      utilityScore: 100 + statusFit * 25 - 5,
+      qualityScore: 100 + statusFit * 25,
       criteria: {
         evidenceCoverage: 1,
         diagnosisFit: statusFit,
-        extraReadOnlyGoals: 1,
         mutationRequired: false,
       },
       reasonCode: "read_all_required_observations_status_first",
@@ -363,21 +441,15 @@ function runtimeStrategy(input: StrategyInput): MissionStrategySelection {
     {
       strategyId: "runtime.transition-provenance-first",
       eligible: true,
-      utilityScore: 100 + transitionFit * 25 - 5,
+      qualityScore: 100 + transitionFit * 25,
       criteria: {
         evidenceCoverage: 1,
         diagnosisFit: transitionFit,
-        extraReadOnlyGoals: 1,
         mutationRequired: false,
       },
       reasonCode: "read_all_required_observations_provenance_first",
     },
   ];
-  candidates.sort((left, right) =>
-    right.utilityScore - left.utilityScore
-    || left.strategyId.localeCompare(right.strategyId),
-  );
-  const selected = candidates[0]!;
   const requiredObservationCodes = uniqueBounded([
     ...diagnosis.distinguishingObservationCodes,
     ...(diagnosis.transition ? ["world_transition:identity"] : []),
@@ -424,6 +496,16 @@ function runtimeStrategy(input: StrategyInput): MissionStrategySelection {
       expectedObservationCodes: candidatePlan.observationOrder,
     });
   });
+  const rankedCandidates = rankCandidatesByDecisionCost(candidates, candidatePlanProjections);
+  const selected = rankedCandidates[0]!;
+  const candidateRank = new Map(rankedCandidates.map((candidate, index) => [
+    candidate.strategyId,
+    index,
+  ] as const));
+  candidatePlanProjections.sort((left, right) =>
+    (candidateRank.get(left.strategyId) ?? Number.MAX_SAFE_INTEGER)
+    - (candidateRank.get(right.strategyId) ?? Number.MAX_SAFE_INTEGER),
+  );
   const distinctEligiblePlans = new Set(candidatePlanProjections
     .filter((projection) => projection.eligible)
     .map((projection) => stableHash({
@@ -445,7 +527,7 @@ function runtimeStrategy(input: StrategyInput): MissionStrategySelection {
   return selectedDecision(input, {
     scenario: "runtime_start_recovery",
     selectedStrategyId: selected.strategyId,
-    candidates,
+    candidates: rankedCandidates,
     candidatePlanProjections,
     addedStepIds: [preflightStepId],
     changedStepIds: [startStep.id],
@@ -491,15 +573,14 @@ function validatorStrategy(input: StrategyInput): MissionStrategySelection {
 
   const targetedEligible = paths.length <= 4;
   const evidenceFirstEligible = paths.length > 4 || input.affectedClaims.length > 1;
-  const candidates: CandidateEvaluation[] = [
+  const candidates: CandidateEvaluationDraft[] = [
     {
       strategyId: "code.targeted-repair",
       eligible: targetedEligible,
-      utilityScore: targetedEligible ? 100 + 25 - 5 : 0,
+      qualityScore: targetedEligible ? 100 + 25 : 0,
       criteria: {
         evidenceCoverage: 1,
         diagnosisFit: targetedEligible ? 1 : 0,
-        extraReadOnlyGoals: 1,
         mutationRequired: true,
       },
       reasonCode: targetedEligible
@@ -509,13 +590,12 @@ function validatorStrategy(input: StrategyInput): MissionStrategySelection {
     {
       strategyId: "code.reconstruct-then-repair",
       eligible: evidenceFirstEligible,
-      utilityScore: evidenceFirstEligible
-        ? 100 + Math.min(input.affectedClaims.length, 4) * 5 + 15 - 10
+      qualityScore: evidenceFirstEligible
+        ? 100 + Math.min(input.affectedClaims.length, 4) * 5 + 15
         : 0,
       criteria: {
         evidenceCoverage: 1,
         diagnosisFit: evidenceFirstEligible ? 0.8 : 0,
-        extraReadOnlyGoals: 2,
         mutationRequired: true,
       },
       reasonCode: evidenceFirstEligible
@@ -523,15 +603,9 @@ function validatorStrategy(input: StrategyInput): MissionStrategySelection {
         : "evidence_scope_is_narrow",
     },
   ];
-  const eligibleCandidates = candidates.filter((candidate) => candidate.eligible);
-  if (eligibleCandidates.length === 0) {
+  if (!candidates.some((candidate) => candidate.eligible)) {
     return { status: "blocked", reason: "validator_plan_shape_unsupported" };
   }
-  eligibleCandidates.sort((left, right) =>
-    right.utilityScore - left.utilityScore
-    || left.strategyId.localeCompare(right.strategyId),
-  );
-  const selected = eligibleCandidates[0]!;
   const inspection = input.preview.plan.steps.find((step) => step.id === "inspect");
   const buildValidatorPlan = (strategyId: string) => {
     const targeted = strategyId === "code.targeted-repair";
@@ -592,11 +666,21 @@ function validatorStrategy(input: StrategyInput): MissionStrategySelection {
       expectedObservationCodes: validationRefs,
     });
   });
+  const rankedCandidates = rankCandidatesByDecisionCost(candidates, candidatePlanProjections);
+  const selected = rankedCandidates.find((candidate) => candidate.eligible)!;
+  const candidateRank = new Map(rankedCandidates.map((candidate, index) => [
+    candidate.strategyId,
+    index,
+  ] as const));
+  candidatePlanProjections.sort((left, right) =>
+    (candidateRank.get(left.strategyId) ?? Number.MAX_SAFE_INTEGER)
+    - (candidateRank.get(right.strategyId) ?? Number.MAX_SAFE_INTEGER),
+  );
   const selectedPlan = buildValidatorPlan(selected.strategyId);
   return selectedDecision(input, {
     scenario: "validator_recovery",
     selectedStrategyId: selected.strategyId,
-    candidates,
+    candidates: rankedCandidates,
     candidatePlanProjections,
     addedStepIds: [selectedPlan.insertedStep.id],
     changedStepIds: selectedPlan.changedStepIds,

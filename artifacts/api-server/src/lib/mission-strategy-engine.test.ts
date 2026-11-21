@@ -359,4 +359,88 @@ describe("Mission recovery strategy engine", () => {
 
     expect(result).toEqual({ status: "blocked", reason: "validator_evidence_missing" });
   });
+
+  it("uses incremental plan cost to choose the cheaper validator strategy at equal net utility", () => {
+    const result = selectAndApplyMissionStrategy({
+      preview: validatorPreview(),
+      ...sourceIdentity,
+      failureDiagnosis: {
+        kind: "VALIDATOR_FAILED",
+        reasonCode: "VALIDATOR_FAILED",
+        nextActionCode: "REPAIR_AND_REVALIDATE",
+        retryable: true,
+        requiresApproval: false,
+      },
+      evidenceRefs: ["validation:run-cost"],
+      affectedPaths: ["src/auth/session.ts"],
+      affectedClaims: ["claim:a", "claim:b", "claim:c"],
+    });
+
+    expect(result.status).toBe("selected");
+    if (result.status !== "selected") return;
+    expect(result.decision.selectedStrategyId).toBe("code.targeted-repair");
+    const targeted = result.decision.candidates.find(
+      ({ strategyId }) => strategyId === "code.targeted-repair",
+    );
+    const reconstruction = result.decision.candidates.find(
+      ({ strategyId }) => strategyId === "code.reconstruct-then-repair",
+    );
+    expect(targeted).toMatchObject({
+      qualityScore: 125,
+      utilityScore: 117,
+      decisionCost: {
+        addedGoalCount: 1,
+        addedReadOnlyGoalCount: 1,
+        addedAnalysisGoalCount: 0,
+        addedMutatingGoalCount: 0,
+        changedGoalCount: 1,
+        estimatedWorkUnits: 8,
+      },
+    });
+    expect(reconstruction).toMatchObject({
+      qualityScore: 130,
+      utilityScore: 117,
+      decisionCost: {
+        addedGoalCount: 1,
+        addedReadOnlyGoalCount: 1,
+        addedAnalysisGoalCount: 1,
+        addedMutatingGoalCount: 0,
+        changedGoalCount: 2,
+        estimatedWorkUnits: 13,
+      },
+    });
+    expect(result.preview.plan.steps.find((step) => step.id === "execute")?.approvalRequired).toBe(true);
+    expect(result.preview.plan.steps.find((step) => step.id === "validate")?.dependencies)
+      .toContain("execute");
+  });
+
+  it("keeps evidence reconstruction when its scope benefit exceeds its additional plan cost", () => {
+    const result = selectAndApplyMissionStrategy({
+      preview: validatorPreview(),
+      ...sourceIdentity,
+      failureDiagnosis: {
+        kind: "VALIDATOR_FAILED",
+        reasonCode: "VALIDATOR_FAILED",
+        nextActionCode: "REPAIR_AND_REVALIDATE",
+        retryable: true,
+        requiresApproval: false,
+      },
+      evidenceRefs: ["test:run-cost-broad"],
+      affectedPaths: ["src/auth/session.ts"],
+      affectedClaims: ["claim:a", "claim:b", "claim:c", "claim:d"],
+    });
+
+    expect(result.status).toBe("selected");
+    if (result.status !== "selected") return;
+    expect(result.decision.selectedStrategyId).toBe("code.reconstruct-then-repair");
+    const targeted = result.decision.candidates.find(
+      ({ strategyId }) => strategyId === "code.targeted-repair",
+    );
+    const reconstruction = result.decision.candidates.find(
+      ({ strategyId }) => strategyId === "code.reconstruct-then-repair",
+    );
+    expect(reconstruction?.utilityScore).toBeGreaterThan(targeted?.utilityScore ?? 0);
+    expect(reconstruction?.decisionCost.estimatedWorkUnits)
+      .toBeGreaterThan(targeted?.decisionCost.estimatedWorkUnits ?? 0);
+  });
 });
