@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useUser } from '@clerk/react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
@@ -533,6 +533,7 @@ export function DiscoverProjectWizard({ onClose }: Props) {
   const [importError, setImportError] = useState<string | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
   const [workspaceProjectId, setWorkspaceProjectId] = useState<string>('');
+  const [workspaceProjectSearch, setWorkspaceProjectSearch] = useState('');
   const [importedProjectId, setImportedProjectId] = useState<string | null>(null);
   const [firstGoal, setFirstGoal] = useState('');
   const [goalHandoffError, setGoalHandoffError] = useState<string | null>(null);
@@ -556,16 +557,27 @@ export function DiscoverProjectWizard({ onClose }: Props) {
     isFetching: projectsFetching,
   } = useListProjects();
   const workspaceProjects = projectsListData as Project[] | undefined;
+  const normalizedWorkspaceProjectSearch = workspaceProjectSearch.trim().toLowerCase();
+  const matchingWorkspaceProjects = useMemo(() => {
+    if (!workspaceProjects) return [];
+    if (!normalizedWorkspaceProjectSearch) return workspaceProjects;
+    return workspaceProjects.filter((project) => [
+      project.name,
+      project.rootPath,
+      project.language ?? '',
+    ].some((value) => value.toLowerCase().includes(normalizedWorkspaceProjectSearch)));
+  }, [normalizedWorkspaceProjectSearch, workspaceProjects]);
   const explicitWorkspaceProjectId = workspaceProjects?.some(
     (project) => project.id === workspaceProjectId,
   ) ? workspaceProjectId : '';
   const automaticWorkspaceProjectId =
-    sourceType === 'WORKSPACE_PROJECT'
-    && !projectsLoading
-    && !projectsFetching
-    && workspaceProjects?.length === 1
-      ? workspaceProjects[0]!.id
-      : '';
+    sourceType !== 'WORKSPACE_PROJECT' || projectsLoading || projectsFetching
+      ? ''
+      : workspaceProjects?.length === 1
+        ? workspaceProjects[0]!.id
+        : normalizedWorkspaceProjectSearch && matchingWorkspaceProjects.length === 1
+          ? matchingWorkspaceProjects[0]!.id
+          : '';
   const selectedWorkspaceProjectId = explicitWorkspaceProjectId || automaticWorkspaceProjectId;
 
   // Polling via react-query (enabled only when discoveryId set and not done)
@@ -901,7 +913,49 @@ export function DiscoverProjectWizard({ onClose }: Props) {
               }
               return (
                 <div className="space-y-1.5">
-                  {projects.map((proj) => (
+                  {projects.length > 4 && (
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={workspaceProjectSearch}
+                        onChange={(event) => {
+                          setWorkspaceProjectSearch(event.target.value);
+                          setWorkspaceProjectId('');
+                          setStartError(null);
+                        }}
+                        aria-label="ابحث عن مشروع موجود"
+                        placeholder="ابحث بالاسم أو المسار أو اللغة..."
+                        dir="auto"
+                        data-testid="input-workspace-project-search"
+                        className="w-full rounded-md border border-border bg-secondary/50 px-3 py-2 pe-9 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                      />
+                      {workspaceProjectSearch && (
+                        <button
+                          type="button"
+                          aria-label="مسح البحث عن المشاريع"
+                          data-testid="button-clear-workspace-project-search"
+                          onClick={() => {
+                            setWorkspaceProjectSearch('');
+                            setWorkspaceProjectId('');
+                            setStartError(null);
+                          }}
+                          className="absolute left-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                        >
+                          <X className="h-3.5 w-3.5" aria-hidden="true" />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {normalizedWorkspaceProjectSearch && matchingWorkspaceProjects.length === 1 && (
+                    <p role="status" data-testid="workspace-project-unique-match" className="text-xs text-muted-foreground">
+                      وجدنا مشروعًا واحدًا مطابقًا؛ لن يبدأ الفحص حتى تضغط على «ابدأ الفحص».
+                    </p>
+                  )}
+                  {matchingWorkspaceProjects.length === 0 ? (
+                    <p role="status" data-testid="workspace-project-search-empty" className="py-2 text-xs text-muted-foreground">
+                      لا توجد مشاريع تطابق البحث. امسحه لعرض القائمة كاملة.
+                    </p>
+                  ) : matchingWorkspaceProjects.map((proj) => (
                     <button
                       key={proj.id}
                       data-testid={`workspace-project-${proj.id}`}

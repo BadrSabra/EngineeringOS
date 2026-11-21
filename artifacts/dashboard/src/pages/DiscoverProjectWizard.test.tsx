@@ -288,6 +288,62 @@ describe('DiscoverProjectWizard Arabic findings', () => {
     expect(mocks.startDiscovery).not.toHaveBeenCalled();
   });
 
+  it('searches a large project list and selects a unique match without starting discovery', async () => {
+    mocks.projects = Array.from({ length: 6 }, (_, index) => ({
+      id: `project-${index + 1}`,
+      name: `المشروع ${index + 1}`,
+      rootPath: `/workspace/project-${index + 1}`,
+      language: `Language ${index + 1}`,
+    }));
+    render(<DiscoverProjectWizard onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByTestId('source-card-WORKSPACE_PROJECT'));
+    const search = screen.getByRole('textbox', { name: 'ابحث عن مشروع موجود' });
+    fireEvent.change(search, { target: { value: 'project-4' } });
+
+    expect(screen.getByTestId('workspace-project-project-4')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByTestId('workspace-project-project-3')).not.toBeInTheDocument();
+    expect(screen.getByTestId('workspace-project-unique-match')).toHaveTextContent(
+      'لن يبدأ الفحص حتى تضغط على «ابدأ الفحص»',
+    );
+    expect(mocks.startDiscovery).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('start-discovery'));
+    await waitFor(() => {
+      expect(mocks.startDiscovery).toHaveBeenCalledWith({
+        data: {
+          sourceType: 'WORKSPACE_PROJECT',
+          sourceConfig: { projectId: 'project-4' },
+        },
+      });
+    });
+  });
+
+  it('clears a hidden selection when search results no longer match and restores it with clear', () => {
+    mocks.projects = Array.from({ length: 6 }, (_, index) => ({
+      id: `project-${index + 1}`,
+      name: `المشروع ${index + 1}`,
+      rootPath: `/workspace/project-${index + 1}`,
+    }));
+    render(<DiscoverProjectWizard onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByTestId('source-card-WORKSPACE_PROJECT'));
+    const search = screen.getByRole('textbox', { name: 'ابحث عن مشروع موجود' });
+    fireEvent.change(search, { target: { value: 'project-4' } });
+    expect(screen.getByTestId('workspace-project-project-4')).toHaveAttribute('aria-pressed', 'true');
+
+    fireEvent.change(search, { target: { value: 'no-match' } });
+    expect(screen.getByTestId('workspace-project-search-empty')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('start-discovery'));
+    expect(screen.getByTestId('discovery-start-error')).toHaveTextContent('اختر مشروعًا أولًا.');
+    expect(mocks.startDiscovery).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('button-clear-workspace-project-search'));
+    expect(screen.queryByTestId('workspace-project-search-empty')).not.toBeInTheDocument();
+    expect(screen.getByTestId('workspace-project-project-1')).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.queryByTestId('discovery-start-error')).not.toBeInTheDocument();
+  });
+
   it('marks a cached discovery session as stale after a failed poll and offers a direct retry', async () => {
     mocks.session.status = 'discovering';
     mocks.session.progress = 42;
