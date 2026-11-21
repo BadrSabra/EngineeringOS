@@ -253,7 +253,6 @@ describe("reconcileStuckJobs", () => {
     }
   });
 
-
   it("keeps a cancelling AI execution with a live lease under its current worker", async () => {
     const projectId = await insertProject("active");
     projectCleanup.push(projectId);
