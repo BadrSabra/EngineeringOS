@@ -533,25 +533,43 @@ async function performScanCore(
   checkCancelled();
   const persistScanEffects = async (tx: ScanJobTransaction) => {
     checkCancelled();
-    const existingTasks = await tx
-      .select({
-        id: tasksTable.id,
-        ruleId: tasksTable.ruleId,
-        status: tasksTable.status,
-      })
-      .from(tasksTable)
-      .where(eq(tasksTable.projectId, projectId));
-    const activeRuleTasks = new Map(
-      existingTasks
-        .filter((task) => task.ruleId && ["pending", "queued", "running", "verifying"].includes(task.status))
-        .map((task) => [task.ruleId as string, task]),
-    );
+    // Only matching rules can reuse a remediation Task. Keep the lookup
+    // proportional to the current scan findings instead of loading every
+    // historical Task for this project on every scan. When there are no
+    // findings, avoid the Task-table read entirely.
+    const matchedRuleIds = [...new Set(
+      ruleResults.filter((result) => result.matched).map((result) => result.ruleId),
+    )];
+    const activeRuleTasks = new Map<string, {
+      id: string;
+      ruleId: string | null;
+      status: string;
+    }>();
+    if (matchedRuleIds.length > 0) {
+      const existingTasks = await tx
+        .select({
+          id: tasksTable.id,
+          ruleId: tasksTable.ruleId,
+          status: tasksTable.status,
+        })
+        .from(tasksTable)
+        .where(and(
+          eq(tasksTable.projectId, projectId),
+          inArray(tasksTable.ruleId, matchedRuleIds),
+          inArray(tasksTable.status, ["pending", "queued", "running", "verifying"]),
+        ));
+      for (const task of existingTasks) {
+        if (task.ruleId) activeRuleTasks.set(task.ruleId, task);
+      }
+    }
+
+    const rulesById = new Map(projectRules.map((rule) => [rule.id, rule]));
 
     const newTaskIds: string[] = [];
     for (const result of ruleResults) {
       if (!result.matched) continue;
 
-      const rule = projectRules.find((r) => r.id === result.ruleId);
+      const rule = rulesById.get(result.ruleId);
       if (!rule) continue;
 
       const remediationPlan = buildRemediationPlan({
@@ -936,7 +954,7 @@ async function performScanCore(
         ruleViolations: ruleResults
           .filter((result) => result.matched)
           .map((result): RuleViolationSummary => {
-            const rule = projectRules.find((projectRule) => projectRule.id === result.ruleId);
+            const rule = rulesById.get(result.ruleId);
             return {
               ruleId: result.ruleId,
               code: rule?.code ?? result.ruleId,
