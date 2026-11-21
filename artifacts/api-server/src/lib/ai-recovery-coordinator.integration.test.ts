@@ -18,6 +18,9 @@ import {
 import { settleExhaustedExecutionRecovery } from "./ai-execution-acceptance.js";
 import * as aiExecutionState from "./ai-execution-state.js";
 import {
+  claimTaskAutoExecutionDispatchLease,
+  insertTaskAutoExecutionIntent,
+  renewTaskAutoExecutionDispatchLease,
   TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE,
   taskAutoExecutionIntentId,
 } from "./task-auto-execution-outbox.js";
@@ -361,6 +364,73 @@ describe("durable automatic task recovery", () => {
     queuedJobs.length = 0;
     queuedIds.clear();
     await cleanupRecoveryFixtures();
+  });
+
+  it("claims Task dispatch intents once across replicas and fences expired owners", async () => {
+    const fixture = await insertFixture();
+    try {
+      const persisted = await db.transaction((tx) => insertTaskAutoExecutionIntent(tx, {
+        taskId: fixture.taskId,
+        userId: "recovery-test-user",
+        retryCount: 0,
+      }));
+      expect(persisted).toBe(true);
+
+      const input = {
+        taskId: fixture.taskId,
+        userId: "recovery-test-user",
+        retryCount: 0,
+        correlationId: fixture.executionId,
+      };
+      const [first, second] = await Promise.all([
+        claimTaskAutoExecutionDispatchLease(input),
+        claimTaskAutoExecutionDispatchLease(input),
+      ]);
+      const acquired = first ?? second;
+      expect(acquired).not.toBeNull();
+      if (!acquired) throw new Error("No Task dispatch lease was acquired");
+      const originalLease = acquired;
+
+      // A still-live lease blocks every other dispatcher.
+      expect(await claimTaskAutoExecutionDispatchLease(input)).toBeNull();
+
+      // Simulate a process crash by expiring the persisted lease.
+      const [intent] = await db.select({ payload: eventsTable.payload })
+        .from(eventsTable)
+        .where(eq(eventsTable.id, taskAutoExecutionIntentId(fixture.taskId)));
+      expect(intent?.payload).toBeDefined();
+      await db.update(eventsTable)
+        .set({
+          payload: {
+            ...(intent?.payload ?? {}),
+            dispatchLease: {
+              token: originalLease.token,
+              expiresAt: "2000-01-01T00:00:00.000Z",
+            },
+          },
+        })
+        .where(eq(eventsTable.id, taskAutoExecutionIntentId(fixture.taskId)));
+
+      const reclaimedLease = await claimTaskAutoExecutionDispatchLease(input);
+      expect(reclaimedLease).not.toBeNull();
+      expect(reclaimedLease?.token).not.toBe(originalLease.token);
+      expect(await renewTaskAutoExecutionDispatchLease({
+        taskId: fixture.taskId,
+        token: originalLease.token,
+      })).toBe(false);
+      expect(await renewTaskAutoExecutionDispatchLease({
+        taskId: fixture.taskId,
+        token: reclaimedLease!.token,
+      })).toBe(true);
+    } finally {
+      await db.delete(eventsTable)
+        .where(eq(eventsTable.id, taskAutoExecutionIntentId(fixture.taskId)));
+      await db.delete(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.delete(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
+    }
   });
 
   it("deduplicates concurrent dispatch and atomically advances the retry budget", async () => {

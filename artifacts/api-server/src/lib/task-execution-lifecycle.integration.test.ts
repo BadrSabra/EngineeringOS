@@ -4820,16 +4820,25 @@ describe("real durable task execution lifecycle", () => {
 
       try {
         const dispatched = await dispatchDeferredAiTaskExecutions();
-        if (dispatched !== 1 || !queuedJob) {
-          throw new Error(`Expected one deferred queue handoff, got ${dispatched}.`);
+        if (
+          dispatched > 1
+          || (dispatched === 1 && !queuedJob)
+          || (dispatched === 0 && queuedJob)
+        ) {
+          throw new Error(
+            `Deferred dispatcher lease result did not match its queue handoff: dispatched=${dispatched}, queued=${Boolean(queuedJob)}.`,
+          );
         }
-        // The spy only proves which Task won dispatch. Restore it before the
-        // accepted-observation Outbox is handed to this process-local queue.
+        // Exactly one replica should own the durable dispatch lease. Both
+        // processes report their decision so the parent can assert one winner
+        // and one clean lease-loss/no-op outcome.
         restoreEnqueueSpy();
         await writeFile(queueSignalFile, JSON.stringify({
           taskId,
           processId: process.pid,
+          queued: Boolean(queuedJob),
         }), "utf8");
+        if (!queuedJob) return;
         await waitForTaskRouteReleaseSignal(jobsReleaseSignalFile);
         await queuedJob();
         await waitForScheduledAiTaskExecutions();
@@ -5840,39 +5849,37 @@ describe("real durable task execution lifecycle", () => {
           JSON.parse(await waitForProcessSignalFile(queueSignalFiles[index]!, worker)) as {
             taskId: string;
             processId: number;
+            queued: boolean;
           }
         ));
         expect(queueReports.map((report) => report.taskId)).toEqual([taskId, taskId]);
         expect(new Set(queueReports.map((report) => report.processId)).size).toBe(2);
+        expect(queueReports.map((report) => report.queued).sort()).toEqual([false, true]);
+        const winningProcessIndex = queueReports.findIndex((report) => report.queued);
+        expect(winningProcessIndex).toBeGreaterThanOrEqual(0);
         expect(await db.select({ id: eventsTable.id }).from(eventsTable)
           .where(eq(eventsTable.id, deferredIntentId))).toHaveLength(1);
 
         await writeFile(jobsReleaseSignalFile, "run");
         const startDeadline = Date.now() + 30_000;
-        let winningProcessIndex = -1;
-        while (winningProcessIndex < 0 && Date.now() < startDeadline) {
-          for (let index = 0; index < startSignalFiles.length; index += 1) {
-            try {
-              await readFile(startSignalFiles[index]!);
-              winningProcessIndex = index;
-              break;
-            } catch (error) {
-              if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-            }
+        let executionStarted = false;
+        while (!executionStarted && Date.now() < startDeadline) {
+          try {
+            await readFile(startSignalFiles[winningProcessIndex]!);
+            executionStarted = true;
+            break;
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
           }
-          if (winningProcessIndex >= 0) break;
-          if (workerProcesses.every((worker) =>
-            worker.child.exitCode !== null || worker.child.signalCode !== null
-          )) {
+          const winner = workerProcesses[winningProcessIndex]!;
+          if (winner.child.exitCode !== null || winner.child.signalCode !== null) {
             throw new Error(
-              `Both deferred dispatchers exited before execution start: ${workerProcesses.map((worker) => worker.output()).join("\n")}`,
+              `The lease-winning dispatcher exited before execution start: ${winner.output()}`,
             );
           }
           await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
         }
-        if (winningProcessIndex < 0) {
-          throw new Error("No deferred dispatcher reached the claimed execution start.");
-        }
+        expect(executionStarted).toBe(true);
 
         const losingProcessIndex = 1 - winningProcessIndex;
         const losingProcess = workerProcesses[losingProcessIndex]!;

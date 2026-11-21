@@ -33,8 +33,12 @@ import {
 } from "../../lib/execution-lineage.js";
 import {
   TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE,
+  TASK_AUTO_EXECUTION_DISPATCH_HEARTBEAT_MS,
   TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE,
+  claimTaskAutoExecutionDispatchLease,
   insertTaskAutoExecutionIntent,
+  renewTaskAutoExecutionDispatchLease,
+  releaseTaskAutoExecutionDispatchLease,
   taskAutoExecutionIntentId,
   type TaskAutoExecutionOutboxOptions,
 } from "../../lib/task-auto-execution-outbox.js";
@@ -471,6 +475,7 @@ async function clearDeferredAiTaskExecution(
   taskId: string,
   retryCount: number,
   correlationId: string | null,
+  dispatchLeaseToken?: string,
 ): Promise<void> {
   await db.transaction(async (tx) => {
     const [intent] = await tx
@@ -481,13 +486,37 @@ async function clearDeferredAiTaskExecution(
       .limit(1);
     const parsed = parseDeferredAiTaskExecution(intent?.payload);
     if (
-      parsed
-      && parsed.taskRetryCount === retryCount
-      && parsed.taskCorrelationId === correlationId
-    ) {
-      await tx.delete(eventsTable)
-        .where(eq(eventsTable.id, taskAutoExecutionIntentId(taskId)));
+      !parsed
+      || parsed.taskRetryCount !== retryCount
+      || parsed.taskCorrelationId !== correlationId
+    ) return;
+
+    if (dispatchLeaseToken !== undefined) {
+      const payload = intent?.payload && typeof intent.payload === "object"
+        && !Array.isArray(intent.payload)
+        ? intent.payload as Record<string, unknown>
+        : undefined;
+      const lease = payload?.dispatchLease && typeof payload.dispatchLease === "object"
+        && !Array.isArray(payload.dispatchLease)
+        ? payload.dispatchLease as Record<string, unknown>
+        : undefined;
+      const clockResult = await tx.execute(sql`SELECT clock_timestamp() AS now`);
+      const rawNow = (clockResult.rows as Array<{ now: Date | string }>)[0]?.now;
+      const now = rawNow instanceof Date ? rawNow : new Date(String(rawNow ?? ""));
+      const expiresAt = typeof lease?.expiresAt === "string"
+        ? Date.parse(lease.expiresAt)
+        : Number.NaN;
+      if (
+        lease?.token !== dispatchLeaseToken
+        || !rawNow
+        || !Number.isFinite(now.getTime())
+        || !Number.isFinite(expiresAt)
+        || expiresAt <= now.getTime()
+      ) return;
     }
+
+    await tx.delete(eventsTable)
+      .where(eq(eventsTable.id, taskAutoExecutionIntentId(taskId)));
   });
 }
 
@@ -526,6 +555,7 @@ async function markDeferredAiTaskExecution(
   correlationId: string | null | undefined,
   reasonCode: string,
   delayMs?: number,
+  dispatchLeaseToken?: string,
 ): Promise<void> {
   await db.transaction(async (tx) => {
     const id = taskAutoExecutionIntentId(taskId);
@@ -545,6 +575,27 @@ async function markDeferredAiTaskExecution(
     const clockValue = (clockResult.rows as Array<{ now: Date | string }>)[0]?.now;
     const databaseNow = clockValue instanceof Date ? clockValue : new Date(String(clockValue ?? ""));
     if (!clockValue || !Number.isFinite(databaseNow.getTime())) return;
+
+    const currentPayload = intent?.payload && typeof intent.payload === "object"
+      && !Array.isArray(intent.payload)
+      ? { ...intent.payload as Record<string, unknown> }
+      : {};
+    if (dispatchLeaseToken !== undefined) {
+      const lease = currentPayload.dispatchLease && typeof currentPayload.dispatchLease === "object"
+        && !Array.isArray(currentPayload.dispatchLease)
+        ? currentPayload.dispatchLease as Record<string, unknown>
+        : undefined;
+      const expiresAt = typeof lease?.expiresAt === "string"
+        ? Date.parse(lease.expiresAt)
+        : Number.NaN;
+      if (
+        lease?.token !== dispatchLeaseToken
+        || !Number.isFinite(expiresAt)
+        || expiresAt <= databaseNow.getTime()
+      ) return;
+      delete currentPayload.dispatchLease;
+    }
+
     const retryDelay = Math.max(1, delayMs ?? retryDelayMs(parsed.attemptCount));
     await tx.update(eventsTable)
       .set({
@@ -552,7 +603,7 @@ async function markDeferredAiTaskExecution(
         severity: "warning",
         message: "AI task execution is waiting for a retry.",
         payload: {
-          ...intent!.payload,
+          ...currentPayload,
           taskRetryCount: retryCount,
           attemptCount: parsed.attemptCount + 1,
           lastFailureCode: reasonCode,
@@ -568,9 +619,26 @@ async function runAiTaskExecution(
   userId: string,
   retryCount: number,
   correlationId: string | null,
-  options?: AiTaskExecutionOptions,
+  options: AiTaskExecutionOptions | undefined,
+  dispatchLeaseToken: string,
 ): Promise<void> {
   try {
+    // Refuse stale queue closures before provider/rate-limit preflight.
+    if (!await renewTaskAutoExecutionDispatchLease({
+      taskId,
+      token: dispatchLeaseToken,
+    })) {
+      // A future retry deadline makes this queued closure ineligible. Release
+      // only its own token so the next due dispatcher need not wait for TTL.
+      await db.transaction((tx) => releaseTaskAutoExecutionDispatchLease(tx, {
+        taskId,
+        token: dispatchLeaseToken,
+      })).catch((error: unknown) => {
+        logger.warn({ error, taskId }, "AI task dispatch lease could not be released after a stale wake-up");
+      });
+      return;
+    }
+
     const [task] = await db
       .select()
       .from(tasksTable)
@@ -584,7 +652,7 @@ async function runAiTaskExecution(
       || task.retryCount !== retryCount
       || task.correlationId !== correlationId
     ) {
-      await clearDeferredAiTaskExecution(taskId, retryCount, correlationId);
+      await clearDeferredAiTaskExecution(taskId, retryCount, correlationId, dispatchLeaseToken);
       logger.info(
         {
           taskId,
@@ -620,6 +688,7 @@ async function runAiTaskExecution(
         correlationId,
         "PROVIDER_NOT_CONFIGURED",
         MAX_AUTO_TASK_RETRY_MS,
+        dispatchLeaseToken,
       );
       return;
     }
@@ -637,6 +706,7 @@ async function runAiTaskExecution(
         correlationId,
         "PROJECT_RATE_LIMITED",
         Math.max(1, (rl.retryAfterSec ?? 60) * 1_000),
+        dispatchLeaseToken,
       );
       return;
     }
@@ -649,6 +719,7 @@ async function runAiTaskExecution(
       expectedStatuses: ["verifying"],
       expectedRetryCount: retryCount,
       expectedCorrelationId: correlationId,
+      expectedAutoDispatchLeaseToken: dispatchLeaseToken,
       parentExecutionId: options?.parentExecutionId,
       delegationBudget: options?.delegationBudget,
     });
@@ -668,6 +739,14 @@ async function runAiTaskExecution(
         && currentTask.correlationId === correlationId
       ) {
         if (lifecycle.errorCode === "task_dispatch_not_due") {
+          await markDeferredAiTaskExecution(
+            taskId,
+            retryCount,
+            correlationId,
+            "TASK_DISPATCH_RETRY_WINDOW",
+            lifecycle.retryAfterMs,
+            dispatchLeaseToken,
+          );
           logger.info(
             { taskId, retryAfterMs: lifecycle.retryAfterMs },
             "AI auto-trigger claim remained deferred by the durable retry window",
@@ -703,7 +782,7 @@ async function runAiTaskExecution(
             // A matching already-claimed Execution owns its own lease and
             // recovery lifecycle. Retire only this generation's duplicate
             // dispatch intent; never start a second execution for it.
-            await clearDeferredAiTaskExecution(taskId, retryCount, correlationId);
+            await clearDeferredAiTaskExecution(taskId, retryCount, correlationId, dispatchLeaseToken);
             logger.info(
               { taskId, executionId: activeExecution.id },
               "AI auto-trigger: matching active Execution already owns this Task generation",
@@ -723,9 +802,10 @@ async function runAiTaskExecution(
           correlationId,
           conflictCode,
           retryDelayMs,
+          dispatchLeaseToken,
         );
       } else {
-        await clearDeferredAiTaskExecution(taskId, retryCount, correlationId);
+        await clearDeferredAiTaskExecution(taskId, retryCount, correlationId, dispatchLeaseToken);
       }
       logger.info({ taskId, reason: lifecycle.errorCode }, "AI auto-trigger: lifecycle claim skipped");
       return;
@@ -738,6 +818,8 @@ async function runAiTaskExecution(
         retryCount,
         correlationId,
         lifecycle.errorCode ?? "TASK_EXECUTION_NOT_CLAIMED",
+        undefined,
+        dispatchLeaseToken,
       );
       logger.warn(
         { taskId, executionId: lifecycle.executionId, code: lifecycle.errorCode },
@@ -750,6 +832,8 @@ async function runAiTaskExecution(
       retryCount,
       correlationId,
       safeDispatchFailureCode(err),
+      undefined,
+      dispatchLeaseToken,
     ).catch((deferError) => {
       logger.error({ err: deferError, taskId }, "AI auto-trigger: could not preserve deferred dispatch intent");
     });
@@ -818,17 +902,59 @@ export async function scheduleAiTaskExecution(
       const correlationId = persisted.correlationId;
       const effectiveUserId = persisted.payload.userId;
       const effectiveOptions = persisted.payload.options ?? options;
+      const dispatchLease = await claimTaskAutoExecutionDispatchLease({
+        taskId,
+        userId: effectiveUserId,
+        retryCount,
+        correlationId,
+      });
+      if (!dispatchLease) {
+        resolveCompletion();
+        scheduledAiTaskCompletions.delete(taskId);
+        return;
+      }
 
-      // ID-based queue deduplication plus the DB Task claim protect repeated
-      // calls in this process and dispatches from other API instances.
+      let heartbeatInFlight = false;
+      let heartbeat: ReturnType<typeof setInterval>;
+      const stopHeartbeat = () => clearInterval(heartbeat);
+      heartbeat = setInterval(() => {
+        if (heartbeatInFlight) return;
+        heartbeatInFlight = true;
+        void renewTaskAutoExecutionDispatchLease({
+          taskId,
+          token: dispatchLease.token,
+        }).then((renewed) => {
+          if (!renewed) stopHeartbeat();
+        }).catch((err) => {
+          logger.warn(
+            { err, taskId },
+            "AI Task dispatch lease heartbeat failed",
+          );
+        }).finally(() => {
+          heartbeatInFlight = false;
+        });
+      }, TASK_AUTO_EXECUTION_DISPATCH_HEARTBEAT_MS);
+      heartbeat.unref();
+
+      // The database lease is shared across API replicas. The in-process queue
+      // remains a local capacity limiter, not the owner of the durable intent.
       const enqueueResult = heavyJobQueue.enqueueWithIdDetailed(taskId, async () => {
         try {
-          await runAiTaskExecution(taskId, effectiveUserId, retryCount, correlationId, effectiveOptions);
+          await runAiTaskExecution(
+            taskId,
+            effectiveUserId,
+            retryCount,
+            correlationId,
+            effectiveOptions,
+            dispatchLease.token,
+          );
         } finally {
+          stopHeartbeat();
           resolveCompletion();
         }
       });
       if (enqueueResult !== "enqueued") {
+        stopHeartbeat();
         resolveCompletion();
         scheduledAiTaskCompletions.delete(taskId);
         if (enqueueResult === "full") {
@@ -838,6 +964,7 @@ export async function scheduleAiTaskExecution(
             correlationId,
             "LOCAL_QUEUE_FULL",
             30_000,
+            dispatchLease.token,
           ).catch((err) => {
             logger.error({ err, taskId }, "AI auto-trigger: could not defer dispatch intent");
           });
@@ -846,10 +973,14 @@ export async function scheduleAiTaskExecution(
             "AI task execution was deferred because the local worker queue is full",
           );
         }
+        // A duplicate local queue ID may belong to a previously accepted
+        // closure. Keep this lease until expiry rather than clearing ownership
+        // that another local worker may still be relying on.
         return;
       }
 
       void completion.finally(() => {
+        stopHeartbeat();
         scheduledAiTaskCompletions.delete(taskId);
       });
     } catch (err) {
@@ -959,6 +1090,11 @@ export async function dispatchDeferredAiTaskExecutions(limit = 100): Promise<num
         TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE,
         TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE,
       ]),
+      sql`(
+        ${eventsTable.payload}->'dispatchLease'->>'expiresAt' IS NULL
+        OR ${eventsTable.payload}->'dispatchLease'->>'expiresAt' !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T'
+        OR ${eventsTable.payload}->'dispatchLease'->>'expiresAt' <= ${nowIso}
+      )`,
       or(
         // Orphaned events (for example, left behind by an older Task delete)
         // and events for Tasks that are no longer eligible must be retired

@@ -10813,7 +10813,12 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
       expect(task?.status).toBe("verifying");
       expect(executions).toHaveLength(0);
       expect(intent?.type).toBe("TaskAutoExecutionDeferred");
-      expect(intent?.payload).toEqual(deferredPayload);
+      const expectedDeferredPayload: Record<string, unknown> = {
+        ...deferredPayload,
+      };
+      delete expectedDeferredPayload.dispatchLease;
+      expect(intent?.payload).toEqual(expectedDeferredPayload);
+      expect(intent?.payload?.dispatchLease).toBeUndefined();
     } finally {
       enqueueSpy.mockRestore();
       providerSpy.mockRestore();
