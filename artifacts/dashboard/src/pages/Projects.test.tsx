@@ -1,4 +1,4 @@
-import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import axe from 'axe-core';
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import Projects from "./Projects";
@@ -63,9 +63,9 @@ vi.mock("./DiscoverProjectWizard", () => ({
 import { useListProjects, useGetProjectBootstrap } from "@workspace/api-client-react";
 
 const mockProjects = [
-  { id: "1", name: "alpha-service", description: "Customer support tools", status: "active", language: "TypeScript", framework: "React", qualityScore: 0.9, lastScanAt: null },
-  { id: "2", name: "beta-worker", description: "Background job runner", status: "scanning", language: "Python", framework: "FastAPI", qualityScore: null, lastScanAt: null },
-  { id: "3", name: "gamma-lib", description: "Reusable interface widgets", status: "archived", language: "TypeScript", framework: "Vue", qualityScore: 0.7, lastScanAt: null },
+  { id: "1", name: "alpha-service", description: "Customer support tools", status: "active", rootPath: "/workspace/alpha-service", language: "TypeScript", framework: "React", qualityScore: 0.9, lastScanAt: null },
+  { id: "2", name: "beta-worker", description: "Background job runner", status: "scanning", rootPath: "/workspace/beta-worker", language: "Python", framework: "FastAPI", qualityScore: null, lastScanAt: null },
+  { id: "3", name: "gamma-lib", description: "Reusable interface widgets", status: "archived", rootPath: "/workspace/gamma-lib", language: "TypeScript", framework: "Vue", qualityScore: 0.7, lastScanAt: null },
 ];
 
 beforeEach(() => {
@@ -121,6 +121,24 @@ describe("Projects", () => {
     expect(mocks.mutate).not.toHaveBeenCalled();
   });
 
+  it('opens project creation from its deep link and clears only the create flag when dismissed', () => {
+    window.history.replaceState({}, '', '/projects?create=1&tab=recent#project-list');
+
+    render(<Projects />);
+
+    expect(screen.getByRole('dialog', { name: 'ابدأ مشروعك من قالب ويب جاهز' }))
+      .toBeInTheDocument();
+    expect(mocks.mutate).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'إلغاء' }));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    const url = new URL(window.location.href);
+    expect(url.searchParams.has('create')).toBe(false);
+    expect(url.searchParams.get('tab')).toBe('recent');
+    expect(url.hash).toBe('#project-list');
+    expect(mocks.mutate).not.toHaveBeenCalled();
+  });
   it('retries the project list without reloading the page', () => {
     vi.mocked(useListProjects).mockReturnValue({
       data: undefined,
@@ -174,7 +192,7 @@ describe("Projects", () => {
     window.history.pushState({}, '', `/projects?create=1&goalDraftId=${secondDraft.id}`);
     view.rerender(<Projects />);
 
-    expect(screen.getByTestId('input-project-name')).toHaveValue('');
+    expect(screen.getByTestId('input-project-name')).toHaveValue('الهدف الثاني: لوحة متابعة للفريق');
     expect(screen.getByTestId('input-project-description')).toHaveValue(secondDraft.text);
 
     fireEvent.change(screen.getByTestId('input-project-name'), {
@@ -201,11 +219,76 @@ describe("Projects", () => {
     });
   });
 
+  it('suggests an editable project name from the goal without sending the goal', () => {
+    const draft = storeHomeGoalDraft(
+      'أريد إنشاء لوحة متابعة للعملاء. أضف تقارير شهرية لاحقًا.',
+      'user-1',
+    )!;
+    window.history.replaceState({}, '', `/projects?create=1&goalDraftId=${draft.id}`);
+
+    render(<Projects />);
+
+    const nameInput = screen.getByTestId('input-project-name');
+    expect(nameInput).toHaveValue('إنشاء لوحة متابعة للعملاء');
+    expect(nameInput).not.toHaveAttribute('readonly');
+    expect(screen.getByTestId('text-project-name-suggestion'))
+      .toHaveTextContent('اقترحنا الاسم من هدفك؛ يمكنك تعديله قبل الإنشاء.');
+    expect(screen.getByTestId('input-project-description')).toHaveValue(draft.text);
+    expect(mocks.mutate).not.toHaveBeenCalled();
+
+    fireEvent.change(nameInput, { target: { value: 'لوحة العملاء' } });
+    fireEvent.click(screen.getByTestId('button-start-project-bootstrap'));
+
+    expect(mocks.mutate).toHaveBeenCalledWith(
+      {
+        data: expect.objectContaining({
+          name: 'لوحة العملاء',
+          description: draft.text,
+        }),
+      },
+      expect.anything(),
+    );
+    expect(readGoalDrafts('user-1').drafts[0]).toMatchObject({
+      text: draft.text,
+      sendAttemptedAt: null,
+      bootstrap: {
+        projectName: 'لوحة العملاء',
+        operationId: null,
+      },
+    });
+  });
+
+
   it("renders all projects when search is empty", () => {
     render(<Projects />);
     expect(screen.getByText("alpha-service")).toBeInTheDocument();
     expect(screen.getByText("beta-worker")).toBeInTheDocument();
     expect(screen.getByText("gamma-lib")).toBeInTheDocument();
+  });
+
+  it('keeps project cards simple, translates status, and reveals technical details on request', () => {
+    render(<Projects />);
+
+    const activeCard = screen.getByTestId('card-project-1');
+    const scanningCard = screen.getByTestId('card-project-2');
+    const archivedCard = screen.getByTestId('card-project-3');
+    const technicalDetails = screen.getByTestId('details-project-technical-1');
+
+    expect(within(activeCard).getByText('نشط')).toBeInTheDocument();
+    expect(within(scanningCard).getByText('جارٍ الفحص')).toBeInTheDocument();
+    expect(within(archivedCard).getByText('مؤرشف')).toBeInTheDocument();
+    expect(within(activeCard).getByText('الجودة')).toBeInTheDocument();
+    expect(within(activeCard).getByText('آخر فحص')).toBeInTheDocument();
+    expect(technicalDetails).not.toHaveAttribute('open');
+    expect(within(technicalDetails).getByText('TypeScript')).not.toBeVisible();
+    expect(within(technicalDetails).getByText('/workspace/alpha-service')).not.toBeVisible();
+
+    fireEvent.click(within(technicalDetails).getByText('تفاصيل تقنية'));
+
+    expect(technicalDetails).toHaveAttribute('open');
+    expect(within(technicalDetails).getByText('TypeScript')).toBeVisible();
+    expect(within(technicalDetails).getByText('React')).toBeVisible();
+    expect(within(technicalDetails).getByText('/workspace/alpha-service')).toBeVisible();
   });
 
   it('opens the workspace directly from each project card and keeps project details available', () => {
@@ -253,6 +336,37 @@ describe("Projects", () => {
     expect(screen.queryByText("gamma-lib")).not.toBeInTheDocument();
   });
 
+  it('opens the workspace on Enter only when search leaves one project', () => {
+    render(<Projects />);
+    const input = screen.getByTestId('input-project-search');
+
+    fireEvent.change(input, { target: { value: 'FastAPI' } });
+    expect(document.getElementById('project-search-keyboard-status'))
+      .toHaveTextContent('مشروع واحد مطابق. اضغط Enter لفتح مساحة العمل.');
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(mocks.setLocation).toHaveBeenCalledWith('/projects/2/workspace');
+
+    mocks.setLocation.mockClear();
+    fireEvent.change(input, { target: { value: 'TypeScript' } });
+    expect(document.getElementById('project-search-keyboard-status'))
+      .toHaveTextContent('توجد عدة مشاريع مطابقة. اختر المشروع المطلوب من النتائج.');
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(mocks.setLocation).not.toHaveBeenCalled();
+  });
+
+  it('does not open a project on Enter during IME composition or when no project matches', () => {
+    render(<Projects />);
+    const input = screen.getByTestId('input-project-search');
+
+    fireEvent.change(input, { target: { value: 'alpha-service' } });
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
+    expect(mocks.setLocation).not.toHaveBeenCalled();
+
+    fireEvent.change(input, { target: { value: 'zzz-no-match' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(mocks.setLocation).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['CUSTOMER SUPPORT', 'alpha-service', ['beta-worker', 'gamma-lib']],
     ['python', 'beta-worker', ['alpha-service', 'gamma-lib']],
@@ -281,14 +395,135 @@ describe("Projects", () => {
     expect(screen.getByText('gamma-lib')).toBeInTheDocument();
   });
 
+  it('restores the project search from the URL and preserves unrelated route context', async () => {
+    window.history.replaceState({}, '', '/projects?search=FastAPI&tab=recent#project-list');
+    render(<Projects />);
+    const input = screen.getByTestId('input-project-search');
+
+    expect(input).toHaveValue('FastAPI');
+    expect(screen.getByText('beta-worker')).toBeInTheDocument();
+    expect(screen.queryByText('alpha-service')).not.toBeInTheDocument();
+
+    fireEvent.change(input, { target: { value: 'TypeScript' } });
+    await waitFor(() => {
+      const url = new URL(window.location.href);
+      expect(url.searchParams.get('search')).toBe('TypeScript');
+      expect(url.searchParams.get('tab')).toBe('recent');
+      expect(url.hash).toBe('#project-list');
+    });
+
+    fireEvent.click(screen.getByTestId('button-clear-project-search'));
+    await waitFor(() => {
+      const url = new URL(window.location.href);
+      expect(url.searchParams.has('search')).toBe(false);
+      expect(url.searchParams.get('tab')).toBe('recent');
+      expect(url.hash).toBe('#project-list');
+    });
+  });
+
+  it('filters projects by status and preserves search and unrelated URL context', async () => {
+    window.history.replaceState({}, '', '/projects?search=TypeScript&tab=recent#project-list');
+    render(<Projects />);
+
+    fireEvent.change(screen.getByTestId('select-project-status-filter'), {
+      target: { value: 'active' },
+    });
+
+    expect(screen.getByText('alpha-service')).toBeInTheDocument();
+    expect(screen.queryByText('gamma-lib')).not.toBeInTheDocument();
+    await waitFor(() => {
+      const url = new URL(window.location.href);
+      expect(url.searchParams.get('search')).toBe('TypeScript');
+      expect(url.searchParams.get('status')).toBe('active');
+      expect(url.searchParams.get('tab')).toBe('recent');
+      expect(url.hash).toBe('#project-list');
+    });
+
+    fireEvent.change(screen.getByTestId('select-project-status-filter'), {
+      target: { value: '' },
+    });
+
+    expect(screen.getByText('gamma-lib')).toBeInTheDocument();
+    await waitFor(() => {
+      const url = new URL(window.location.href);
+      expect(url.searchParams.has('status')).toBe(false);
+      expect(url.searchParams.get('search')).toBe('TypeScript');
+      expect(url.searchParams.get('tab')).toBe('recent');
+      expect(url.hash).toBe('#project-list');
+    });
+  });
+
+  it('restores a project status filter from a shared URL', () => {
+    window.history.replaceState({}, '', '/projects?status=scanning');
+
+    render(<Projects />);
+
+    expect(screen.getByTestId('select-project-status-filter')).toHaveValue('scanning');
+    expect(screen.getByText('beta-worker')).toBeInTheDocument();
+    expect(screen.queryByText('alpha-service')).not.toBeInTheDocument();
+    expect(screen.queryByText('gamma-lib')).not.toBeInTheDocument();
+    expect(document.getElementById('project-search-keyboard-status'))
+      .toHaveTextContent('مشروع واحد مطابق. اضغط Enter لفتح مساحة العمل.');
+  });
+
+  it('does not suggest a new project when a status filter hides an existing search match', () => {
+    window.history.replaceState({}, '', '/projects?status=active&search=beta-worker');
+
+    render(<Projects />);
+
+    expect(screen.getByRole('status')).toHaveTextContent('لا توجد مشاريع تطابق البحث والحالة');
+    expect(screen.queryByTestId('button-create-project-from-search')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('button-clear-project-filters'));
+
+    expect(screen.getByText('alpha-service')).toBeInTheDocument();
+    expect(screen.getByText('beta-worker')).toBeInTheDocument();
+    expect(screen.getByTestId('input-project-search')).toHaveFocus();
+  });
+
+  it('offers a reset instead of empty-project actions when a status filter has no matches', () => {
+    window.history.replaceState({}, '', '/projects?status=scanning');
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [mockProjects[0]],
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      error: null,
+      refetch: mocks.refetchProjects,
+    } as ReturnType<typeof useListProjects>);
+
+    render(<Projects />);
+
+    expect(screen.getByRole('status')).toHaveTextContent('لا توجد مشاريع بهذه الحالة');
+    expect(screen.getByTestId('button-clear-project-filters')).toBeInTheDocument();
+    expect(screen.queryByTestId('button-empty-create-project')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('button-empty-discover-project')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('link-empty-goal-first')).not.toBeInTheDocument();
+  });
+
   it("shows empty state when no projects match the search", () => {
     render(<Projects />);
     const input = screen.getByRole('textbox', { name: 'ابحث عن مشروع بكلمات من الاسم أو الوصف أو التقنية' });
     fireEvent.change(input, { target: { value: "zzz-no-match" } });
     expect(screen.queryByText("alpha-service")).not.toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('لا توجد مشاريع تطابق بحثك');
+    expect(screen.getByTestId('button-create-project-from-search')).toHaveTextContent('zzz-no-match');
     expect(screen.queryByTestId('button-empty-create-project')).not.toBeInTheDocument();
     expect(screen.queryByTestId('link-empty-goal-first')).not.toBeInTheDocument();
+    expect(mocks.mutate).not.toHaveBeenCalled();
+  });
+
+  it('prefills the new-project name from an unmatched search without creating automatically', () => {
+    render(<Projects />);
+    fireEvent.change(screen.getByTestId('input-project-search'), {
+      target: { value: '  لوحة متابعة الورشة  ' },
+    });
+
+    fireEvent.click(screen.getByTestId('button-create-project-from-search'));
+
+    expect(screen.getByRole('dialog', { name: 'ابدأ مشروعك من قالب ويب جاهز' })).toBeInTheDocument();
+    expect(screen.getByTestId('input-project-name')).toHaveValue('لوحة متابعة الورشة');
+    expect(screen.getByTestId('input-project-description')).toHaveValue('');
     expect(mocks.mutate).not.toHaveBeenCalled();
   });
 

@@ -56,6 +56,7 @@
     "artifacts/dashboard/src/components/EvidenceGraphPanel.tsx": "trigger",
     "artifacts/dashboard/src/components/ExecutionProjectionPanel.tsx": "trigger",
     "artifacts/dashboard/src/components/ProjectAiBudgetPanel.tsx": "trigger",
+    "artifacts/dashboard/src/components/MetricsChangeSummary.tsx": "no-trigger",
     "artifacts/dashboard/src/components/ProjectPluginsPanel.tsx": "trigger",
     "artifacts/dashboard/src/components/RuleDetailActions.tsx": "trigger",
     "artifacts/dashboard/src/components/TaskDependencySelector.tsx": "no-trigger",
@@ -68,6 +69,7 @@
     "artifacts/dashboard/src/pages/Missions.tsx": "trigger",
     "artifacts/dashboard/src/pages/SkillRegistry.tsx": "trigger",
     "artifacts/dashboard/src/pages/project-workspace/ProjectWorkspaceSwitcher.tsx": "trigger",
-    "artifacts/dashboard/src/components/layout/QuickNavigation.tsx": "trigger"
+    "artifacts/dashboard/src/components/layout/QuickNavigation.tsx": "trigger",
+    "artifacts/dashboard/src/components/layout/Sidebar.tsx": "trigger"
   }
 }

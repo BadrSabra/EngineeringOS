@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useUser } from '@clerk/react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   useListMetrics,
@@ -23,7 +24,9 @@ import {
 } from 'recharts';
 import { BarChart3, AlertTriangle, Play, RefreshCw } from 'lucide-react';
 import { RefreshButton, RequestError } from '@/components/OperatorResilience';
-import { useSearch } from 'wouter';
+import MetricsChangeSummary from '@/components/MetricsChangeSummary';
+import { Link, useLocation, useSearch } from 'wouter';
+import { storeHomeGoalDraft } from '@/lib/home-goal-handoff';
 
 const CHART_COLORS = {
   architecture: '#10b981',
@@ -59,6 +62,8 @@ function MetricsSession({
   initialDateRange: DateRange;
 }) {
   const queryClient = useQueryClient();
+  const { isLoaded, user } = useUser();
+  const [, setLocation] = useLocation();
   const {
     data: projects,
     isError: projectsError,
@@ -69,6 +74,7 @@ function MetricsSession({
   const [selectedProjectId, setSelectedProjectId] = useState<string>(initialProjectId);
   const [dateRange, setDateRange] = useState<DateRange>(initialDateRange);
   const [activeScan, setActiveScan] = useState<{ projectId: string; jobId: string } | null>(null);
+  const [assistantHandoffError, setAssistantHandoffError] = useState<string | null>(null);
   const terminalScanJobId = useRef<string | null>(null);
 
   // A saved selection is valid only while it belongs to the latest project list.
@@ -190,6 +196,24 @@ function MetricsSession({
     );
   };
 
+  const askAssistantAboutMissingMetrics = () => {
+    const projectId = activeScan?.projectId;
+    if (!projectId || !isLoaded || !user?.id) return;
+    const draft = storeHomeGoalDraft(
+      'اكتمل فحص المشروع لكن لم تظهر مؤشرات. ساعدني على فهم السبب واقترح خطوة آمنة للتحقق. لا تغيّر الملفات أو تبدأ أي عمل قبل أن أراجع المقترح وأوافق.',
+      user.id,
+      projectId,
+    );
+    if (!draft) {
+      setAssistantHandoffError('تعذر حفظ مسودة طلب المساعدة. بقيت في صفحة المؤشرات ولم نغيّر شيئًا.');
+      return;
+    }
+    setAssistantHandoffError(null);
+    setLocation(
+      `/projects/${encodeURIComponent(projectId)}/workspace?goalDraftId=${encodeURIComponent(draft.id)}#workspace-panel-agent`,
+    );
+  };
+
   const isRefreshing = projectsIsFetching || metricsIsFetching;
   const lastUpdated = effectiveProjectId
     && !projectsError
@@ -228,6 +252,16 @@ function MetricsSession({
           className="flex w-full min-w-0 flex-col gap-2 sm:w-auto sm:flex-row sm:items-center"
         >
           <RefreshButton onRefresh={refreshMetrics} isRefreshing={isRefreshing} lastUpdated={lastUpdated} label="تحديث المؤشرات" refreshingLabel="جارٍ التحديث…" updatedLabel="آخر تحديث:" />
+          {currentProject && (
+            <Link
+              href={`/projects/${encodeURIComponent(currentProject.id)}/workspace`}
+              aria-label={`افتح مساحة العمل لمشروع ${currentProject.name}`}
+              data-testid="link-metrics-project-workspace"
+              className="inline-flex min-h-8 w-full shrink-0 items-center justify-center rounded-md border border-border bg-card px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:w-auto"
+            >
+              مساحة العمل
+            </Link>
+          )}
           <select
             value={effectiveProjectId}
             onChange={(e) => setSelectedProjectId(e.target.value)}
@@ -267,14 +301,66 @@ function MetricsSession({
 
       {projectsError ? (
         <RequestError message="تعذّر تحميل المشاريع لعرض المؤشرات." retryLabel="حاول مجددًا" onRetry={() => void refetchProjects()} />
+      ) : !projectsLoaded ? (
+        <div
+          role="status"
+          data-testid="metrics-projects-loading"
+          className="h-64 bg-card border border-border rounded-xl flex items-center justify-center text-muted-foreground"
+        >
+          جارٍ تحميل قائمة المشاريع…
+        </div>
       ) : !effectiveProjectId ? (
-        <div className="h-64 bg-card border border-border rounded-xl flex items-center justify-center text-muted-foreground">
-          اختر مشروعًا لعرض مؤشراته.
+        <div
+          role="status"
+          data-testid="metrics-no-project"
+          className="min-h-64 bg-card border border-border rounded-xl flex flex-col items-center justify-center gap-3 px-4 py-8 text-center text-muted-foreground"
+        >
+          <BarChart3 className="w-8 h-8 text-primary/60" aria-hidden="true" />
+          <p>لا يوجد مشروع لعرض مؤشراته بعد.</p>
+          <p className="max-w-md text-xs">
+            ابدأ بوصف هدفك، أو افتح قائمة المشاريع لاختيار مشروع موجود.
+          </p>
+          <div className="mt-1 flex flex-wrap justify-center gap-2">
+            <Link
+              href="/"
+              data-testid="link-metrics-empty-goal"
+              className="inline-flex min-h-10 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              ابدأ بهدفك
+            </Link>
+            <Link
+              href="/projects"
+              data-testid="link-metrics-empty-projects"
+              className="inline-flex min-h-10 items-center justify-center rounded-md border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              اعرض مشاريعي
+            </Link>
+          </div>
         </div>
       ) : isLoading ? (
         <div className="h-96 bg-card border border-border rounded-xl animate-pulse"></div>
       ) : isError ? (
         <RequestError message={error instanceof Error ? error.message : 'تعذّر تحميل المؤشرات.'} retryLabel="حاول مجددًا" onRetry={() => void refetch()} />
+      ) : formatData.length === 0 && allData.length > 0 ? (
+        <div
+          role="status"
+          data-testid="metrics-range-empty"
+          className="min-h-64 bg-card border border-border rounded-xl flex flex-col items-center justify-center gap-2 px-4 py-8 text-center text-muted-foreground"
+        >
+          <AlertTriangle className="w-8 h-8 mb-2 opacity-50" aria-hidden="true" />
+          <p>لا توجد قراءات خلال الفترة المحددة.</p>
+          <p className="text-xs mt-1 opacity-70">
+            توجد قراءات أقدم لهذا المشروع. اعرض السجل الكامل بدل بدء فحص جديد.
+          </p>
+          <button
+            type="button"
+            onClick={() => setDateRange('all')}
+            data-testid="button-show-all-metrics"
+            className="mt-2 inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          >
+            اعرض كل القراءات
+          </button>
+        </div>
       ) : formatData.length === 0 ? (
         <div className="min-h-64 bg-card border border-border rounded-xl flex flex-col items-center justify-center gap-2 px-4 py-8 text-center text-muted-foreground">
           <AlertTriangle className="w-8 h-8 mb-2 opacity-50" />
@@ -335,9 +421,25 @@ function MetricsSession({
           {activeScan?.projectId === effectiveProjectId
             && activeScanStatus === 'completed'
             && (
-              <p role="status" className="max-w-md text-xs">
-                اكتمل الفحص، ولم تظهر مؤشرات لهذا المشروع بعد.
-              </p>
+              <div className="max-w-md space-y-2">
+                <p role="status" className="text-xs">
+                  اكتمل الفحص، ولم تظهر مؤشرات لهذا المشروع بعد.
+                </p>
+                <button
+                  type="button"
+                  onClick={askAssistantAboutMissingMetrics}
+                  disabled={!isLoaded || !user?.id}
+                  data-testid="button-metrics-scan-assistant"
+                  className="inline-flex items-center rounded-md border border-primary/40 bg-primary/10 px-3 py-2 text-xs font-medium text-primary transition-colors hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-wait disabled:opacity-50"
+                >
+                  اسأل المساعد عن غياب المؤشرات
+                </button>
+                {assistantHandoffError && (
+                  <p role="alert" data-testid="metrics-scan-assistant-error" className="text-xs text-destructive">
+                    {assistantHandoffError}
+                  </p>
+                )}
+              </div>
             )}
           {projectScanInProgress && !trackedScanInProgress && (
             <p role="status" className="max-w-md text-xs">
@@ -352,6 +454,7 @@ function MetricsSession({
         </div>
       ) : (
         <div className="min-w-0 space-y-6">
+          <MetricsChangeSummary metrics={metrics ?? []} />
           <div className="min-w-0 bg-card border border-border rounded-xl p-6 shadow-sm">
             <h3 className="font-semibold mb-6">اتجاه الجودة الإجمالي</h3>
             <div data-testid="metrics-overall-chart" dir="ltr" className="h-80 w-full min-w-0">

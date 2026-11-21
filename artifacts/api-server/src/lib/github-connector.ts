@@ -6,6 +6,7 @@ const execFileAsync = promisify(execFile);
 const GIT_MAX_BUFFER = 50 * 1024 * 1024;
 const GIT_COMMAND_TIMEOUT_MS = 30_000;
 const GITHUB_REQUEST_TIMEOUT_MS = 20_000;
+const GITHUB_BLOB_UPLOAD_CONCURRENCY = 4;
 
 export type GitHubRemote = {
   owner: string;
@@ -394,25 +395,33 @@ export async function pushLocalCommitToGitHub(args: {
   }
 
   const tree: GitHubTreeEntry[] = [];
-  for (const change of changes) {
-    if (change.kind === "delete") {
-      tree.push({ path: change.path, mode: "100644", type: "blob", sha: null });
-      continue;
-    }
-    const content = await gitBlob(args.rootPath, args.commitHash, change.path, args.signal);
-    const blob = await request(repoPath(args.remote, "/git/blobs"), {
-      method: "POST",
-      body: JSON.stringify({ content: content.toString("base64"), encoding: "base64" }),
-    });
-    if (typeof blob.sha !== "string") {
-      throw new GitHubConnectorError("GitHub blob creation returned no sha", "GITHUB_API_INVALID_RESPONSE");
-    }
-    tree.push({
-      path: change.path,
-      mode: await gitMode(args.rootPath, args.commitHash, change.path, args.signal),
-      type: "blob",
-      sha: blob.sha,
-    });
+  // Blob creation is network-bound. Upload a small bounded batch in parallel,
+  // while Promise.all preserves the original change order for the tree object.
+  for (let offset = 0; offset < changes.length; offset += GITHUB_BLOB_UPLOAD_CONCURRENCY) {
+    const batch = changes.slice(offset, offset + GITHUB_BLOB_UPLOAD_CONCURRENCY);
+    const entries = await Promise.all(batch.map(async (change): Promise<GitHubTreeEntry> => {
+      if (change.kind === "delete") {
+        return { path: change.path, mode: "100644", type: "blob", sha: null };
+      }
+      const [content, mode] = await Promise.all([
+        gitBlob(args.rootPath, args.commitHash, change.path, args.signal),
+        gitMode(args.rootPath, args.commitHash, change.path, args.signal),
+      ]);
+      const blob = await request(repoPath(args.remote, "/git/blobs"), {
+        method: "POST",
+        body: JSON.stringify({ content: content.toString("base64"), encoding: "base64" }),
+      });
+      if (typeof blob.sha !== "string") {
+        throw new GitHubConnectorError("GitHub blob creation returned no sha", "GITHUB_API_INVALID_RESPONSE");
+      }
+      return {
+        path: change.path,
+        mode,
+        type: "blob",
+        sha: blob.sha,
+      };
+    }));
+    tree.push(...entries);
   }
 
   const createdTree = await request(repoPath(args.remote, "/git/trees"), {

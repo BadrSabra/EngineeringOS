@@ -256,6 +256,23 @@ describe('DiscoverProjectWizard Arabic findings', () => {
     });
   });
 
+  it('switches directly to an available source when no workspace projects exist', () => {
+    render(<DiscoverProjectWizard onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByTestId('source-card-WORKSPACE_PROJECT'));
+    expect(screen.getByText('لا توجد مشاريع مسجّلة. اختر طريقة أخرى لإضافة المشروع.')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('button-switch-to-git-source'));
+    expect(screen.getByTestId('source-card-GIT_REPOSITORY')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByPlaceholderText('https://github.com/owner/repo')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('source-card-WORKSPACE_PROJECT'));
+    fireEvent.click(screen.getByTestId('button-switch-to-archive-source'));
+    expect(screen.getByTestId('source-card-ARCHIVE_UPLOAD')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('archive-file-input')).toBeInTheDocument();
+    expect(mocks.startDiscovery).not.toHaveBeenCalled();
+  });
+
   it('keeps project choice explicit when more than one project is available', () => {
     mocks.projects = [
       { id: 'project-one', name: 'المشروع الأول', rootPath: '/workspace/one' },
@@ -269,6 +286,62 @@ describe('DiscoverProjectWizard Arabic findings', () => {
     fireEvent.click(screen.getByTestId('start-discovery'));
     expect(screen.getByTestId('discovery-start-error')).toHaveTextContent('اختر مشروعًا أولًا.');
     expect(mocks.startDiscovery).not.toHaveBeenCalled();
+  });
+
+  it('searches a large project list and selects a unique match without starting discovery', async () => {
+    mocks.projects = Array.from({ length: 6 }, (_, index) => ({
+      id: `project-${index + 1}`,
+      name: `المشروع ${index + 1}`,
+      rootPath: `/workspace/project-${index + 1}`,
+      language: `Language ${index + 1}`,
+    }));
+    render(<DiscoverProjectWizard onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByTestId('source-card-WORKSPACE_PROJECT'));
+    const search = screen.getByRole('textbox', { name: 'ابحث عن مشروع موجود' });
+    fireEvent.change(search, { target: { value: 'project-4' } });
+
+    expect(screen.getByTestId('workspace-project-project-4')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByTestId('workspace-project-project-3')).not.toBeInTheDocument();
+    expect(screen.getByTestId('workspace-project-unique-match')).toHaveTextContent(
+      'لن يبدأ الفحص حتى تضغط على «ابدأ الفحص»',
+    );
+    expect(mocks.startDiscovery).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('start-discovery'));
+    await waitFor(() => {
+      expect(mocks.startDiscovery).toHaveBeenCalledWith({
+        data: {
+          sourceType: 'WORKSPACE_PROJECT',
+          sourceConfig: { projectId: 'project-4' },
+        },
+      });
+    });
+  });
+
+  it('clears a hidden selection when search results no longer match and restores it with clear', () => {
+    mocks.projects = Array.from({ length: 6 }, (_, index) => ({
+      id: `project-${index + 1}`,
+      name: `المشروع ${index + 1}`,
+      rootPath: `/workspace/project-${index + 1}`,
+    }));
+    render(<DiscoverProjectWizard onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByTestId('source-card-WORKSPACE_PROJECT'));
+    const search = screen.getByRole('textbox', { name: 'ابحث عن مشروع موجود' });
+    fireEvent.change(search, { target: { value: 'project-4' } });
+    expect(screen.getByTestId('workspace-project-project-4')).toHaveAttribute('aria-pressed', 'true');
+
+    fireEvent.change(search, { target: { value: 'no-match' } });
+    expect(screen.getByTestId('workspace-project-search-empty')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('start-discovery'));
+    expect(screen.getByTestId('discovery-start-error')).toHaveTextContent('اختر مشروعًا أولًا.');
+    expect(mocks.startDiscovery).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('button-clear-workspace-project-search'));
+    expect(screen.queryByTestId('workspace-project-search-empty')).not.toBeInTheDocument();
+    expect(screen.getByTestId('workspace-project-project-1')).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.queryByTestId('discovery-start-error')).not.toBeInTheDocument();
   });
 
   it('marks a cached discovery session as stale after a failed poll and offers a direct retry', async () => {
@@ -356,6 +429,61 @@ describe('DiscoverProjectWizard Arabic findings', () => {
     expect(screen.getByText('src/app.ts:7 — export const app = createApp(); (2)')).toBeInTheDocument();
     expect(screen.getByText('Run pnpm test')).toBeInTheDocument();
     await waitFor(() => expect(detailsSummary.closest('details')).toHaveAttribute('open'));
+  });
+
+  it('opens an unsent Arabic explanation draft before importing, using report summary only', async () => {
+    const onClose = vi.fn();
+    render(<DiscoverProjectWizard onClose={onClose} />);
+
+    fireEvent.change(screen.getByPlaceholderText('https://github.com/owner/repo'), {
+      target: { value: 'https://github.com/example/sample-app' },
+    });
+    fireEvent.click(screen.getByTestId('start-discovery'));
+    await screen.findByRole('heading', { name: 'نتائج استكشاف المشروع' });
+
+    fireEvent.click(screen.getByTestId('button-explain-discovery-report'));
+
+    const draft = readGoalDrafts('user-1').drafts[0];
+    expect(draft).toMatchObject({
+      source: 'home',
+      projectId: null,
+      sendAttemptedAt: null,
+    });
+    expect(draft.text).toContain('اللغة: "TypeScript"');
+    expect(draft.text).toContain('الإطار: "React"');
+    expect(draft.text).toContain('إشارات المخاطر بحسب الشدة: مرتفع: 2');
+    expect(draft.text).toContain('ملخص آلي غير موثوق');
+    expect(draft.text).toContain('لا تضف المشروع أو تبدأ فحصًا أو تعدّل ملفات');
+    expect(draft.text).not.toContain('src/app.ts');
+    expect(draft.text).not.toContain('export const app = createApp()');
+    expect(mocks.navigate).toHaveBeenCalledWith(`/ai?goalDraftId=${draft.id}`);
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(mocks.importProject).not.toHaveBeenCalled();
+    expect(mocks.scanProject).not.toHaveBeenCalled();
+  });
+
+  it('keeps the discovery report open when the explanation draft cannot be saved', async () => {
+    for (let index = 0; index < 8; index += 1) {
+      expect(storeHomeGoalDraft(`هدف ${index}`, 'user-1')).not.toBeNull();
+    }
+    const onClose = vi.fn();
+    render(<DiscoverProjectWizard onClose={onClose} />);
+
+    fireEvent.change(screen.getByPlaceholderText('https://github.com/owner/repo'), {
+      target: { value: 'https://github.com/example/sample-app' },
+    });
+    fireEvent.click(screen.getByTestId('start-discovery'));
+    await screen.findByRole('heading', { name: 'نتائج استكشاف المشروع' });
+
+    fireEvent.click(screen.getByTestId('button-explain-discovery-report'));
+
+    expect(screen.getByTestId('status-discovery-explanation-error')).toHaveTextContent(
+      'تعذر حفظ مسودة التفسير.',
+    );
+    expect(screen.getByRole('heading', { name: 'نتائج استكشاف المشروع' })).toBeInTheDocument();
+    expect(mocks.navigate).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(mocks.importProject).not.toHaveBeenCalled();
   });
 
 
