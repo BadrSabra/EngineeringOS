@@ -2518,7 +2518,7 @@ async function recoverAiExecutionRetryTokenInternal(
       resumable: aiExecutionAcceptancesTable.resumable,
       nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
       disposition: aiExecutionAcceptancesTable.disposition,
-      databaseNow: sql<string>`clock_timestamp()::text`,
+      databaseNowMs: sql<number>`(extract(epoch from clock_timestamp()) * 1000)::double precision`,
     })
     .from(aiExecutionAcceptancesTable)
     .where(and(
@@ -2527,8 +2527,10 @@ async function recoverAiExecutionRetryTokenInternal(
     ))
     .for("update")
     .limit(1);
-  const databaseNowMs = Date.parse(priorAcceptance?.databaseNow ?? "");
-  if (!Number.isFinite(databaseNowMs)) return { kind: "conflict" };
+  const databaseNowMs = priorAcceptance?.databaseNowMs;
+  if (typeof databaseNowMs !== "number" || !Number.isFinite(databaseNowMs)) {
+    return { kind: "conflict" };
+  }
 
   const retryAt = recoveryDispositionValue(priorAcceptance?.disposition, "retryAt");
   if (retryAt !== undefined) {
