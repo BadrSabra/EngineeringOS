@@ -154,6 +154,25 @@ describe("bounded dashboard inventory", () => {
     expect(summary.coverage.totalCountAvailable).toBe(false);
   });
 
+  it("applies the bounded sample independently to decisions, active, and recent sections", async () => {
+    const p = await project();
+    for (let i = 0; i < 10; i++) {
+      const m = await mission(p);
+      await goal(p, m, "waiting_for_approval");
+      await task(p, "running");
+      await task(p, "completed");
+    }
+
+    const summary = await loadDashboardWorkSummary(owner);
+
+    expect(summary.decisions).toHaveLength(WORK_SECTION_LIMIT);
+    expect(summary.active).toHaveLength(WORK_SECTION_LIMIT);
+    expect(summary.recent).toHaveLength(WORK_SECTION_LIMIT);
+    expect(summary.coverage.partial).toBe(true);
+    expect(summary.coverage.sectionLimit).toBe(WORK_SECTION_LIMIT);
+    expect(summary.coverage.sourceLimit).toBe(WORK_SECTION_LIMIT + 1);
+  });
+
   it("shows only the latest execution of an explicit operation instead of a stale paused phase", async () => {
     const p = await project();
     const operationId = randomUUID();
