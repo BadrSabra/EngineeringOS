@@ -1,5 +1,6 @@
+import { randomUUID } from "node:crypto";
 import { db, eventsTable, tasksTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 
 export const TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE =
   "TaskAutoExecutionDispatchRequested";
@@ -169,4 +170,205 @@ export async function insertTaskAutoExecutionIntent(
     }).onConflictDoNothing();
   }
   return true;
+}
+
+
+export const TASK_AUTO_EXECUTION_DISPATCH_LEASE_MS = 2 * 60_000;
+export const TASK_AUTO_EXECUTION_DISPATCH_HEARTBEAT_MS = 30_000;
+
+export type TaskAutoExecutionDispatchLease = {
+  token: string;
+  expiresAt: string;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+async function readDispatchDatabaseNow(
+  tx: TaskAutoExecutionOutboxTransaction,
+): Promise<Date | null> {
+  const result = await tx.execute(sql`SELECT clock_timestamp() AS now`);
+  const raw = (result.rows as Array<{ now: Date | string }>)[0]?.now;
+  const now = raw instanceof Date ? raw : new Date(String(raw ?? ""));
+  return raw && Number.isFinite(now.getTime()) ? now : null;
+}
+
+/**
+ * Claim one exact Task generation before enqueueing it in a process-local
+ * queue. The row lock serializes competing API replicas; the expiry lets
+ * another replica reclaim the intent after a process exits.
+ *
+ * This lease is dispatch coordination only. executeTaskLifecycle still
+ * performs the authoritative Task/Execution claim and consumes the intent.
+ */
+export async function claimTaskAutoExecutionDispatchLease(input: {
+  taskId: string;
+  userId: string;
+  retryCount: number;
+  correlationId: string | null;
+}): Promise<TaskAutoExecutionDispatchLease | null> {
+  return db.transaction(async (tx) => {
+    const [intent] = await tx.select({
+      type: eventsTable.type,
+      taskId: eventsTable.taskId,
+      payload: eventsTable.payload,
+    })
+      .from(eventsTable)
+      .where(eq(eventsTable.id, taskAutoExecutionIntentId(input.taskId)))
+      .for("update")
+      .limit(1);
+
+    if (
+      !intent
+      || intent.taskId !== input.taskId
+      || ![
+        TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE,
+        TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE,
+      ].includes(intent.type)
+      || !isRecord(intent.payload)
+    ) return null;
+
+    const payload = intent.payload;
+    const correlationMatches = payload.taskCorrelationId === input.correlationId
+      || (payload.taskCorrelationId === undefined && input.correlationId === null);
+    if (
+      payload.userId !== input.userId
+      || payload.taskRetryCount !== input.retryCount
+      || !correlationMatches
+    ) return null;
+
+    const now = await readDispatchDatabaseNow(tx);
+    if (!now) return null;
+
+    const nextAttemptAt = typeof payload.nextAttemptAt === "string"
+      ? Date.parse(payload.nextAttemptAt)
+      : Number.NaN;
+    if (Number.isFinite(nextAttemptAt) && nextAttemptAt > now.getTime()) return null;
+
+    const currentLease = isRecord(payload.dispatchLease)
+      ? payload.dispatchLease
+      : undefined;
+    const currentExpiry = typeof currentLease?.expiresAt === "string"
+      ? Date.parse(currentLease.expiresAt)
+      : Number.NaN;
+    if (Number.isFinite(currentExpiry) && currentExpiry > now.getTime()) return null;
+
+    const lease: TaskAutoExecutionDispatchLease = {
+      token: randomUUID(),
+      expiresAt: new Date(now.getTime() + TASK_AUTO_EXECUTION_DISPATCH_LEASE_MS).toISOString(),
+    };
+    await tx.update(eventsTable)
+      .set({ payload: { ...payload, dispatchLease: lease } })
+      .where(eq(eventsTable.id, taskAutoExecutionIntentId(input.taskId)));
+    return lease;
+  });
+}
+
+/**
+ * Extend only a still-live lease owned by the exact token. An expired worker
+ * cannot resurrect its lease after another replica becomes eligible to claim.
+ */
+export async function renewTaskAutoExecutionDispatchLease(input: {
+  taskId: string;
+  token: string;
+}): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const id = taskAutoExecutionIntentId(input.taskId);
+    const [intent] = await tx.select({
+      type: eventsTable.type,
+      taskId: eventsTable.taskId,
+      payload: eventsTable.payload,
+    })
+      .from(eventsTable)
+      .where(eq(eventsTable.id, id))
+      .for("update")
+      .limit(1);
+    if (
+      !intent
+      || intent.taskId !== input.taskId
+      || ![
+        TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE,
+        TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE,
+      ].includes(intent.type)
+      || !isRecord(intent.payload)
+      || !isRecord(intent.payload.dispatchLease)
+      || intent.payload.dispatchLease.token !== input.token
+    ) return false;
+
+    const now = await readDispatchDatabaseNow(tx);
+    const currentExpiry = typeof intent.payload.dispatchLease.expiresAt === "string"
+      ? Date.parse(intent.payload.dispatchLease.expiresAt)
+      : Number.NaN;
+    if (!now || !Number.isFinite(currentExpiry) || currentExpiry <= now.getTime()) {
+      return false;
+    }
+
+    // A queued closure may outlive a newer durable retry deferral. Do not
+    // renew its lease (or proceed to the Task claim) before that deadline.
+    if (intent.payload.nextAttemptAt !== undefined) {
+      if (typeof intent.payload.nextAttemptAt !== "string") return false;
+      const nextAttemptAt = Date.parse(intent.payload.nextAttemptAt);
+      if (!Number.isFinite(nextAttemptAt) || nextAttemptAt > now.getTime()) {
+        return false;
+      }
+    }
+
+    const lease: TaskAutoExecutionDispatchLease = {
+      token: input.token,
+      expiresAt: new Date(now.getTime() + TASK_AUTO_EXECUTION_DISPATCH_LEASE_MS).toISOString(),
+    };
+    await tx.update(eventsTable)
+      .set({ payload: { ...intent.payload, dispatchLease: lease } })
+      .where(eq(eventsTable.id, id));
+    return true;
+  });
+}
+
+/**
+ * Release only a dispatch lease owned by this exact token. A stale queued
+ * closure can relinquish its slot after a newer retry deadline is observed,
+ * while a token replaced by another replica can never clear that new lease.
+ */
+export async function releaseTaskAutoExecutionDispatchLease(
+  tx: TaskAutoExecutionOutboxTransaction,
+  input: { taskId: string; token: string },
+): Promise<boolean> {
+  const id = taskAutoExecutionIntentId(input.taskId);
+  const [intent] = await tx.select({
+    type: eventsTable.type,
+    taskId: eventsTable.taskId,
+    payload: eventsTable.payload,
+  }).from(eventsTable)
+    .where(eq(eventsTable.id, id))
+    .for("update")
+    .limit(1);
+
+  if (
+    !intent
+    || intent.taskId !== input.taskId
+    || ![
+      TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE,
+      TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE,
+    ].includes(intent.type)
+    || !isRecord(intent.payload)
+    || !isRecord(intent.payload.dispatchLease)
+    || intent.payload.dispatchLease.token !== input.token
+  ) return false;
+
+  const nextPayload = { ...intent.payload };
+  delete nextPayload.dispatchLease;
+  const [released] = await tx.update(eventsTable)
+    .set({ payload: nextPayload })
+    .where(and(
+      eq(eventsTable.id, id),
+      eq(eventsTable.taskId, input.taskId),
+      inArray(eventsTable.type, [
+        TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE,
+        TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE,
+      ]),
+      sql`${eventsTable.payload}->'dispatchLease'->>'token' = ${input.token}`,
+    ))
+    .returning({ id: eventsTable.id });
+  return Boolean(released);
 }

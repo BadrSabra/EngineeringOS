@@ -75,7 +75,11 @@ import {
   getTaskDependencyBlockers,
   type TaskDependencyBlocker,
 } from "./task-dependencies.js";
-import { TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE, taskAutoExecutionIntentId } from "./task-auto-execution-outbox.js";
+import {
+  TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE,
+  TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE,
+  taskAutoExecutionIntentId,
+} from "./task-auto-execution-outbox.js";
 import { dispatchPendingTaskObservationOutbox } from "./task-observation-outbox.js";
 import { taskTransitionConflict, type TaskStatus } from "./task-state.js";
 import { databaseLeaseUntil, databaseNow } from "./job-lease.js";
@@ -4441,6 +4445,8 @@ export async function executeTaskLifecycle(params: {
   expectedStatuses?: Array<"pending" | "queued" | "verifying">;
   expectedRetryCount?: number;
   expectedCorrelationId?: string | null;
+  /** Fences automatic queue work to the live Task Outbox dispatch owner. */
+  expectedAutoDispatchLeaseToken?: string;
   expectedResumeAttempt?: number;
   expectedProjectUpdatedAt?: string;
   /** Backward-compatible metadata snapshot input; never used as a Mission content revision. */
@@ -4726,6 +4732,10 @@ export async function executeTaskLifecycle(params: {
           || (payload?.taskCorrelationId === undefined && correlationIdAtRead === null);
         const intentMatchesCurrentGeneration = Boolean(
           dispatchIntent
+          && (
+            dispatchIntent.type === TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE
+            || dispatchIntent.type === TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE
+          )
           && dispatchIntent.projectId === before.projectId
           && dispatchIntent.taskId === before.id
           && payload !== undefined
@@ -4733,6 +4743,32 @@ export async function executeTaskLifecycle(params: {
           && payload.taskRetryCount === retryCountAtRead
           && intentCorrelationMatches
         );
+        if (params.expectedAutoDispatchLeaseToken !== undefined) {
+          const dispatchLease = payload?.dispatchLease
+            && typeof payload.dispatchLease === "object"
+            && !Array.isArray(payload.dispatchLease)
+            ? payload.dispatchLease as Record<string, unknown>
+            : undefined;
+          const expiresAt = typeof dispatchLease?.expiresAt === "string"
+            ? Date.parse(dispatchLease.expiresAt)
+            : Number.NaN;
+          const clockResult = await tx.execute(sql`SELECT clock_timestamp() AS now`);
+          const rawNow = (clockResult.rows as Array<{ now: Date | string }>)[0]?.now;
+          const databaseNow = rawNow instanceof Date ? rawNow : new Date(String(rawNow ?? ""));
+          if (
+            !intentMatchesCurrentGeneration
+            || dispatchLease?.token !== params.expectedAutoDispatchLeaseToken
+            || !rawNow
+            || !Number.isFinite(databaseNow.getTime())
+            || !Number.isFinite(expiresAt)
+            || expiresAt <= databaseNow.getTime()
+          ) {
+            return {
+              kind: "conflict" as const,
+              errorCode: "task_auto_dispatch_lease_lost",
+            };
+          }
+        }
         const nextAttemptAt = typeof payload?.nextAttemptAt === "string"
           ? Date.parse(payload.nextAttemptAt)
           : Number.NaN;
@@ -4892,6 +4928,9 @@ export async function executeTaskLifecycle(params: {
         eq(eventsTable.id, taskAutoExecutionIntentId(before.id)),
         sql`${eventsTable.payload}->>'taskRetryCount' = ${String(retryCountAtRead)}`,
         sql`${eventsTable.payload}->>'taskCorrelationId' IS NOT DISTINCT FROM ${correlationIdAtRead}`,
+        ...(params.expectedAutoDispatchLeaseToken !== undefined
+          ? [sql`${eventsTable.payload}->'dispatchLease'->>'token' = ${params.expectedAutoDispatchLeaseToken}`]
+          : []),
       ));
 
       const [claimedTask] = await tx.update(tasksTable)
