@@ -61,6 +61,7 @@ const ACTIONS = {
   candidate: "Rebuild and validate the immutable candidate workspace before promotion.",
   nodes: "Resume or repair the failed validation nodes within their existing retry budget.",
   evidence: "Retain redacted operation evidence and rerun the required checks.",
+  nodeEvidence: "Attach retained evidence references to every required validation node, then rerun the affected checks.",
   terminal: "Reconcile the operation to a terminal server-owned verdict; do not infer success from model text.",
   campaign: "Run the affected campaign cases in an isolated fixture and attach their redacted findings.",
 } as const;
@@ -98,6 +99,14 @@ export function evaluateOperationalReadiness(
   const nodesPassed = input.requiredNodes.length > 0 && input.requiredNodes.every((node) => node.status === "passed");
   checks.push(check("required-validation-nodes", nodesPassed,
     nodesPassed ? "All required execution nodes passed." : "One or more required execution nodes did not pass.", true, ACTIONS.nodes));
+  const nodesHaveEvidence = input.requiredNodes.length > 0 && input.requiredNodes.every((node) =>
+    node.evidenceRefs?.some((ref) => typeof ref === "string" && ref.trim().length > 0) === true
+  );
+  checks.push(check("required-node-evidence", nodesHaveEvidence,
+    nodesHaveEvidence
+      ? "Every required validation node retains at least one evidence reference."
+      : "One or more required validation nodes have no retained evidence reference.",
+    true, ACTIONS.nodeEvidence));
   const evidenceOkay = input.evidenceCompleteness === "complete" && input.evidenceRefs.length > 0;
   checks.push(check("retained-redacted-evidence", evidenceOkay,
     evidenceOkay ? "Complete redacted evidence is retained." : `Evidence is ${input.evidenceCompleteness} or has no retained references.`, true, ACTIONS.evidence));
