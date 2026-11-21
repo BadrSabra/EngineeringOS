@@ -1244,6 +1244,7 @@ describe("Task lifecycle", () => {
     });
     const [task] = await db.select().from(tasksTable).where(eq(tasksTable.id, taskId));
     expect(task?.status).toBe("verifying");
+    mockScheduleAiTaskExecution.mockReset();
   });
 
   it("keeps the committed Task Outbox intent when the local retry wake fails", async () => {
