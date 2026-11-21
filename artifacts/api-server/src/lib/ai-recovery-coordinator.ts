@@ -160,6 +160,8 @@ export type ChatRecoveryCandidate = {
   executionProjectId: string;
   executionStatus: string;
   executionAttempt: number;
+  acceptanceId: string;
+  acceptanceFinalizationKey: string;
   userId: string;
   action: string;
   reasonCode: string | null;
@@ -693,6 +695,8 @@ async function findChatRecoveryCandidates(scope: {
       executionProjectId: aiExecutionsTable.projectId,
       executionStatus: aiExecutionsTable.status,
       executionAttempt: aiExecutionsTable.attempt,
+      acceptanceId: aiExecutionAcceptancesTable.id,
+      acceptanceFinalizationKey: aiExecutionAcceptancesTable.finalizationKey,
       userId: aiExecutionsTable.userId,
       action: aiExecutionAcceptancesTable.nextActionCode,
       reasonCode: aiExecutionAcceptancesTable.reasonCode,
@@ -718,6 +722,15 @@ async function findChatRecoveryCandidates(scope: {
         "RETRY_AFTER_RATE_LIMIT",
       ]),
       eq(aiExecutionAcceptancesTable.outcome, "FAILED"),
+      sql`CASE
+        WHEN ${aiExecutionAcceptancesTable.disposition}->>'retryAt' IS NULL THEN TRUE
+        WHEN pg_input_is_valid(
+          ${aiExecutionAcceptancesTable.disposition}->>'retryAt',
+          'timestamp with time zone'
+        )
+        THEN (${aiExecutionAcceptancesTable.disposition}->>'retryAt')::timestamptz <= clock_timestamp()
+        ELSE FALSE
+      END`,
       isNull(aiExecutionsTable.linkedTaskId),
       inArray(aiExecutionsTable.status, [...RECOVERY_EXECUTION_STATUSES]),
       scope.projectId ? eq(projectsTable.id, scope.projectId) : undefined,
@@ -728,6 +741,112 @@ async function findChatRecoveryCandidates(scope: {
   return rows.map((row) => ({
     ...row,
   }));
+}
+
+type ChatRecoveryPreflightResult = "ready" | "stale" | "not_due";
+
+/**
+ * Revalidate a queued Chat recovery against its exact durable authorization
+ * before resolving a provider or spending a project rate-limit lookup.
+ *
+ * The locks are deliberately short-lived. The recovery runner still performs
+ * the authoritative attempt/token claim after this scheduling optimization.
+ */
+async function preflightChatRecovery(
+  candidate: ChatRecoveryCandidate,
+  plan: Extract<ChatRecoveryPlan, { kind: "resume" | "retry" }>,
+): Promise<ChatRecoveryPreflightResult> {
+  return db.transaction(async (tx) => {
+    const [execution] = await tx
+      .select({
+        projectId: aiExecutionsTable.projectId,
+        sessionId: aiExecutionsTable.sessionId,
+        linkedTaskId: aiExecutionsTable.linkedTaskId,
+        userId: aiExecutionsTable.userId,
+        status: aiExecutionsTable.status,
+        attempt: aiExecutionsTable.attempt,
+        request: aiExecutionsTable.request,
+      })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, candidate.executionId))
+      .for("update")
+      .limit(1);
+
+    if (
+      !execution
+      || execution.projectId !== candidate.executionProjectId
+      || execution.sessionId !== parseExecutionRequest(candidate.request)?.sessionId
+      || execution.linkedTaskId !== null
+      || execution.userId !== candidate.userId
+      || execution.status !== candidate.executionStatus
+      || !RECOVERY_EXECUTION_STATUSES.includes(execution.status as "paused" | "failed")
+      || execution.attempt !== candidate.executionAttempt
+      || execution.request !== candidate.request
+    ) {
+      return "stale" as const;
+    }
+
+    const [acceptance] = await tx
+      .select({
+        id: aiExecutionAcceptancesTable.id,
+        projectId: aiExecutionAcceptancesTable.projectId,
+        finalizationKey: aiExecutionAcceptancesTable.finalizationKey,
+        outcome: aiExecutionAcceptancesTable.outcome,
+        reasonCode: aiExecutionAcceptancesTable.reasonCode,
+        nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+        disposition: aiExecutionAcceptancesTable.disposition,
+        resumable: aiExecutionAcceptancesTable.resumable,
+        sourceRevision: aiExecutionAcceptancesTable.sourceRevision,
+      })
+      .from(aiExecutionAcceptancesTable)
+      .where(and(
+        eq(aiExecutionAcceptancesTable.executionId, candidate.executionId),
+        eq(aiExecutionAcceptancesTable.attempt, candidate.executionAttempt),
+      ))
+      .for("update")
+      .limit(1);
+
+    if (
+      !acceptance
+      || acceptance.id !== candidate.acceptanceId
+      || acceptance.projectId !== candidate.executionProjectId
+      || acceptance.finalizationKey !== candidate.acceptanceFinalizationKey
+      || acceptance.outcome !== "FAILED"
+      || acceptance.reasonCode !== candidate.reasonCode
+      || acceptance.nextActionCode !== candidate.action
+      || acceptance.nextActionCode !== plan.action
+      || acceptance.resumable !== candidate.resumable
+      || acceptance.sourceRevision !== candidate.sourceRevision
+    ) {
+      return "stale" as const;
+    }
+
+    const disposition = asDisposition(acceptance.disposition);
+    if (
+      disposition.recoveryState !== "REQUIRED"
+      || disposition.automaticRecoveryBlocked === true
+      || requiresManualProviderLimitAction(plan.action, disposition)
+    ) {
+      return "stale" as const;
+    }
+
+    const clockResult = await tx.execute(sql`SELECT clock_timestamp() AS now`);
+    const clockValue = (clockResult.rows as Array<{ now: Date | string }>)[0]?.now;
+    const databaseNow = clockValue instanceof Date
+      ? clockValue
+      : new Date(String(clockValue ?? ""));
+    if (!clockValue || !Number.isFinite(databaseNow.getTime())) {
+      throw new Error("chat_recovery_preflight_clock_unavailable");
+    }
+
+    if (disposition.retryAt !== undefined && disposition.retryAt !== null) {
+      const retryAtMs = parseRetryAt(disposition.retryAt);
+      if (retryAtMs === undefined) return "stale" as const;
+      if (retryAtMs > databaseNow.getTime()) return "not_due" as const;
+    }
+
+    return "ready" as const;
+  });
 }
 
 async function writeRecoveryLog(
@@ -1138,6 +1257,15 @@ async function runChatRecovery(
   candidate: ChatRecoveryCandidate,
   plan: Extract<ChatRecoveryPlan, { kind: "resume" | "retry" }>,
 ): Promise<void> {
+  const preflight = await preflightChatRecovery(candidate, plan);
+  if (preflight !== "ready") {
+    logger.info(
+      { executionId: candidate.executionId, reason: preflight },
+      "automatic chat recovery skipped before provider admission",
+    );
+    return;
+  }
+
   const resolved = await resolveProvider(candidate.userId, {
     qualityProfile: "analysis",
   });
