@@ -493,7 +493,11 @@ describe("buildProjectContext → AgentContextSchema", () => {
     expect(_tableHits.get(metricsTable as object)).toBeGreaterThan(metricsReadsBefore);
   });
 
-  it("includes only the bounded server-owned World State projection", async () => {
+  it("includes only the bounded server-owned World State projection for the current revision", async () => {
+    const baseline = await buildProjectContext(PROJECT_ID);
+    const projectRevision = baseline.contextManifest?.projectRevision;
+    expect(projectRevision).toBeTruthy();
+
     _tableData.set(aiWorldFactsTable as object, [{
       id: "fact-001",
       subject: "execution:fixture",
@@ -502,9 +506,13 @@ describe("buildProjectContext → AgentContextSchema", () => {
       valueHash: "hash-001",
       version: 1,
       status: "believed",
-      projectRevision: "revision-1",
+      projectRevision: projectRevision ?? "unavailable",
+      taskScope: "build",
+      environmentRevision: "environment-a",
+      environmentFreshness: "fresh",
       supersedesFactId: null,
     }]);
+    invalidateContextCache(PROJECT_ID);
 
     const context = await buildProjectContext(PROJECT_ID, {
       sections: [
@@ -515,8 +523,10 @@ describe("buildProjectContext → AgentContextSchema", () => {
         "worldState",
       ],
     });
-    expect(context.worldState).toContain("Trusted facts: 1");
+    expect(context.worldState).toContain("World State evidence: 1/1 facts selected");
     expect(context.worldState).toContain("execution:fixture runtime.status");
+    expect(context.worldState).toContain("task-scope=build");
+    expect(context.worldState).toContain("environment-revision=environment-a");
     expect(context.contextHealth?.worldState).toMatchObject({
       status: "loaded",
       source: "db:world_state",
