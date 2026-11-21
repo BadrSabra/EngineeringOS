@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  selectExtractedRelationshipsForRefresh,
-  sortAffectedRelationshipPaths,
-} from "./scan-graph-relationship-selection.js";
+import { selectExtractedRelationshipsForRefresh } from "./scan-graph-relationship-selection.js";
 
 type Fixture = {
   id: string;
@@ -78,14 +75,14 @@ describe("selectExtractedRelationshipsForRefresh", () => {
     const importEdge = relationship({
       sourceName: "src/a.ts",
       targetName: "src/c.ts",
-      sourcePath: undefined,
-      targetPath: undefined,
       provenance: {
         sourceType: "typescript-ast",
         method: "ts-compiler-api",
         evidence: [{ file: "src/a.ts", kind: "import-statement" }],
       },
     });
+    delete importEdge.sourcePath;
+    delete importEdge.targetPath;
     expect(selectExtractedRelationshipsForRefresh({
       currentPaths,
       affectedPaths: ["src/a.ts"],
@@ -96,10 +93,10 @@ describe("selectExtractedRelationshipsForRefresh", () => {
   it("ignores runtime observations because they have a separate persistence lifecycle", () => {
     const runtime = relationship({
       isRuntimeObserved: true,
-      sourcePath: undefined,
-      targetPath: undefined,
       provenance: null,
     });
+    delete runtime.sourcePath;
+    delete runtime.targetPath;
     expect(selectExtractedRelationshipsForRefresh({
       currentPaths,
       affectedPaths: ["src/a.ts"],
@@ -121,12 +118,12 @@ describe("selectExtractedRelationshipsForRefresh", () => {
   });
 
   it.each([
-    ["missing endpoint path", relationship({ targetPath: undefined, targetName: "external-package" }), "relationship_endpoint_path_missing"],
+    ["missing endpoint path", (() => { const row = relationship({ targetName: "external-package" }); delete row.targetPath; return row; })(), "relationship_endpoint_path_missing"],
     ["missing provenance", relationship({ provenance: null }), "relationship_provenance_missing"],
     ["missing evidence", relationship({ provenance: { sourceType: "x", method: "y", evidence: [] } }), "relationship_evidence_missing"],
     ["unsafe evidence path", relationship({ provenance: { sourceType: "x", method: "y", evidence: [{ file: "../outside.ts" }] } }), "relationship_evidence_path_invalid"],
     ["evidence path not in the current manifest", relationship({ provenance: { sourceType: "x", method: "y", evidence: [{ file: "src/deleted.ts" }] } }), "relationship_evidence_path_invalid"],
-    ["null runtime marker", relationship({ isRuntimeObserved: null as unknown as boolean }), "invalid_runtime_marker"],
+    ["null runtime marker", relationship({ isRuntimeObserved: null }), "invalid_runtime_marker"],
   ] as const)("falls back to full selection for %s", (_label, candidate, reason) => {
     expect(selectExtractedRelationshipsForRefresh({
       currentPaths,
@@ -156,9 +153,4 @@ describe("selectExtractedRelationshipsForRefresh", () => {
     })).toEqual({ mode: "full", reason: "invalid_affected_paths" });
   });
 
-  it("sorts affected paths without mutating the caller's array", () => {
-    const input = ["src/z.ts", "src/a.ts"];
-    expect(sortAffectedRelationshipPaths(input)).toEqual(["src/a.ts", "src/z.ts"]);
-    expect(input).toEqual(["src/z.ts", "src/a.ts"]);
-  });
 });

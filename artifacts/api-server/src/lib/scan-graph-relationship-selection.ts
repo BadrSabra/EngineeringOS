@@ -3,7 +3,7 @@ type ExtractedRelationshipForRefresh = {
   targetName: string;
   sourcePath?: string;
   targetPath?: string;
-  isRuntimeObserved?: boolean;
+  isRuntimeObserved?: boolean | null;
   provenance?: unknown;
 };
 
@@ -33,10 +33,6 @@ export type ExtractedRelationshipSelectionResult<T> =
 
 function isRecord(value: unknown): value is UnknownRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function comparePaths(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function isSafeRelativePath(path: string): boolean {
@@ -190,9 +186,4 @@ export function selectExtractedRelationshipsForRefresh<
     selectedCount: selected.length,
     inspectedCount: relationships.length,
   };
-}
-
-/** Deterministic path normalization for callers that build immutable plans. */
-export function sortAffectedRelationshipPaths(paths: readonly string[]): string[] {
-  return [...paths].sort(comparePaths);
 }
