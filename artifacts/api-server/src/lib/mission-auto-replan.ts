@@ -50,6 +50,7 @@ import {
   type MissionFailureSourceBinding,
 } from "./mission-strategy-engine.js";
 import { runMissionGoal, type MissionGoalRunResult } from "./mission-runtime.js";
+import { logger } from "./logger.js";
 import { buildMissionStrategyDecisionTraceInTransaction } from "./mission-strategy-decision-trace.js";
 import {
   appendMissionDecisionLifecycleEventInTransaction,
@@ -75,6 +76,7 @@ type AutoReplanResult =
 
 const TERMINAL_REPLAN_FAILURES = new Set([
   "objective_no_longer_mission_eligible",
+  "automatic_replan_not_enabled",
   "automatic_replan_budget_exhausted",
   "automatic_replan_already_attempted",
   "failure_diagnosis_invalid",
@@ -1098,6 +1100,7 @@ export async function autoReplanMission(
 export async function reconcileAutomaticMissionReplans(
   limit = 16,
   scopeProjectId?: string,
+  replanMission: typeof autoReplanMission = autoReplanMission,
 ): Promise<number> {
   const candidates = await db
     .select({ id: aiMissionsTable.id })
@@ -1110,8 +1113,20 @@ export async function reconcileAutomaticMissionReplans(
     .limit(Math.max(1, Math.min(limit, 64)));
   let replanned = 0;
   for (const candidate of candidates) {
-    const result = await autoReplanMission(candidate.id);
-    if (result.status === "replanned") replanned++;
+    try {
+      const result = await replanMission(candidate.id);
+      if (result.status === "replanned") replanned++;
+    } catch (error) {
+      // One transient planner/dispatch failure must not prevent other Missions
+      // in this bounded batch from getting their own reconciliation attempt.
+      logger.warn(
+        {
+          missionId: candidate.id,
+          errorName: error instanceof Error ? error.name : "UnknownError",
+        },
+        "Automatic Mission replan failed; continuing with the remaining candidates",
+      );
+    }
   }
   return replanned;
 }
