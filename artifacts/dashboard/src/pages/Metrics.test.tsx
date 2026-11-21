@@ -104,7 +104,29 @@ describe('Metrics', () => {
   it('does not request metrics until a project is available', () => {
     render(<Metrics />);
 
-    expect(screen.getByText('اختر مشروعًا لعرض مؤشراته.')).toBeInTheDocument();
+    expect(screen.getByTestId('metrics-no-project')).toHaveTextContent(
+      'لا يوجد مشروع لعرض مؤشراته بعد.',
+    );
+    expect(screen.getByTestId('link-metrics-empty-goal')).toHaveAttribute('href', '/');
+    expect(screen.getByTestId('link-metrics-empty-projects')).toHaveAttribute('href', '/projects');
+    expect(useListMetrics).toHaveBeenCalledWith(
+      { projectId: '' },
+      expect.objectContaining({
+        query: expect.objectContaining({ enabled: false }),
+      }),
+    );
+  });
+
+  it('shows project loading instead of the no-project actions before the project list arrives', () => {
+    mockProjects([], { data: undefined, isFetching: true });
+
+    render(<Metrics />);
+
+    expect(screen.getByTestId('metrics-projects-loading')).toHaveTextContent(
+      'جارٍ تحميل قائمة المشاريع',
+    );
+    expect(screen.queryByTestId('metrics-no-project')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('link-metrics-empty-goal')).not.toBeInTheDocument();
     expect(useListMetrics).toHaveBeenCalledWith(
       { projectId: '' },
       expect.objectContaining({
