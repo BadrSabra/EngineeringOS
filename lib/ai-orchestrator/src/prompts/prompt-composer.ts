@@ -5,7 +5,7 @@ import type { ExecutionPlan } from "../model-selection/execution-plan.js";
 
 export type PromptContextSection = keyof Pick<
   ProjectContext,
-  "project" | "latestMetrics" | "latestScanEvidence" | "graphSummary" | "recentTasks" | "recentEvents" | "workflows"
+  "project" | "latestMetrics" | "latestScanEvidence" | "graphSummary" | "recentTasks" | "recentEvents" | "workflows" | "worldState"
 >;
 
 export type PromptContextProfile =
@@ -20,15 +20,15 @@ export type PromptContextProfile =
   | "workflow";
 
 const PROFILE_SECTIONS: Record<PromptContextProfile, readonly PromptContextSection[]> = {
-  full:          ["project", "latestMetrics", "graphSummary", "workflows", "recentTasks", "recentEvents"],
+  full:          ["project", "latestMetrics", "graphSummary", "workflows", "recentTasks", "recentEvents", "worldState"],
   "chat-lite":   ["project"],
   "chat-normal": ["project", "latestMetrics", "recentTasks"],
   "chat-deep":   ["project", "latestMetrics", "graphSummary", "workflows", "recentTasks", "recentEvents"],
   chat:          ["project", "latestMetrics", "recentTasks"],   // legacy; maps to chat-normal semantics
-  task:          ["project", "latestMetrics", "graphSummary", "recentTasks", "recentEvents"],
-  scan:          ["project", "latestMetrics", "latestScanEvidence", "graphSummary", "recentTasks", "recentEvents"],
-  review:        ["project", "latestMetrics", "graphSummary", "recentTasks", "recentEvents"],
-  workflow:      ["project", "latestMetrics", "workflows", "recentTasks", "recentEvents"],
+  task:          ["project", "latestMetrics", "graphSummary", "recentTasks", "recentEvents", "worldState"],
+  scan:          ["project", "latestMetrics", "latestScanEvidence", "graphSummary", "recentTasks", "recentEvents", "worldState"],
+  review:        ["project", "latestMetrics", "graphSummary", "recentTasks", "recentEvents", "worldState"],
+  workflow:      ["project", "latestMetrics", "workflows", "recentTasks", "recentEvents", "worldState"],
 };
 
 export function composePrompt(...parts: Array<string | null | undefined | false>): string {
@@ -103,7 +103,9 @@ export function promptContextOverview(
               ? "graphSummary"
               : section === "events"
                 ? "recentEvents"
-                : "workflows",
+                : section === "worldState"
+                  ? "worldState"
+                  : "workflows",
       );
     }
   } else {
@@ -197,6 +199,9 @@ export function promptContextOverview(
       : []),
     ...(sections.has("recentEvents")
       ? [promptEvidenceSection("Recent Events", orientationSafeValue("recentEvents", context.recentEvents), "tool_output")]
+      : []),
+    ...(sections.has("worldState") && context.worldState
+      ? [promptEvidenceSection("Trusted World State", orientationSafeValue("worldState", context.worldState), "checkpoint")]
       : []),
     ...(includeSessionMemory && context.sessionMemories
       // session-memory.ts already creates the untrusted-content envelope.

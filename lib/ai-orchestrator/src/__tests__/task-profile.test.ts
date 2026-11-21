@@ -70,6 +70,8 @@ describe("task profile", () => {
       const lite = resolveExecutionDecision("chat-agent");
       const deep = resolveExecutionDecision("scan-runner");
       const stateless = resolveExecutionDecision("workflow-orchestrator");
+      const task = resolveExecutionDecision("task-runner");
+      const review = resolveExecutionDecision("review-agent");
 
       // Keep these assertions aligned with the source-owned budget tables:
       // lite/index currently materialize to 4000/1200, while deep/expanded
@@ -96,6 +98,16 @@ describe("task profile", () => {
       );
       expect(stateless.taskProfile.memoryMode).toBe("none");
       expect(stateless.taskProfile.historyMode).toBe("none");
+
+      // Durable World State is useful for execution and evidence work, but
+      // stays out of lightweight and ordinary chat context.
+      for (const plan of [deep, task, review, stateless]) {
+        expect(plan.contextSections).toContain("worldState");
+      }
+      expect(lite.contextSections).not.toContain("worldState");
+      expect(resolveExecutionDecision("chat-agent", {
+        contextIntensityOverride: "normal",
+      }).contextSections).not.toContain("worldState");
     });
 
     it("keeps explicit policy overrides together", () => {

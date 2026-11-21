@@ -19,7 +19,8 @@ export type ExecutionContextSection =
   | "graphEntities"
   | "graphRelationships"
   | "events"
-  | "workflows";
+  | "workflows"
+  | "worldState";
 
 export type ExecutionPlan = {
   taskProfile: TaskProfile;
@@ -76,11 +77,11 @@ const CONTEXT_SECTIONS_BY_PROFILE: Record<string, readonly ExecutionContextSecti
   "chat-lite": ["tasks"],
   "chat-normal": ["tasks", "metrics"],
   "chat-deep": ["tasks", "metrics", "graphEntities", "graphRelationships", "events", "workflows"],
-  task: ["tasks", "metrics", "graphEntities", "graphRelationships", "events"],
-  scan: ["tasks", "metrics", "graphEntities", "graphRelationships", "events", "workflows"],
-  review: ["tasks", "metrics", "graphEntities", "graphRelationships", "events"],
-  workflow: ["tasks", "metrics", "events", "workflows"],
-  full: ["tasks", "metrics", "graphEntities", "graphRelationships", "events", "workflows"],
+  task: ["tasks", "metrics", "graphEntities", "graphRelationships", "events", "worldState"],
+  scan: ["tasks", "metrics", "graphEntities", "graphRelationships", "events", "workflows", "worldState"],
+  review: ["tasks", "metrics", "graphEntities", "graphRelationships", "events", "worldState"],
+  workflow: ["tasks", "metrics", "events", "workflows", "worldState"],
+  full: ["tasks", "metrics", "graphEntities", "graphRelationships", "events", "workflows", "worldState"],
   chat: ["tasks", "metrics"],
 };
 
