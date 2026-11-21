@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import {
   db,
   graphEntitiesTable,
@@ -150,4 +150,126 @@ describe("runtime observations", () => {
       targetName: "loadUser",
     })).rejects.toMatchObject({ code: "RUNTIME_SESSION_MISMATCH" });
   });
+  it("serializes observations with runtime session replacement", async () => {
+    const projectId = randomUUID();
+    projectIds.push(projectId);
+    const now = new Date();
+    const sessionId = "runtime-session-before-replacement";
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "runtime-observation-test-user",
+      name: `runtime-observation-${projectId.slice(0, 8)}`,
+      rootPath: "/tmp/runtime-observation-test",
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(workspaceRuntimeTable).values({
+      id: projectId,
+      projectId,
+      sessionId,
+      status: "running",
+      profile: "dev",
+      command: "pnpm run dev",
+      projectRoot: "/tmp/runtime-observation-test",
+      revision: "runtime-revision-before-replacement",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const sourceId = randomUUID();
+    const targetId = randomUUID();
+    await db.insert(graphEntitiesTable).values([
+      {
+        id: sourceId,
+        projectId,
+        type: "function",
+        name: "handleRequest",
+        path: "src/server.ts",
+        createdAt: now,
+      },
+      {
+        id: targetId,
+        projectId,
+        type: "function",
+        name: "loadUser",
+        path: "src/users.ts",
+        createdAt: now,
+      },
+    ]);
+
+    let releaseRuntimeRow!: () => void;
+    let announceRuntimeLock!: () => void;
+    const runtimeRowLocked = new Promise<void>((resolve) => {
+      announceRuntimeLock = resolve;
+    });
+    const holdRuntimeRow = db.transaction(async (tx) => {
+      await tx.select({ id: workspaceRuntimeTable.id })
+        .from(workspaceRuntimeTable)
+        .where(eq(workspaceRuntimeTable.projectId, projectId))
+        .for("update")
+        .limit(1);
+      announceRuntimeLock();
+      await new Promise<void>((resolve) => {
+        releaseRuntimeRow = resolve;
+      });
+      await tx.update(workspaceRuntimeTable).set({
+        sessionId: "runtime-session-after-replacement",
+        revision: "runtime-revision-after-replacement",
+        status: "stopped",
+        updatedAt: new Date(),
+      }).where(eq(workspaceRuntimeTable.projectId, projectId));
+    });
+    await runtimeRowLocked;
+
+    const pendingObservation = recordRuntimeObservation({
+      projectId,
+      sessionId,
+      runtimeRevision: "runtime-revision-before-replacement",
+      sourcePath: "src/server.ts",
+      sourceName: "handleRequest",
+      targetPath: "src/users.ts",
+      targetName: "loadUser",
+    });
+
+    let observationWaitedForRuntimeRow = false;
+    const deadline = Date.now() + 10_000;
+    try {
+      while (Date.now() < deadline && !observationWaitedForRuntimeRow) {
+        const activity = await db.execute(sql`
+          SELECT waiting.query
+          FROM pg_stat_activity AS waiting
+          WHERE waiting.pid <> pg_backend_pid()
+            AND waiting.datname = current_database()
+            AND waiting.wait_event_type = 'Lock'
+            AND cardinality(pg_blocking_pids(waiting.pid)) > 0
+        `);
+        const rows = (activity as unknown as {
+          rows?: Array<{ query: string | null }>;
+        }).rows ?? [];
+        observationWaitedForRuntimeRow = rows.some((row) =>
+          /workspace_runtime/i.test(row.query ?? ""),
+        );
+        if (!observationWaitedForRuntimeRow) {
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+      }
+    } finally {
+      releaseRuntimeRow();
+      await holdRuntimeRow;
+    }
+
+    expect(observationWaitedForRuntimeRow).toBe(true);
+    await expect(pendingObservation).rejects.toMatchObject({
+      code: "RUNTIME_SESSION_UNAVAILABLE",
+    });
+    const relationships = await db.select()
+      .from(graphRelationshipsTable)
+      .where(and(
+        eq(graphRelationshipsTable.projectId, projectId),
+        eq(graphRelationshipsTable.isRuntimeObserved, true),
+      ));
+    expect(relationships).toHaveLength(0);
+  });
+
 });
