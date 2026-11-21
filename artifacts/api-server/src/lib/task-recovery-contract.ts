@@ -1,9 +1,7 @@
 /**
- * The exact acceptance actions and durable eligibility states that the
- * autonomous Task recovery coordinator owns on the current Task generation.
- *
- * Mission projection uses the same contract so a retryable Task failure does
- * not become a new Mission plan while this bounded recovery path is eligible.
+ * Shared eligibility contract for continuing the current Mission Task
+ * generation. Task recovery, the durable Task Outbox and Mission replanning
+ * all consult these predicates so a new plan cannot race a valid continuation.
  */
 export const TASK_RECOVERY_ACTION_CODES = [
   "RESUME_ALLOWED",
@@ -13,9 +11,27 @@ export const TASK_RECOVERY_ACTION_CODES = [
 
 export const TASK_RECOVERY_TASK_STATUSES = ["pending", "queued", "verifying"] as const;
 export const TASK_RECOVERY_EXECUTION_STATUSES = ["paused", "failed"] as const;
+export const TASK_ACTIVE_EXECUTION_STATUSES = ["queued", "running", "cancelling"] as const;
 
 export type TaskRecoveryActionCode = (typeof TASK_RECOVERY_ACTION_CODES)[number];
 
+type TaskRecord = {
+  taskId: string;
+  taskProjectId: string;
+  taskStatus: string;
+  prompt: string | null;
+  retryCount: number;
+  maxRetries: number;
+  taskCorrelationId: string | null;
+};
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+/** A future retryAt remains pending; it is deferred, not abandoned. */
 export function isSamePlanTaskRecoveryPending(input: {
   outcome: unknown;
   recoveryState: unknown;
@@ -51,4 +67,125 @@ export function isSamePlanTaskRecoveryPending(input: {
     && typeof input.taskCorrelationId === "string"
     && input.taskCorrelationId.length > 0
     && input.executionCorrelationId === input.taskCorrelationId;
+}
+
+/** Only an exact, parseable Outbox row for the current Task generation continues work. */
+export function isTaskAutoExecutionIntentPending(input: {
+  eventType: unknown;
+  eventProjectId: unknown;
+  eventTaskId: unknown;
+  eventPayload: unknown;
+  taskId: unknown;
+  taskProjectId: unknown;
+  taskStatus: unknown;
+  prompt: unknown;
+  taskRetryCount: unknown;
+  taskCorrelationId: unknown;
+}): boolean {
+  const payload = asRecord(input.eventPayload);
+  const payloadCorrelationId = payload.taskCorrelationId;
+  const correlationMatches = payloadCorrelationId === input.taskCorrelationId
+    || (payloadCorrelationId === undefined && input.taskCorrelationId === null);
+  const attemptCount = payload.attemptCount ?? 0;
+
+  return (input.eventType === "TaskAutoExecutionDispatchRequested"
+      || input.eventType === "TaskAutoExecutionDeferred")
+    && input.eventProjectId === input.taskProjectId
+    && input.eventTaskId === input.taskId
+    && typeof input.taskId === "string"
+    && input.taskId.length > 0
+    && input.taskStatus === "verifying"
+    && typeof input.prompt === "string"
+    && input.prompt.trim().length > 0
+    && Number.isSafeInteger(input.taskRetryCount)
+    && input.taskRetryCount === payload.taskRetryCount
+    && correlationMatches
+    && typeof payload.userId === "string"
+    && payload.userId.length > 0
+    && Number.isSafeInteger(attemptCount)
+    && Number(attemptCount) >= 0
+    && (
+      payload.nextAttemptAt === undefined
+      || (typeof payload.nextAttemptAt === "string"
+        && Number.isFinite(Date.parse(payload.nextAttemptAt)))
+    )
+    && (
+      payload.parentExecutionId === undefined
+      || payload.parentExecutionId === null
+      || typeof payload.parentExecutionId === "string"
+    );
+}
+
+export type TaskContinuationDecision =
+  | { kind: "continue"; via: "active_task" | "active_execution" | "accepted_recovery" | "task_outbox" }
+  | { kind: "replan"; reason: "no_current_task_continuation" };
+
+/** Shared Mission gate over one snapshot of Task, acceptance/execution and Outbox. */
+export function decideTaskContinuation(input: {
+  task: TaskRecord;
+  execution?: { status: unknown; correlationId: unknown };
+  acceptance?: {
+    outcome: unknown;
+    recoveryState: unknown;
+    nextActionCode: unknown;
+    resumable: unknown;
+    retryAt?: unknown;
+  };
+  outbox?: {
+    eventType: unknown;
+    eventProjectId: unknown;
+    eventTaskId: unknown;
+    eventPayload: unknown;
+  };
+}): TaskContinuationDecision {
+  const { task } = input;
+
+  // A running Task stays authoritative until its worker lease is reconciled.
+  if (task.taskStatus === "running") {
+    return { kind: "continue", via: "active_task" };
+  }
+
+  if (
+    input.execution
+    && (TASK_ACTIVE_EXECUTION_STATUSES as readonly string[]).includes(String(input.execution.status))
+    && typeof task.taskCorrelationId === "string"
+    && task.taskCorrelationId.length > 0
+    && input.execution.correlationId === task.taskCorrelationId
+    && ["pending", "queued", "verifying"].includes(task.taskStatus)
+  ) {
+    return { kind: "continue", via: "active_execution" };
+  }
+
+  if (
+    input.acceptance
+    && isSamePlanTaskRecoveryPending({
+      ...input.acceptance,
+      taskStatus: task.taskStatus,
+      prompt: task.prompt,
+      retryCount: task.retryCount,
+      maxRetries: task.maxRetries,
+      executionStatus: input.execution?.status,
+      taskCorrelationId: task.taskCorrelationId,
+      executionCorrelationId: input.execution?.correlationId,
+    })
+  ) {
+    return { kind: "continue", via: "accepted_recovery" };
+  }
+
+  if (
+    input.outbox
+    && isTaskAutoExecutionIntentPending({
+      ...input.outbox,
+      taskId: task.taskId,
+      taskProjectId: task.taskProjectId,
+      taskStatus: task.taskStatus,
+      prompt: task.prompt,
+      taskRetryCount: task.retryCount,
+      taskCorrelationId: task.taskCorrelationId,
+    })
+  ) {
+    return { kind: "continue", via: "task_outbox" };
+  }
+
+  return { kind: "replan", reason: "no_current_task_continuation" };
 }

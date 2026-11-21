@@ -25,7 +25,7 @@ import { recordAuditInTransaction, type RecordAuditParams } from "./audit.js";
 import type { MaterializeServerOwnedObservationsInput } from "./agent-state/observation-materializer.js";
 import { parseTaskObjectiveContract, type TaskObjectiveContract } from "./task-objective-contract.js";
 import { projectGoalAcceptance, type GoalAcceptanceProjection } from "./mission-acceptance-projection.js";
-import { isSamePlanTaskRecoveryPending } from "./task-recovery-contract.js";
+import { decideTaskContinuation } from "./task-recovery-contract.js";
 import {
   buildExecutionProofProjection,
   parseExecutionProofProjection,
@@ -769,20 +769,28 @@ async function syncLinkedObjectiveState(
           outcome: params.outcome,
           taskStatus: params.taskStatus,
           retryable: params.retryable,
-          samePlanRecoveryPending: isSamePlanTaskRecoveryPending({
-            outcome: params.currentAcceptance.outcome,
-            recoveryState: recordValue(params.currentAcceptance.disposition).recoveryState,
-            nextActionCode: params.currentAcceptance.nextActionCode,
-            resumable: params.currentAcceptance.resumable,
-            retryAt: recordValue(params.currentAcceptance.disposition).retryAt,
-            taskStatus: params.taskStatus,
-            prompt: params.task.prompt,
-            retryCount: params.task.retryCount,
-            maxRetries: params.task.maxRetries,
-            executionStatus: params.executionStatus,
-            taskCorrelationId: params.task.correlationId,
-            executionCorrelationId: params.correlationId,
-          }),
+          samePlanRecoveryPending: decideTaskContinuation({
+            task: {
+              taskId: params.task.id,
+              taskProjectId: params.task.projectId,
+              taskStatus: params.taskStatus,
+              prompt: params.task.prompt,
+              retryCount: params.task.retryCount,
+              maxRetries: params.task.maxRetries,
+              taskCorrelationId: params.task.correlationId,
+            },
+            execution: {
+              status: params.executionStatus,
+              correlationId: params.correlationId,
+            },
+            acceptance: {
+              outcome: params.currentAcceptance.outcome,
+              recoveryState: recordValue(params.currentAcceptance.disposition).recoveryState,
+              nextActionCode: params.currentAcceptance.nextActionCode,
+              resumable: params.currentAcceptance.resumable,
+              retryAt: recordValue(params.currentAcceptance.disposition).retryAt,
+            },
+          }).kind === "continue",
           siblingTaskStatuses: siblingTasks
             .filter((task) => task.id !== params.task.id)
             .map((task) => task.status),

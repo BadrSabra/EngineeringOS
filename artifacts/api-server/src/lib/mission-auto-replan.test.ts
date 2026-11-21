@@ -12,8 +12,10 @@ import {
   db,
   eventsTable,
   projectsTable,
+  tasksTable,
 } from "@workspace/db";
 import { heavyJobQueue } from "./job-queue.js";
+import { TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE, taskAutoExecutionIntentId } from "./task-auto-execution-outbox.js";
 import { autoReplanMission, buildReplanContext } from "./mission-auto-replan.js";
 import {
   receiveMissionEvent,
@@ -92,6 +94,108 @@ async function createEventDrivenReplanFixture(waiting: boolean) {
 }
 
 describe("automatic Mission replanning", () => {
+  it("keeps the current Mission plan while the exact Task generation has a deferred Outbox intent", async () => {
+    const projectId = randomUUID();
+    const missionId = randomUUID();
+    const goalId = randomUUID();
+    const taskId = randomUUID();
+    const correlationId = `mission-task-outbox:${randomUUID()}`;
+    const now = new Date();
+    projectIds.push(projectId);
+
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "test-user",
+      name: `mission-task-outbox-${projectId.slice(0, 8)}`,
+      rootPath: process.cwd(),
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId,
+      userId: "test-user",
+      title: "Continue the existing Task generation",
+      intent: "Finish the existing Task before considering another plan.",
+      status: "needs_replan",
+      scope: { kind: "project", projectId },
+      autonomyPolicy: { mode: "autonomous", maxAutoReplans: 3 },
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiGoalsTable).values({
+      id: goalId,
+      missionId,
+      projectId,
+      title: "Existing Task continuation",
+      status: "needs_replan",
+      nextAction: { kind: "task", taskId, purpose: "execution" },
+      successCriteria: { kind: "mission_plan_step", stepId: "existing-task" },
+      outcomeContract: {},
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(tasksTable).values({
+      id: taskId,
+      projectId,
+      goalId,
+      title: "Continue current Task generation",
+      prompt: "Continue the already authorized Task generation.",
+      status: "verifying",
+      retryCount: 2,
+      maxRetries: 3,
+      correlationId,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(eventsTable).values({
+      id: taskAutoExecutionIntentId(taskId),
+      type: TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE,
+      projectId,
+      taskId,
+      severity: "info",
+      message: "The current Task generation is deferred by a durable retry window.",
+      payload: {
+        userId: "test-user",
+        taskRetryCount: 2,
+        taskCorrelationId: correlationId,
+        attemptCount: 1,
+        nextAttemptAt: new Date(now.getTime() + 60_000).toISOString(),
+      },
+      timestamp: now,
+    });
+
+    const result = await autoReplanMission(missionId);
+    expect(result).toEqual({
+      status: "skipped",
+      missionId,
+      reason: "task_continuation_pending",
+    });
+
+    const [mission] = await db.select({
+      status: aiMissionsTable.status,
+      autonomyPolicy: aiMissionsTable.autonomyPolicy,
+    }).from(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
+    const [goal] = await db.select({
+      status: aiGoalsTable.status,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, goalId));
+    const [intent] = await db.select({
+      type: eventsTable.type,
+      payload: eventsTable.payload,
+    }).from(eventsTable).where(eq(eventsTable.id, taskAutoExecutionIntentId(taskId)));
+
+    expect(mission?.status).toBe("needs_replan");
+    expect(mission?.autonomyPolicy.activePlanRevision).toBeUndefined();
+    expect(goal?.status).toBe("needs_replan");
+    expect(intent?.type).toBe(TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE);
+    expect(intent?.payload).toMatchObject({
+      taskRetryCount: 2,
+      taskCorrelationId: correlationId,
+    });
+  });
+
   it("runs new plan roots through the production Goal gate and keeps old revisions stale", async () => {
     const projectId = crypto.randomUUID();
     const missionId = crypto.randomUUID();

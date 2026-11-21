@@ -28,6 +28,7 @@ import {
   TASK_RECOVERY_ACTION_CODES,
   TASK_RECOVERY_EXECUTION_STATUSES,
   TASK_RECOVERY_TASK_STATUSES,
+  isSamePlanTaskRecoveryPending,
 } from "./task-recovery-contract.js";
 
 const SAFE_CHAT_RECOVERY_FAILURE_CODES = new Set([
@@ -93,6 +94,7 @@ type RecoveryDisposition = {
 export type TaskRecoveryCandidate = {
   taskId: string;
   taskProjectId: string;
+  taskCorrelationId?: string | null;
   taskStatus: string;
   prompt: string | null;
   retryCount: number;
@@ -455,6 +457,24 @@ export function planTaskRecovery(
   if (disposition.recoveryState !== "REQUIRED") {
     return { kind: "skip", reason: "resume_not_authorized" };
   }
+  if (!isSamePlanTaskRecoveryPending({
+    outcome: "FAILED",
+    recoveryState: disposition.recoveryState,
+    nextActionCode: action,
+    resumable: candidate.resumable,
+    retryAt: disposition.retryAt,
+    taskStatus: candidate.taskStatus,
+    prompt: candidate.prompt,
+    retryCount: candidate.retryCount,
+    maxRetries: candidate.maxRetries,
+    executionStatus: candidate.executionStatus,
+    taskCorrelationId: candidate.taskCorrelationId === undefined
+      ? candidate.executionCorrelationId
+      : candidate.taskCorrelationId,
+    executionCorrelationId: candidate.executionCorrelationId,
+  })) {
+    return { kind: "skip", reason: "invalid_scope" };
+  }
 
   const retryAtMs = parseRetryAt(disposition.retryAt);
   if (action === "RETRY_AFTER_RATE_LIMIT" && retryAtMs === undefined) {
@@ -629,6 +649,7 @@ async function findRecoveryCandidates(scope: {
     .select({
       taskId: tasksTable.id,
       taskProjectId: tasksTable.projectId,
+      taskCorrelationId: tasksTable.correlationId,
       taskStatus: tasksTable.status,
       prompt: tasksTable.prompt,
       retryCount: tasksTable.retryCount,
