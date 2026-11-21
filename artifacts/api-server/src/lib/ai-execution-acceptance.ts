@@ -631,6 +631,11 @@ async function syncLinkedObjectiveState(
     executionId: string;
     operationId: string | null;
     correlationId: string | null;
+    executionStatus: string;
+    currentAcceptance: Pick<
+      typeof aiExecutionAcceptancesTable.$inferSelect,
+      "outcome" | "nextActionCode" | "disposition" | "resumable"
+    >;
     now: Date;
     acceptanceProjection?: GoalAcceptanceProjection;
   },
@@ -760,15 +765,15 @@ async function syncLinkedObjectiveState(
           taskStatus: params.taskStatus,
           retryable: params.retryable,
           samePlanRecoveryPending: isSamePlanTaskRecoveryPending({
-            outcome: acceptance.outcome,
-            recoveryState: recordValue(acceptance.disposition).recoveryState,
-            nextActionCode: acceptance.nextActionCode,
-            resumable: acceptance.resumable,
+            outcome: params.currentAcceptance.outcome,
+            recoveryState: recordValue(params.currentAcceptance.disposition).recoveryState,
+            nextActionCode: params.currentAcceptance.nextActionCode,
+            resumable: params.currentAcceptance.resumable,
             taskStatus: params.taskStatus,
             prompt: params.task.prompt,
             retryCount: params.task.retryCount,
             maxRetries: params.task.maxRetries,
-            executionStatus: terminalStatus,
+            executionStatus: params.executionStatus,
             taskCorrelationId: params.task.correlationId,
             executionCorrelationId: params.correlationId,
           }),
@@ -3108,6 +3113,8 @@ export async function finalizeExecutionAcceptance(
         executionId: execution.id,
         operationId: execution.operationId,
         correlationId,
+        executionStatus: terminalStatus,
+        currentAcceptance: acceptance,
         now,
         acceptanceProjection: {
           acceptanceId: acceptance.id,
