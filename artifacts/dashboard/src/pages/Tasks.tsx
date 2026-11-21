@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
+import { useUser } from '@clerk/react';
 import { Link, useLocation, useSearch } from 'wouter';
 import {
   useListTasks,
@@ -48,7 +49,9 @@ import {
   MessageCircle,
   Pencil,
   Trash2,
+  Copy,
   Plus,
+  Sparkles,
 } from 'lucide-react';
 import { ProviderRecoveryCard } from '@/components/ProviderRecoveryCard';
 import TaskAssistantHandoff from '@/components/TaskAssistantHandoff';
@@ -57,6 +60,7 @@ import { resolveExecutionProofPresentation } from '@/lib/execution-proof-present
 import { executionChatHref } from '@/lib/execution-chat-link';
 import { isTaskFollowUpCandidate } from '@/lib/task-follow-up-filter';
 import { shouldPollTaskDispatchList } from '@/lib/task-dispatch-polling';
+import { storeHomeGoalDraft } from '@/lib/home-goal-handoff';
 
 // ─── Task logs sub-component ──────────────────────────────────────────────────
 // Separated so the hook always runs unconditionally within the mounted component.
@@ -139,6 +143,10 @@ type TaskView = {
     status: 'needs_review' | 'ready' | 'verified';
   } | null;
 };
+
+function taskEventLogHref(projectId: string, correlationId: string): string {
+  return `/events?projectId=${encodeURIComponent(projectId)}&correlationId=${encodeURIComponent(correlationId)}`;
+}
 
 type TaskExecutionReceipt = {
   kind?: string;
@@ -1731,6 +1739,7 @@ function TasksSession({
   initialFilters: TaskListFilters;
 }) {
   const queryClient = useQueryClient();
+  const { isLoaded, user } = useUser();
   const [, navigate] = useLocation();
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [filterStatus, setFilterStatus] = useState<TaskStatusFilter | ''>(initialFilters.status);
@@ -1738,6 +1747,7 @@ function TasksSession({
   const [filterAcceptance, setFilterAcceptance] = useState<TaskAcceptanceFilter | ''>(initialFilters.acceptance);
   const [filterFollowUp, setFilterFollowUp] = useState(initialFilters.followUp);
   const [searchTerm, setSearchTerm] = useState(initialFilters.search);
+  const quickTaskTitleRef = useRef<HTMLInputElement>(null);
   const [expandedTask, setExpandedTask] = useState<string | null>(() => requestedTaskId || null);
   const [logsTab, setLogsTab] = useState<Record<string, 'details' | 'logs'>>({});
   const [createOpen, setCreateOpen] = useState(false);
@@ -1751,6 +1761,7 @@ function TasksSession({
   } | null>(null);
   const [deletingTask, setDeletingTask] = useState<{ id: string; title: string } | null>(null);
   const [deleteError, setDeleteError] = useState('');
+  const [goalHandoffError, setGoalHandoffError] = useState('');
 
   const { data: projects = [], isLoading: projectsLoading, isError: projectsError, error: projectError, refetch: refetchProjects } = useListProjects(undefined, {
     query: { queryKey: getListProjectsQueryKey() },
@@ -1867,6 +1878,15 @@ function TasksSession({
     projects.length === 1
     || Boolean(requestedProjectId || requestedTaskId || selectedProjectId)
   );
+  const canCreateTaskFromSearch = Boolean(
+    normalizedTaskSearch
+    && visibleTasks.length === 0
+    && canQuickCreateTask
+    && !filterStatus
+    && !filterPriority
+    && !filterAcceptance
+    && !filterFollowUp,
+  );
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -1921,12 +1941,52 @@ function TasksSession({
     setSelectedProjectId(nextProjectId);
   };
 
+  const openTaskAssistant = () => {
+    if (!isLoaded || !user?.id || !projectId) return;
+    const draft = storeHomeGoalDraft(
+      'أريد متابعة العمل على هذا المشروع. اسألني عما أريد إنجازه، ثم اقترح خطوات واضحة للمراجعة. لا تنشئ مهامًا ولا تغيّر الملفات قبل موافقتي.',
+      user.id,
+      String(projectId),
+    );
+    if (!draft) {
+      setGoalHandoffError('تعذر حفظ مسودة طلب المساعدة. بقيت في قائمة المهام ولم نغيّرها.');
+      return;
+    }
+    setGoalHandoffError('');
+    navigate(
+      `/projects/${encodeURIComponent(String(projectId))}/workspace?goalDraftId=${encodeURIComponent(draft.id)}#workspace-panel-agent`,
+    );
+  };
+
   const openTaskSearchResult = () => {
     if (!keyboardSearchTask) return;
     const params = new URLSearchParams(window.location.search);
     params.set('projectId', keyboardSearchTask.projectId);
     params.set('taskId', keyboardSearchTask.id);
     navigate(`/tasks?${params.toString()}${window.location.hash}`);
+  };
+
+  const copyTaskLink = async (task: TaskView) => {
+    const url = new URL(window.location.href);
+    url.search = '';
+    url.hash = '';
+    url.searchParams.set('projectId', task.projectId);
+    url.searchParams.set('taskId', task.id);
+
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
+      await navigator.clipboard.writeText(url.toString());
+      toast({
+        title: 'نُسخ رابط المهمة',
+        description: 'يفتح الرابط تفاصيل المهمة ضمن مشروعها.',
+      });
+    } catch {
+      toast({
+        title: 'تعذر نسخ رابط المهمة',
+        description: 'تحقق من إذن الحافظة وحاول مرة أخرى.',
+        variant: 'destructive',
+      });
+    }
   };
 
   const handleCreateTask = (data: CreateTaskInput, source: 'dialog' | 'quick' = 'dialog') => {
@@ -1965,6 +2025,12 @@ function TasksSession({
       title,
       priority: 'p2',
     }, 'quick');
+  };
+
+  const useSearchAsQuickTaskTitle = () => {
+    if (!canCreateTaskFromSearch) return;
+    setQuickTaskTitle(searchTerm.trim().slice(0, 200));
+    quickTaskTitleRef.current?.focus();
   };
 
   const handleUpdateTask = (data: UpdateTaskInput) => {
@@ -2190,6 +2256,7 @@ function TasksSession({
               أضف مهمة بسرعة
             </label>
             <input
+              ref={quickTaskTitleRef}
               id="quick-create-task-title"
               type="text"
               required
@@ -2330,8 +2397,44 @@ function TasksSession({
             <p className="text-muted-foreground text-sm">
               {filterAcceptance || filterFollowUp || searchTerm || filterStatus || filterPriority
                 ? 'جرّب عبارة بحث أخرى أو أزل الفلاتر. هذه نتيجة العرض الحالي، لا حكم على كل مهام المشروع.'
-                 : 'يمكنك إنشاء مهمة هنا، أو مراجعة المهام التي تنشأ عن مشكلات يكشفها فحص المشروع.'}
+                 : 'يمكنك إنشاء مهمة يدويًا، أو طلب اقتراح خطوة مناسبة للبدء.'}
             </p>
+            {canCreateTaskFromSearch && (
+              <div className="mt-4 flex flex-col items-center gap-2">
+                <button
+                  type="button"
+                  onClick={useSearchAsQuickTaskTitle}
+                  aria-label="استخدم عبارة البحث عنوانًا للمهمة الجديدة"
+                  data-testid="button-create-task-from-search"
+                  className="inline-flex items-center gap-2 rounded-md border border-primary/35 bg-primary/10 px-4 py-2 text-sm font-semibold text-primary transition-colors hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                  <Plus className="h-4 w-4" aria-hidden="true" />
+                  استخدم «<bdi dir="auto">{searchTerm.trim().slice(0, 80)}</bdi>» عنوانًا لمهمة جديدة
+                </button>
+                <span className="text-xs text-muted-foreground">
+                  ستظهر في حقل الإضافة السريعة لتعديلها قبل الإضافة.
+                </span>
+              </div>
+            )}
+            {!hasActiveTaskFilters && projectId && (
+              <>
+                <button
+                  type="button"
+                  onClick={openTaskAssistant}
+                  disabled={!isLoaded || !user?.id}
+                  data-testid="button-empty-task-assistant"
+                  className="mt-4 inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-wait disabled:opacity-50"
+                >
+                  <Sparkles className="h-4 w-4" aria-hidden="true" />
+                  اسأل المساعد عن الخطوة التالية
+                </button>
+                {goalHandoffError && (
+                  <p className="mt-3 text-xs text-destructive" role="alert" data-testid="text-empty-task-assistant-error">
+                    {goalHandoffError}
+                  </p>
+                )}
+              </>
+            )}
           </div>
         ) : (
           visibleTasks.map((task) => (
@@ -2391,6 +2494,31 @@ function TasksSession({
                 </button>
 
                 <div className="flex items-center gap-2 shrink-0 pe-4">
+                  {typeof task.correlationId === 'string' && task.correlationId.trim() && (
+                    <Link
+                      href={taskEventLogHref(task.projectId, task.correlationId.trim())}
+                      onClick={(event) => event.stopPropagation()}
+                      aria-label={`عرض سجل الأحداث مباشرة للمهمة: ${task.title}`}
+                      data-testid={`link-task-event-log-row-${task.id}`}
+                      title="سجل الأحداث المرتبط بالمهمة"
+                      className="p-1.5 text-muted-foreground hover:bg-secondary hover:text-primary rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    >
+                      <Activity className="w-4 h-4" aria-hidden="true" />
+                    </Link>
+                  )}
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void copyTaskLink(task);
+                    }}
+                    aria-label={`نسخ رابط المهمة: ${task.title}`}
+                    title="نسخ رابط المهمة"
+                    data-testid={`button-copy-task-link-${task.id}`}
+                    className="p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  >
+                    <Copy className="w-4 h-4" aria-hidden="true" />
+                  </button>
                   {(task.status === 'pending' || task.status === 'queued') && (
                     <button
                       onClick={(e) => { e.stopPropagation(); handleAction('execute', task.id); }}
@@ -2489,7 +2617,7 @@ function TasksSession({
                           {typeof task.correlationId === 'string' && task.correlationId.trim() && (
                             <div className="mb-4">
                               <Link
-                                href={`/events?projectId=${encodeURIComponent(task.projectId)}&correlationId=${encodeURIComponent(task.correlationId.trim())}`}
+                                href={taskEventLogHref(task.projectId, task.correlationId.trim())}
                                 aria-label={`عرض سجل الأحداث للمهمة: ${task.title}`}
                                 data-testid={`link-task-event-log-${task.id}`}
                                 className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"

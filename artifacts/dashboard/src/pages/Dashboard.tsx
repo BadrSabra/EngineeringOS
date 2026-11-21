@@ -938,7 +938,7 @@ function DashboardForUser({ ownerId }: { ownerId: string | null }) {
             </p>
           </Link>
           <Link
-            href="/tasks"
+            href="/tasks?status=completed"
             data-testid="card-completed-work-home"
             className="rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/40"
           >
@@ -948,7 +948,7 @@ function DashboardForUser({ ownerId }: { ownerId: string | null }) {
             </p>
           </Link>
           <Link
-            href="/tasks"
+            href="/tasks?status=failed"
             data-testid="card-failed-work-home"
             className="rounded-xl border border-border bg-card p-4 transition-colors hover:border-destructive/40"
           >

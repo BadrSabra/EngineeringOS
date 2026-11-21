@@ -1,6 +1,7 @@
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { readGoalDrafts } from '@/lib/home-goal-handoff';
 import Graph from './Graph';
 
 vi.mock('@workspace/api-client-react', () => ({
@@ -140,6 +141,47 @@ describe('Graph', () => {
     expect(screen.getByRole('button', { name: 'buildGraph' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'source.ts' })).not.toBeInTheDocument();
     expect(screen.getByText('الكيانات (1)')).toBeInTheDocument();
+  });
+
+  it('opens a project-scoped reviewable assistant draft when the knowledge graph is empty', () => {
+    vi.mocked(useListGraphEntities).mockReturnValue({
+      data: { items: [], meta: { ...graphMeta, total: 0 } },
+      isLoading: false,
+    } as ReturnType<typeof useListGraphEntities>);
+    vi.mocked(useListGraphRelationships).mockReturnValue({
+      data: { items: [], meta: { ...graphMeta, total: 0 } },
+    } as ReturnType<typeof useListGraphRelationships>);
+    vi.mocked(useGetGraphSummary).mockReturnValue({
+      data: {
+        projectId: project.id,
+        entityCount: 0,
+        relationshipCount: 0,
+        entitiesByType: {},
+        relationsByType: {},
+        topConnected: [],
+        avgDegree: 0,
+        isolatedCount: 0,
+        clusterCount: 0,
+      },
+    } as ReturnType<typeof useGetGraphSummary>);
+
+    render(<Graph />);
+
+    expect(screen.getByText('لا توجد بيانات رسم بياني موثوقة لهذا المشروع.')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('button-graph-empty-assistant-handoff'));
+
+    const draft = readGoalDrafts('user-1').drafts[0];
+    expect(draft).toMatchObject({
+      source: 'home',
+      projectId: 'project-1',
+      sendAttemptedAt: null,
+    });
+    expect(draft.text).toContain('لا تظهر بيانات موثوقة في خريطة المعرفة');
+    expect(draft.text).toContain('اقترح خطوة آمنة');
+    expect(draft.text).toContain('لا تبدأ فحصًا ولا تغيّر ملفات المشروع');
+    expect(graphHandoffMocks.setLocation).toHaveBeenLastCalledWith(
+      `/projects/project-1/workspace?goalDraftId=${draft.id}#workspace-panel-agent`,
+    );
   });
 
   it('highlights matching entities and their links while keeping the rest of the map visible', () => {

@@ -789,7 +789,12 @@ export async function autoReplanMission(
         };
       }
     }
-    const runtimeStartHypothesisEvidence = failedGoal && typeof priorPlanRevision === "string"
+    // Runtime-start hypothesis history is relevant only to a revision-bound
+    // runtime.start failure. Avoid probing episode history during unrelated
+    // automatic replans.
+    const runtimeStartHypothesisEvidence = failedGoal
+      && runtimeStartTargetStepId
+      && typeof priorPlanRevision === "string"
       ? await loadRuntimeStartHypothesisReplanEvidence(tx, {
           projectId: mission.projectId,
           missionId: mission.id,

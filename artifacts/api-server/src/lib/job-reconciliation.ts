@@ -109,6 +109,7 @@ import {
 import { dispatchDeferredAiTaskExecutions } from "../routes/ai/tasks.js";
 import { dispatchPendingTaskObservationOutbox } from "./task-observation-outbox.js";
 import { dispatchPendingMissionGoalWakes } from "./mission-goal-wake-outbox.js";
+import { dispatchPendingMissionGoalStarts } from "./mission-goal-start-outbox.js";
 import { dispatchPendingMissionEventWakes } from "./mission-event-wake-outbox.js";
 import { dispatchPendingMissionGoalApprovals } from "./mission-goal-approval-outbox.js";
 
@@ -1296,6 +1297,7 @@ async function dispatchPersistedPendingJobsOnce(): Promise<number> {
     { name: "mission-replans", run: () => reconcileAutomaticMissionReplans() },
     { name: "decision-dispatch", run: () => reconcileApprovedMissionDecisionDispatches() },
     { name: "mission-goal-wakes", run: () => dispatchPendingMissionGoalWakes(pageLimit) },
+    { name: "mission-goal-starts", run: () => dispatchPendingMissionGoalStarts(pageLimit) },
     { name: "mission-goal-approvals", run: () => dispatchPendingMissionGoalApprovals(pageLimit) },
     { name: "mission-recipes", run: () => dispatchPendingMissionRecipes() },
     {
@@ -1637,6 +1639,7 @@ export function startScopedMissionLifecycleDispatcher(
       await dispatchPendingMissionRecipes(32, projectId);
       await reconcileCompletedMissionRecipeAcceptances(32, projectId);
       await dispatchPendingMissionEventWakes(32, projectId);
+      await dispatchPendingMissionGoalStarts(32, projectId);
       await dispatchPendingMissionGoalApprovals(32, projectId);
       await dispatchPendingShadowReplays(32, projectId);
       await dispatchPendingMissionChatHandoffs(32, projectId);
@@ -1736,8 +1739,27 @@ export function startStaleJobSweep(): NodeJS.Timeout {
 }
 
 /**
+ * Run one startup reconciliation pass without blocking independent peers.
+ */
+async function runStartupReconciliationPass<T>(
+  stage: string,
+  run: () => Promise<T>,
+): Promise<T | undefined> {
+  try {
+    return await run();
+  } catch (error) {
+    logger.error(
+      { error, stage, scope: "job-reconciliation" },
+      "startup reconciliation pass failed; independent passes will continue",
+    );
+    return undefined;
+  }
+}
+
+/**
  * Runs all startup reconciliation passes. Never throws — a reconciliation
- * bug must not prevent the server from starting.
+ * bug must not prevent the server from starting. Independent passes report
+ * their own failures; dependent Apply/delivery passes retain their ordering.
  */
 export async function reconcileStuckJobs(): Promise<{
   scanJobs: number;
@@ -1747,45 +1769,76 @@ export async function reconcileStuckJobs(): Promise<{
   deliveries: number;
   expiredUploads: number;
 }> {
-  try {
-    const [
-      scanJobs,
-      discoverySessions,
-      expiredUploads,
-      githubDeliveryRecoveries,
-    ] = await Promise.all([
-      reconcileScanJobs(),
-      reconcileDiscoverySessions(),
-      sweepExpiredUploads(),
-      reconcileInterruptedGitHubDeliveryAttempts(),
-    ]);
-    // Keep linked Task and Execution recovery on the same ordered path at
-    // startup and during the periodic stale-job sweep.
-    const {
-      tasks: aiTasks,
-      executions: aiExecutions,
-    } = await reconcileExpiredTaskExecutions();
-    // Apply reconciliation depends on execution lease reconciliation. Keep
-    // both passes ordered so the delivery reconciler cannot race a proof-bound
-    // apply and automatically write files from its promotion journal.
-    const applyRecovery = await reconcileInterruptedApplyChanges();
-    const legacyDeliveries = await reconcileInterruptedDeliveries(applyRecovery.protectedProposalIds);
-    const deliveries = legacyDeliveries + applyRecovery.reconciled + githubDeliveryRecoveries;
-    if (applyRecovery.reconciled > 0) {
-      logger.info(
-        { applyChanges: applyRecovery.reconciled },
-        "startup reconciliation: proof-bound apply states reconciled without filesystem writes",
-      );
-    }
-    if (aiExecutions > 0) {
-      logger.info({ aiExecutions }, "startup reconciliation: paused interrupted AI executions");
-    }
-    if (expiredUploads > 0) {
-      logger.info({ expiredUploads }, "startup reconciliation: expired upload entries swept");
-    }
-    return { scanJobs, discoverySessions, aiTasks, aiExecutions, deliveries, expiredUploads };
-  } catch (err) {
-    logger.error({ err }, "startup job reconciliation failed");
-    return { scanJobs: 0, discoverySessions: 0, aiTasks: 0, aiExecutions: 0, deliveries: 0, expiredUploads: 0 };
+  const [
+    scanJobsResult,
+    discoverySessionsResult,
+    expiredUploadsResult,
+    githubDeliveryRecoveriesResult,
+  ] = await Promise.all([
+    runStartupReconciliationPass("scan-jobs", reconcileScanJobs),
+    runStartupReconciliationPass("discovery-sessions", reconcileDiscoverySessions),
+    runStartupReconciliationPass("expired-uploads", sweepExpiredUploads),
+    runStartupReconciliationPass(
+      "github-delivery-attempts",
+      reconcileInterruptedGitHubDeliveryAttempts,
+    ),
+  ]);
+  const scanJobs = scanJobsResult ?? 0;
+  const discoverySessions = discoverySessionsResult ?? 0;
+  const expiredUploads = expiredUploadsResult ?? 0;
+  const githubDeliveryRecoveries = githubDeliveryRecoveriesResult ?? 0;
+
+  // Keep linked Task and Execution recovery on the same ordered path at
+  // startup and during the periodic stale-job sweep. A failure here prevents
+  // the proof-bound Apply and legacy delivery passes from running.
+  const taskRecovery = await runStartupReconciliationPass(
+    "linked-task-execution-recovery",
+    reconcileExpiredTaskExecutions,
+  );
+  const aiTasks = taskRecovery?.tasks ?? 0;
+  const aiExecutions = taskRecovery?.executions ?? 0;
+
+  let applyRecovery: Awaited<ReturnType<typeof reconcileInterruptedApplyChanges>> | undefined;
+  if (taskRecovery) {
+    applyRecovery = await runStartupReconciliationPass(
+      "proof-bound-apply-recovery",
+      reconcileInterruptedApplyChanges,
+    );
+  } else {
+    logger.warn(
+      { scope: "job-reconciliation" },
+      "startup reconciliation: Apply and legacy delivery recovery skipped because Task/Execution recovery failed",
+    );
   }
+
+  let legacyDeliveries = 0;
+  if (applyRecovery) {
+    legacyDeliveries = (await runStartupReconciliationPass(
+      "legacy-delivery-recovery",
+      () => reconcileInterruptedDeliveries(applyRecovery!.protectedProposalIds),
+    )) ?? 0;
+  } else if (taskRecovery) {
+    logger.warn(
+      { scope: "job-reconciliation" },
+      "startup reconciliation: legacy delivery recovery skipped because proof-bound Apply recovery failed",
+    );
+  }
+
+  const deliveries = legacyDeliveries
+    + (applyRecovery?.reconciled ?? 0)
+    + githubDeliveryRecoveries;
+
+  if ((applyRecovery?.reconciled ?? 0) > 0) {
+    logger.info(
+      { applyChanges: applyRecovery!.reconciled },
+      "startup reconciliation: proof-bound apply states reconciled without filesystem writes",
+    );
+  }
+  if (aiExecutions > 0) {
+    logger.info({ aiExecutions }, "startup reconciliation: paused interrupted AI executions");
+  }
+  if (expiredUploads > 0) {
+    logger.info({ expiredUploads }, "startup reconciliation: expired upload entries swept");
+  }
+  return { scanJobs, discoverySessions, aiTasks, aiExecutions, deliveries, expiredUploads };
 }

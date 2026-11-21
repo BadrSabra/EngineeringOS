@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ProjectDetail from './ProjectDetail';
 import { useListTasks } from '@workspace/api-client-react';
-import { readGoalDrafts } from '@/lib/home-goal-handoff';
+import { readGoalDrafts, storeHomeGoalDraft } from '@/lib/home-goal-handoff';
 
 const mocks = vi.hoisted(() => ({
   routeProjectId: 'project-1',
@@ -172,6 +172,41 @@ describe('ProjectDetail Arabic presentation', () => {
 
     expect(screen.getByRole('link', { name: 'استكشف خريطة المشروع: مشروع تجريبي' }))
       .toHaveAttribute('href', '/graph?projectId=project-1');
+  });
+
+  it('opens the project assistant with a scoped unsent goal draft', () => {
+    render(<ProjectDetail />);
+
+    fireEvent.click(screen.getByTestId('button-project-assistant'));
+
+    const draft = readGoalDrafts('user-1').drafts[0];
+    expect(draft).toMatchObject({
+      source: 'home',
+      projectId: 'project-1',
+      sendAttemptedAt: null,
+    });
+    expect(draft.text).toContain('اسألني أولًا عما أريد إنجازه');
+    expect(draft.text).toContain('لا تغيّر الملفات أو تبدأ أي عمل');
+    expect(mocks.setLocation).toHaveBeenCalledWith(
+      `/projects/project-1/workspace?goalDraftId=${draft.id}#workspace-panel-agent`,
+    );
+    expect(mocks.mutate).not.toHaveBeenCalled();
+  });
+
+  it('stays on the project page when the assistant draft cannot be saved', () => {
+    for (let index = 0; index < 8; index += 1) {
+      expect(storeHomeGoalDraft(`مسودة ${index}`, 'user-1')).not.toBeNull();
+    }
+    render(<ProjectDetail />);
+
+    fireEvent.click(screen.getByTestId('button-project-assistant'));
+
+    expect(screen.getByTestId('text-project-assistant-error')).toHaveTextContent(
+      'تعذر حفظ مسودة طلب المساعدة.',
+    );
+    expect(mocks.setLocation).not.toHaveBeenCalled();
+    expect(mocks.mutate).not.toHaveBeenCalled();
+    expect(readGoalDrafts('user-1').drafts).toHaveLength(8);
   });
 
   it('keeps Strategy Replay opt-in off by default, explains its limits, and preserves the mutation value', () => {
@@ -460,6 +495,17 @@ describe('ProjectDetail Arabic presentation', () => {
     );
     expect(screen.getByTestId('link-create-project-task')).toHaveAccessibleName(
       'أضف مهمة إلى مشروع مشروع تجريبي',
+    );
+  });
+  it('opens workflow creation already scoped to this project', () => {
+    render(<ProjectDetail />);
+
+    expect(screen.getByTestId('link-create-project-workflow')).toHaveAttribute(
+      'href',
+      '/workflows?projectId=project-1&create=1',
+    );
+    expect(screen.getByTestId('link-create-project-workflow')).toHaveAccessibleName(
+      'إنشاء مسار عمل للمشروع مشروع تجريبي',
     );
   });
 });

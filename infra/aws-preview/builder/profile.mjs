@@ -11,6 +11,7 @@ export const MAX_OUTPUT_FILE_BYTES = 12 * 1024 * 1024;
 export const MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
 
 export const ALLOWED_APPLICATION_PACKAGES = Object.freeze([
+  "@clerk/localizations",
   "@clerk/react",
   "@clerk/themes",
   "@hookform/resolvers",
