@@ -412,6 +412,56 @@ describe("executeHierarchical — resilience", () => {
     expect(userTurn).toContain("good result");
   });
 
+  it("skips provider synthesis when every sub-task throws before producing evidence", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const mockLoop = vi.mocked(executeToolLoop);
+    mockLoop
+      .mockRejectedValueOnce(new Error("first subtask unavailable"))
+      .mockRejectedValueOnce(new Error("second subtask unavailable"));
+
+    const strategy = makeStrategy();
+    const { executeHierarchical } = await import("../agents/hierarchical-executor.js");
+    const result = await executeHierarchical(
+      [
+        { intent: "q1", targetPaths: [], maxIter: 7 },
+        { intent: "q2", targetPaths: [], maxIter: 7 },
+      ],
+      makeOpts(strategy),
+    );
+
+    expect(mockLoop).toHaveBeenCalledTimes(2);
+    expect(strategy.call).not.toHaveBeenCalled();
+    expect(result.status).toBe("failed");
+    expect(result.synthesisStatus).toBe("skipped");
+    expect(result.response).toContain("ANALYSIS_INCOMPLETE");
+    expect(result.response).toContain("synthesis was skipped");
+    expect(result.receipts.map((receipt) => receipt.status)).toEqual(["failed", "failed"]);
+  });
+
+  it("skips provider synthesis when all sub-tasks exhaust without text or retained evidence", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const mockLoop = vi.mocked(executeToolLoop);
+    mockLoop
+      .mockResolvedValueOnce({ kind: "exhausted", reason: "iteration_budget_exhausted", toolSources: [] })
+      .mockResolvedValueOnce({ kind: "exhausted", reason: "iteration_budget_exhausted", toolSources: [] });
+
+    const strategy = makeStrategy();
+    const { executeHierarchical } = await import("../agents/hierarchical-executor.js");
+    const result = await executeHierarchical(
+      [
+        { intent: "q1", targetPaths: [], maxIter: 1 },
+        { intent: "q2", targetPaths: [], maxIter: 1 },
+      ],
+      makeOpts(strategy),
+    );
+
+    expect(mockLoop).toHaveBeenCalledTimes(2);
+    expect(strategy.call).not.toHaveBeenCalled();
+    expect(result.status).toBe("partial");
+    expect(result.synthesisStatus).toBe("skipped");
+    expect(result.receipts.map((receipt) => receipt.status)).toEqual(["exhausted", "exhausted"]);
+  });
+
   it("does not log task intent or raw exception text when a sub-loop throws", async () => {
     const privateTaskIntent = "synthetic-private-user-subtask";
     const privateProviderDetail = "synthetic-hierarchical-provider-body";
