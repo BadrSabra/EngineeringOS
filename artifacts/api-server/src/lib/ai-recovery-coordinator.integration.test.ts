@@ -481,6 +481,10 @@ describe("durable automatic task recovery", () => {
         recoveryState: "REQUIRED",
         dependencyBlockerReasons: ["dependency_not_completed"],
       });
+      const [intentAfterDeferral] = await db.select({ id: eventsTable.id })
+        .from(eventsTable)
+        .where(eq(eventsTable.id, taskAutoExecutionIntentId(fixture.taskId)));
+      expect(intentAfterDeferral).toBeUndefined();
 
       expect(resolveProvider).not.toHaveBeenCalled();
       expect(checkProjectRateLimitDb).not.toHaveBeenCalled();
