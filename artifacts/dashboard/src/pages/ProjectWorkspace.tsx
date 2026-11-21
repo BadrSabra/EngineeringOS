@@ -7,6 +7,7 @@ import { Activity, AlertTriangle, ArrowRight, Check, Clock3, Code2, GitBranch, G
 import { useGetProjectWorkspaceSnapshot, getGetProjectWorkspaceSnapshotQueryKey, getGetAiExecutionQueryKey, useGetTask, getGetTaskQueryKey, useGetTaskLogs, getGetTaskLogsQueryKey, useGetAiExecution } from '@workspace/api-client-react';
 import { executionChatHref } from '@/lib/execution-chat-link';
 import AiChat from '@/pages/AiChat';
+import WorkspaceTaskAssistantHandoff from '@/pages/project-workspace/WorkspaceTaskAssistantHandoff';
 import ProjectCanvasPanel from '@/pages/project-workspace/ProjectCanvasPanel';
 import ProjectWorkspaceSwitcher from '@/pages/project-workspace/ProjectWorkspaceSwitcher';
 import WorkspaceExecutionDetail from '@/pages/project-workspace/WorkspaceExecutionDetail';
@@ -143,9 +144,11 @@ function WorkspaceDependencyLink({
 
 function WorkspaceTaskCard({
   projectId,
+  projectName,
   task,
 }: {
   projectId: string;
+  projectName: string;
   task: WorkspaceTaskSummaryItem;
 }) {
   const taskQuery = useGetTask(task.id, {
@@ -326,6 +329,11 @@ function WorkspaceTaskCard({
                 فتح محادثة التنفيذ
               </Link>
             )}
+            <WorkspaceTaskAssistantHandoff
+              projectId={projectId}
+              projectName={projectName}
+              task={task}
+            />
           </div>
         </div>
       </div>
@@ -734,6 +742,7 @@ export default function ProjectWorkspace() {
               <div className="min-w-0 flex-1">
                 <h2>العمل الأخير</h2>
                 <p>أحدث 8 مهام من المصدر؛ هذه ليست قائمة شاملة.</p>
+                <p className="mt-1 text-[11px] text-slate-500">سؤال المساعد يفتح مسودة تحتاج مراجعتك قبل الإرسال.</p>
               </div>
               <div className="flex shrink-0 flex-wrap items-center gap-2">
                 <span className="workspace-readonly">للاطلاع</span>
@@ -775,7 +784,12 @@ export default function ProjectWorkspace() {
               ) : (
                 <div className="mt-4 space-y-2">
                   {work.recentTasks.map((task) => (
-                    <WorkspaceTaskCard key={task.id} projectId={project.id} task={task} />
+                    <WorkspaceTaskCard
+                      key={task.id}
+                      projectId={project.id}
+                      projectName={project.name}
+                      task={task}
+                    />
                   ))}
                 </div>
               )
