@@ -131,6 +131,7 @@ vi.mock("@workspace/api-client-react", () => ({
 
 vi.mock("wouter", () => ({
   useRoute: () => [true, { projectId: "project-1" }],
+  useLocation: () => ["/projects/project-1/workspace", vi.fn()],
   Link: "a",
 }));
 
