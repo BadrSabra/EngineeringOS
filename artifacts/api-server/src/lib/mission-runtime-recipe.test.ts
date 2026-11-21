@@ -31,6 +31,13 @@ import { taskScopeIdentity } from "./agent-state/observation-materializer.js";
 import { buildExecutionProofProjection } from "./execution-proof.js";
 import { dispatchMissionChatHandoff } from "./mission-chat-handoffs.js";
 import * as missionAutoReplanModule from "./mission-auto-replan.js";
+import * as missionReplanOutboxModule from "./mission-replan-outbox.js";
+import {
+  dispatchPendingMissionReplans,
+  MISSION_REPLAN_DISPATCHED,
+  MISSION_REPLAN_REQUESTED,
+  missionReplanIntentId,
+} from "./mission-replan-outbox.js";
 
 const { recipeRunner, githubDeliveryRunner } = vi.hoisted(() => ({
   recipeRunner: vi.fn(),
@@ -532,8 +539,8 @@ describe("Mission recipe dispatch", () => {
   });
 
 
-  it("immediately replans an autonomous Mission after a committed Recipe failure", async () => {
-    const fixture = await createQueuedMissionRecipeFixture("immediate-replan-after-failure");
+  it("persists Recipe failure replans and recovers them through the shared Outbox after the immediate wake is lost", async () => {
+    const fixture = await createQueuedMissionRecipeFixture("recipe-replan-outbox-recovery");
     const [missionBefore] = await db.select({
       autonomyPolicy: aiMissionsTable.autonomyPolicy,
     }).from(aiMissionsTable).where(eq(aiMissionsTable.id, fixture.missionId));
@@ -571,20 +578,72 @@ describe("Mission recipe dispatch", () => {
           missionStatus: mission?.status,
           goalStatus: goal?.status,
         });
-        return { status: "skipped" as const, missionId, reason: "test_observed_committed_recipe_failure" };
+        return {
+          status: "replanned" as const,
+          missionId,
+          revision: "recipe-replan-test-revision",
+          plan: {},
+          runs: [],
+        };
       });
+    const intentId = missionReplanIntentId(
+      `recipe:${fixture.executionId}:attempt:0`,
+    );
+    const immediateDispatch = vi.spyOn(
+      missionReplanOutboxModule,
+      "dispatchMissionReplanIntent",
+    ).mockResolvedValueOnce(false);
 
     expect(await dispatchPendingMissionRecipes(32, fixture.projectId)).toBe(1);
     expect(queuedJobs).toHaveLength(1);
     await queuedJobs[0]!();
 
     expect(recipeRunner).toHaveBeenCalledOnce();
-    expect(replanSpy).toHaveBeenCalledOnce();
-    expect(replanSpy).toHaveBeenCalledWith(fixture.missionId);
+    expect(immediateDispatch).toHaveBeenCalledOnceWith(intentId);
+    expect(replanSpy).not.toHaveBeenCalled();
+
+    const [pendingIntent] = await db.select({
+      id: eventsTable.id,
+      type: eventsTable.type,
+      payload: eventsTable.payload,
+    }).from(eventsTable).where(eq(eventsTable.id, intentId)).limit(1);
+    expect(pendingIntent?.type).toBe(MISSION_REPLAN_REQUESTED);
+    expect(pendingIntent?.payload).toMatchObject({
+      schemaVersion: 1,
+      missionId: fixture.missionId,
+      projectId: fixture.projectId,
+      goalId: fixture.goalId,
+      executionId: fixture.executionId,
+      attempt: 0,
+      acceptanceId: `recipe:${fixture.executionId}:attempt:0`,
+      attemptCount: 0,
+    });
+    const [missionAfterCommit] = await db.select({
+      status: aiMissionsTable.status,
+    }).from(aiMissionsTable).where(eq(aiMissionsTable.id, fixture.missionId));
+    const [goalAfterCommit] = await db.select({
+      status: aiGoalsTable.status,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.goalId));
+    expect(missionAfterCommit?.status).toBe("needs_replan");
+    expect(goalAfterCommit?.status).toBe("needs_replan");
+
+    immediateDispatch.mockRestore();
+    expect(await dispatchPendingMissionReplans(32, fixture.projectId)).toBe(1);
+    expect(replanSpy).toHaveBeenCalledOnceWith(fixture.missionId);
     expect(committedStates).toEqual([{
       missionStatus: "needs_replan",
       goalStatus: "needs_replan",
     }]);
+
+    const [dispatchedIntent] = await db.select({
+      type: eventsTable.type,
+      payload: eventsTable.payload,
+    }).from(eventsTable).where(eq(eventsTable.id, intentId)).limit(1);
+    expect(dispatchedIntent?.type).toBe(MISSION_REPLAN_DISPATCHED);
+    expect(dispatchedIntent?.payload).toMatchObject({
+      dispatchOutcome: "replanned",
+      planRevision: "recipe-replan-test-revision",
+    });
   });
 
   it("prioritizes a ready Mission Goal over older dependents that are still waiting", async () => {
