@@ -619,9 +619,11 @@ function ExecutionHistory({
 }
 
 export default function Workflows() {
-  const routeParams = new URLSearchParams(useSearch());
+  const routeSearch = useSearch();
+  const routeParams = new URLSearchParams(routeSearch);
   const requestedProjectId = routeParams.get('projectId') ?? '';
   const requestedWorkflowId = routeParams.get('workflowId') ?? '';
+  const requestedCreate = routeParams.get('create') === '1';
 
   // Project-scoped local state (expanded workflow, modal, and AI suggestions)
   // must not survive a route transition to another project.
@@ -630,6 +632,8 @@ export default function Workflows() {
       key={`${requestedProjectId || 'default'}:${requestedWorkflowId || 'default'}`}
       requestedProjectId={requestedProjectId}
       requestedWorkflowId={requestedWorkflowId}
+      requestedCreate={requestedCreate}
+      routeSearch={routeSearch}
     />
   );
 }
@@ -637,9 +641,13 @@ export default function Workflows() {
 function WorkflowsSession({
   requestedProjectId,
   requestedWorkflowId,
+  requestedCreate,
+  routeSearch,
 }: {
   requestedProjectId: string;
   requestedWorkflowId: string;
+  requestedCreate: boolean;
+  routeSearch: string;
 }) {
   const queryClient = useQueryClient();
   const [, navigate] = useLocation();
@@ -654,6 +662,14 @@ function WorkflowsSession({
     && !projectsQuery.isLoading
     && !projectsQuery.isError
     && !selectedProject,
+  );
+  const showCreateFromRoute = Boolean(
+    requestedCreate
+    && requestedProjectId
+    && projectId === requestedProjectId
+    && !projectTargetUnavailable
+    && !projectsQuery.isLoading
+    && !projectsQuery.isError,
   );
   const listParams = { projectId: projectId || undefined };
   const workflowsQuery = useListWorkflows(listParams, {
@@ -707,6 +723,12 @@ function WorkflowsSession({
   const closeCreateModal = () => {
     setShowCreateModal(false);
     setWorkflowToCopy(null);
+    if (!requestedCreate) return;
+
+    const nextParams = new URLSearchParams(routeSearch);
+    nextParams.delete('create');
+    const nextQuery = nextParams.toString();
+    navigate(`/workflows${nextQuery ? `?${nextQuery}` : ''}${window.location.hash}`, { replace: true });
   };
 
   const openCreateModal = () => {
@@ -886,7 +908,7 @@ function WorkflowsSession({
         </div>
       </div>
 
-      {showCreateModal && (
+      {(showCreateModal || showCreateFromRoute) && (
         <CreateWorkflowModal
           initialProjectId={workflowToCopy?.projectId ?? projectId}
           initialWorkflow={workflowToCopy}
@@ -932,16 +954,26 @@ function WorkflowsSession({
             <ListTree className="w-12 h-12 text-muted-foreground mb-4 opacity-50" />
             <h3 className="text-lg font-semibold mb-2">لا توجد مسارات عمل بعد</h3>
             <p className="text-muted-foreground text-sm max-w-sm mb-6">
-              أنشئ مسارًا لتنسيق خطوات العمل تلقائيًا عبر عدة مراحل.
+              يمكنك وصف النتيجة التي تريدها للمساعد، أو إعداد مراحل المسار يدويًا إذا احتجت ذلك.
             </p>
-            <button
-              onClick={openCreateModal}
-              type="button"
-              data-testid="button-create-workflow-empty"
-              className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2 shadow-sm transition-colors"
-            >
-              <Plus className="w-4 h-4" /> مسار عمل جديد
-            </button>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <Link
+                href={`/projects/${encodeURIComponent(projectId)}/workspace#workspace-panel-agent`}
+                data-testid="link-workflow-empty-goal-first"
+                aria-label={`صف هدفك للمساعد في مشروع ${selectedProject?.name ?? ''}`.trim()}
+                className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-md font-medium text-sm inline-flex items-center gap-2 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+              >
+                <Sparkles className="w-4 h-4" aria-hidden="true" /> صف ما تريد إنجازه
+              </Link>
+              <button
+                onClick={openCreateModal}
+                type="button"
+                data-testid="button-create-workflow-empty"
+                className="border border-border bg-secondary hover:bg-secondary/80 text-foreground px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                <Plus className="w-4 h-4" aria-hidden="true" /> إعداد مسار يدويًا
+              </button>
+            </div>
           </div>
         ) : (
           workflows.map((workflow) => (
