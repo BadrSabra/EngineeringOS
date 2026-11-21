@@ -763,6 +763,13 @@ async function syncLinkedObjectiveState(
             outcome: acceptance.outcome,
             recoveryState: recordValue(acceptance.disposition).recoveryState,
             nextActionCode: acceptance.nextActionCode,
+            taskStatus: params.taskStatus,
+            prompt: params.task.prompt,
+            retryCount: params.task.retryCount,
+            maxRetries: params.task.maxRetries,
+            executionStatus: terminalStatus,
+            taskCorrelationId: params.task.correlationId,
+            executionCorrelationId: params.correlationId,
           }),
           siblingTaskStatuses: siblingTasks
             .filter((task) => task.id !== params.task.id)
