@@ -4054,6 +4054,12 @@ export async function wakeReadyMissionGoals(
   // Missing/cross-scope dependency rows are deliberately not hidden here:
   // loadGoalDependencyState() still selects and diagnoses them under locks.
   const unresolvedDependencyGoal = alias(aiGoalsTable, "unresolved_dependency_goal");
+  const currentPlanDependency = sql`(
+    ${aiGoalsTable.outcomeContract}->'planRevision'->>'hash' IS NULL
+    OR BTRIM(${aiGoalsTable.outcomeContract}->'planRevision'->>'hash') = ''
+    OR ${aiGoalDependenciesTable.planRevision}
+      = ${aiGoalsTable.outcomeContract}->'planRevision'->>'hash'
+  )`;
   const unresolvedDependencies = db
     .select({ id: aiGoalDependenciesTable.id })
     .from(aiGoalDependenciesTable)
@@ -4066,12 +4072,7 @@ export async function wakeReadyMissionGoals(
       eq(aiGoalDependenciesTable.goalId, aiGoalsTable.id),
       eq(aiGoalDependenciesTable.missionId, aiGoalsTable.missionId),
       eq(aiGoalDependenciesTable.projectId, aiGoalsTable.projectId),
-      sql`(
-        ${aiGoalsTable.outcomeContract}->'planRevision'->>'hash' IS NULL
-        OR BTRIM(${aiGoalsTable.outcomeContract}->'planRevision'->>'hash') = ''
-        OR ${aiGoalDependenciesTable.planRevision}
-          = ${aiGoalsTable.outcomeContract}->'planRevision'->>'hash'
-      )`,
+      currentPlanDependency,
       notInArray(unresolvedDependencyGoal.status, ["completed"]),
     ))
     .limit(1);
@@ -4094,7 +4095,13 @@ export async function wakeReadyMissionGoals(
           inArray(
             aiGoalsTable.id,
             db.select({ goalId: aiGoalDependenciesTable.goalId })
-              .from(aiGoalDependenciesTable),
+              .from(aiGoalDependenciesTable)
+              .where(and(
+                eq(aiGoalDependenciesTable.goalId, aiGoalsTable.id),
+                eq(aiGoalDependenciesTable.missionId, aiGoalsTable.missionId),
+                eq(aiGoalDependenciesTable.projectId, aiGoalsTable.projectId),
+                currentPlanDependency,
+              )),
           ),
         ),
         and(
@@ -4105,7 +4112,13 @@ export async function wakeReadyMissionGoals(
           notInArray(
             aiGoalsTable.id,
             db.select({ goalId: aiGoalDependenciesTable.goalId })
-              .from(aiGoalDependenciesTable),
+              .from(aiGoalDependenciesTable)
+              .where(and(
+                eq(aiGoalDependenciesTable.goalId, aiGoalsTable.id),
+                eq(aiGoalDependenciesTable.missionId, aiGoalsTable.missionId),
+                eq(aiGoalDependenciesTable.projectId, aiGoalsTable.projectId),
+                currentPlanDependency,
+              )),
           ),
         ),
       ),
@@ -4116,8 +4129,10 @@ export async function wakeReadyMissionGoals(
               .from(aiGoalDependenciesTable)
               .where(and(
                 eq(aiGoalDependenciesTable.dependsOnGoalId, dependencyGoalId),
+                eq(aiGoalDependenciesTable.goalId, aiGoalsTable.id),
                 eq(aiGoalDependenciesTable.missionId, aiGoalsTable.missionId),
                 eq(aiGoalDependenciesTable.projectId, aiGoalsTable.projectId),
+                currentPlanDependency,
               )),
           )
         : undefined,

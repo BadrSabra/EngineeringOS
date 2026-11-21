@@ -1,7 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
-import { aiGoalsTable, aiMissionsTable, db, eventsTable, projectsTable } from "@workspace/db";
+import {
+  aiGoalDependenciesTable,
+  aiGoalsTable,
+  aiMissionsTable,
+  db,
+  eventsTable,
+  projectsTable,
+} from "@workspace/db";
 import * as missionRuntime from "./mission-runtime.js";
 import {
   dispatchMissionGoalStartIntent,
@@ -101,6 +108,42 @@ describe("Mission Goal start Outbox", () => {
       planRevision: fixture.planRevision,
       runStatus: "waiting",
     });
+  });
+
+  it("ignores dependency edges retained for older plan revisions", async () => {
+    const fixture = await createStartFixture();
+    const historicalGoalId = randomUUID();
+    const historicalRevision = `previous-${fixture.planRevision}`;
+    await db.insert(aiGoalsTable).values({
+      id: historicalGoalId,
+      missionId: fixture.missionId,
+      projectId: fixture.projectId,
+      title: "Historical prerequisite",
+      status: "completed",
+      successCriteria: { kind: "mission_plan_step", objective: "Historical prerequisite" },
+      outcomeContract: { planRevision: { hash: historicalRevision } },
+      nextAction: { kind: "wait", reason: "event", wakeAt: null },
+      createdAt: new Date(Date.now() - 60_000),
+      updatedAt: new Date(Date.now() - 60_000),
+    });
+    await db.insert(aiGoalDependenciesTable).values({
+      id: randomUUID(),
+      missionId: fixture.missionId,
+      projectId: fixture.projectId,
+      goalId: fixture.goalId,
+      dependsOnGoalId: historicalGoalId,
+      planRevision: historicalRevision,
+    });
+    const run = vi.spyOn(missionRuntime, "runMissionGoal").mockResolvedValue({
+      status: "waiting",
+      goalId: fixture.goalId,
+    });
+
+    await expect(dispatchMissionGoalStartIntent(fixture.intentId)).resolves.toBe(true);
+    expect(run).toHaveBeenCalledOnce();
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, fixture.intentId));
+    expect(intent?.type).toBe(MISSION_GOAL_START_DISPATCHED);
   });
 
   it("recovers a committed start intent after the post-commit wake is lost", async () => {

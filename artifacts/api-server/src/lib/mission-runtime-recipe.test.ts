@@ -587,7 +587,7 @@ describe("Mission recipe dispatch", () => {
     }]);
   });
 
-  it("prioritizes a ready Mission Goal over older dependents that are still waiting", async () => {
+  it("prioritizes a ready Mission Goal and ignores historical dependency edges", async () => {
     const rootPath = await createTestRoot("ready-goal-fairness");
     const projectId = randomUUID();
     const missionId = randomUUID();
@@ -596,7 +596,9 @@ describe("Mission recipe dispatch", () => {
     const readyGoalId = randomUUID();
     const blockedTaskId = randomUUID();
     const readyTaskId = randomUUID();
+    const historicalDependencyGoalId = randomUUID();
     const planRevision = createHash("sha256").update(randomUUID()).digest("hex");
+    const historicalPlanRevision = `previous:${planRevision}`;
     const now = new Date();
     const older = new Date(now.getTime() - 60_000);
     projectIds.push(projectId);
@@ -624,6 +626,20 @@ describe("Mission recipe dispatch", () => {
       updatedAt: now,
     });
     await db.insert(aiGoalsTable).values([
+      {
+        id: historicalDependencyGoalId,
+        missionId,
+        projectId,
+        title: "Historical prerequisite from an older plan",
+        status: "completed",
+        successCriteria: {
+          stepId: "historical-prerequisite",
+          planRevision: { hash: historicalPlanRevision },
+        },
+        outcomeContract: { planRevision: { hash: historicalPlanRevision } },
+        createdAt: older,
+        updatedAt: older,
+      },
       {
         id: incompleteDependencyGoalId,
         missionId,
@@ -694,15 +710,26 @@ describe("Mission recipe dispatch", () => {
         updatedAt: now,
       },
     ]);
-    await db.insert(aiGoalDependenciesTable).values({
-      id: randomUUID(),
-      missionId,
-      projectId,
-      goalId: blockedGoalId,
-      dependsOnGoalId: incompleteDependencyGoalId,
-      planRevision,
-      createdAt: older,
-    });
+    await db.insert(aiGoalDependenciesTable).values([
+      {
+        id: randomUUID(),
+        missionId,
+        projectId,
+        goalId: blockedGoalId,
+        dependsOnGoalId: incompleteDependencyGoalId,
+        planRevision,
+        createdAt: older,
+      },
+      {
+        id: randomUUID(),
+        missionId,
+        projectId,
+        goalId: readyGoalId,
+        dependsOnGoalId: historicalDependencyGoalId,
+        planRevision: historicalPlanRevision,
+        createdAt: older,
+      },
+    ]);
 
     expect(await wakeReadyMissionGoals(1, projectId)).toBe(1);
     expect(scheduleTaskExecution).toHaveBeenCalledOnce();
