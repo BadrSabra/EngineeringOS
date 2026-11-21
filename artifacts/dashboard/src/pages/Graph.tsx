@@ -22,6 +22,7 @@ import {
   X,
   AlertCircle,
 } from 'lucide-react';
+import { useLocation, useSearch } from 'wouter';
 import { RefreshButton, RequestError } from '@/components/OperatorResilience';
 import GraphAssistantHandoff from '@/components/GraphAssistantHandoff';
 import { graphEntityTypeLabel, graphRelationLabel } from '@/lib/graph-copy';
@@ -47,7 +48,7 @@ function runForceLayout(
   const types = [...new Set(entities.map((e) => e.type))];
   const positions = new Map<string, Vec2>();
 
-  entities.forEach((e, i) => {
+  entities.forEach((e) => {
     const typeIdx = types.indexOf(e.type);
     const typeGroup = entities.filter((x) => x.type === e.type);
     const posInGroup = typeGroup.indexOf(e);
@@ -152,8 +153,9 @@ function nodeColor(type: string) { return TYPE_COLORS[type] ?? DEFAULT_COLOR; }
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function Graph() {
+  const [, setLocation] = useLocation();
+  const requestedProjectId = new URLSearchParams(useSearch()).get('projectId') ?? '';
   const { data: projects, isLoading: projectsLoading, isError: projectsError, refetch: refetchProjects } = useListProjects();
-  const [selectedProjectId, setSelectedProjectId] = useState('');
   const [selectedEntity, setSelectedEntity] = useState<{ projectId: string; id: string } | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const normalizedSearchTerm = searchTerm.trim().toLowerCase();
@@ -163,10 +165,10 @@ export default function Graph() {
   const svgRef = useRef<SVGSVGElement>(null);
   const [svgSize, setSvgSize] = useState({ w: 600, h: 420 });
 
-  // A selected project is valid only while it remains in the latest owned-project list.
-  // Derive the fallback immediately so no graph query is sent for a removed project.
-  const effectiveProjectId = projects?.some((project) => project.id === selectedProjectId)
-    ? selectedProjectId
+  // The URL is the source of truth for project context. Only honor IDs that
+  // belong to the current owned-project list; otherwise use and record a safe fallback.
+  const effectiveProjectId = projects?.some((project) => project.id === requestedProjectId)
+    ? requestedProjectId
     : (projects?.[0]?.id ?? '');
 
   // Entity detail queries and visual selection must belong to the active project.
@@ -176,10 +178,10 @@ export default function Graph() {
     setSelectedEntity(entityId ? { projectId: effectiveProjectId, id: entityId } : null);
 
   useEffect(() => {
-    if (selectedProjectId !== effectiveProjectId) {
-      setSelectedProjectId(effectiveProjectId);
+    if (effectiveProjectId && requestedProjectId !== effectiveProjectId) {
+      setLocation(`/graph?projectId=${encodeURIComponent(effectiveProjectId)}`);
     }
-  }, [effectiveProjectId, selectedProjectId]);
+  }, [effectiveProjectId, requestedProjectId, setLocation]);
 
   const { data: entitiesResponse, isLoading: entitiesLoading, isStale: entitiesStale, isError: entitiesError, error: entitiesErrorValue, refetch: refetchEntities, isFetching: entitiesFetching, dataUpdatedAt: entitiesUpdatedAt } = useListGraphEntities(
     { projectId: effectiveProjectId },
@@ -323,7 +325,11 @@ export default function Graph() {
           />
           <select
             value={effectiveProjectId}
-            onChange={(e) => { setSelectedProjectId(e.target.value); selectEntity(''); }}
+            onChange={(e) => {
+              const nextProjectId = e.target.value;
+              selectEntity('');
+              setLocation(`/graph?projectId=${encodeURIComponent(nextProjectId)}`);
+            }}
             aria-label="اختر مشروع الرسم البياني"
             className="w-full min-w-0 bg-card border border-border rounded-md px-3 py-2 text-sm focus:border-primary focus:outline-none sm:w-48 font-medium"
           >
@@ -520,6 +526,7 @@ export default function Graph() {
               <Network className="w-10 h-10 opacity-20" />
                <p>لا توجد بيانات رسم بياني موثوقة لهذا المشروع.</p>
                <p className="text-xs opacity-70">شغّل فحصًا ثم حدّث الصفحة بعد اكتماله لاستخراج رسم المعرفة.</p>
+                <GraphAssistantHandoff projectId={effectiveProjectId} emptyState />
             </div>
           ) : (
             <svg

@@ -14,7 +14,11 @@ import {
   MissionDecisionTraceSchema,
   hashMissionStrategyAlternative,
 } from "@workspace/ai-orchestrator";
-import { runMissionGoal, type MissionGoalRunResult } from "./mission-runtime.js";
+import type { MissionGoalRunResult } from "./mission-runtime.js";
+import {
+  dispatchMissionGoalApprovalIntent,
+  insertMissionGoalApprovalIntent,
+} from "./mission-goal-approval-outbox.js";
 import { resolveMissionLineage } from "./mission-lineage.js";
 import { appendMissionDecisionApprovalLifecycleEventsInTransaction } from "./mission-decision-trace-store.js";
 import {
@@ -349,6 +353,18 @@ export async function approveMissionGoal(params: {
           ...(decisionApprovalBinding ?? {}),
         },
       });
+      const approvalIntentId = await insertMissionGoalApprovalIntent(tx, {
+        missionId: mission.id,
+        projectId: goal.projectId,
+        goalId: goal.id,
+        userId: mission.userId,
+        approvalEventId,
+        approvalKind: "plan",
+        planRevision: planHash,
+        stepId,
+        ...(decisionApprovalBinding ? { decisionTraceId: decisionApprovalBinding.decisionTraceId } : {}),
+        requestedAt: now,
+      });
       let decisionApprovalLifecycle: Awaited<
         ReturnType<typeof appendMissionDecisionApprovalLifecycleEventsInTransaction>
       > | undefined;
@@ -378,6 +394,7 @@ export async function approveMissionGoal(params: {
         userId: mission.userId,
         planRevision: planHash,
         stepId,
+        approvalIntentId,
         ...(decisionApprovalBinding
           && (decisionApprovalLifecycle === "appended" || decisionApprovalLifecycle === "already_recorded")
           ? { decisionTraceId: decisionApprovalBinding.decisionTraceId }
@@ -479,8 +496,9 @@ export async function approveMissionGoal(params: {
           eq(aiMissionsTable.status, "waiting"),
         ));
     }
+    const approvalEventId = randomUUID();
     await tx.insert(eventsTable).values({
-      id: randomUUID(),
+      id: approvalEventId,
       type: "AiGoalApprovalGranted",
       projectId: goal.projectId,
       goalId: goal.id,
@@ -489,10 +507,24 @@ export async function approveMissionGoal(params: {
       correlationId: execution.correlationId ?? execution.id,
       payload: {
         missionId: mission.id,
+        goalId: goal.id,
+        approvalKind: "proposal",
         executionId: execution.id,
         proposalId: proposal.id,
         revision: proposal.revision,
       },
+    });
+    const approvalIntentId = await insertMissionGoalApprovalIntent(tx, {
+      missionId: mission.id,
+      projectId: goal.projectId,
+      goalId: goal.id,
+      userId: mission.userId,
+      approvalEventId,
+      approvalKind: "proposal",
+      executionId: execution.id,
+      proposalId: proposal.id,
+      revision: proposal.revision,
+      requestedAt: now,
     });
     if (params.actionReceipt) {
       await persistMissionAgentActionEffectReceipt(tx, params.actionReceipt, {
@@ -514,16 +546,20 @@ export async function approveMissionGoal(params: {
       executionId: execution.id,
       proposalId: proposal.id,
       revision: proposal.revision,
+      approvalIntentId,
     };
   });
 
   if (prepared.status !== "prepared") return prepared;
-  const run = await runMissionGoal({
+  const dispatch = await dispatchMissionGoalApprovalIntent(prepared.approvalIntentId);
+  const run: MissionGoalRunResult = dispatch.run ?? {
+    status: "waiting",
     goalId: prepared.goalId,
-    userId: prepared.userId,
-    trigger: "resume",
-  });
-  if (prepared.approvalKind === "plan" && prepared.decisionTraceId) {
+    reason: dispatch.reason ?? "approval_dispatch_deferred",
+  };
+  if (prepared.approvalKind === "plan" && prepared.decisionTraceId
+    && dispatch.run && dispatch.run.status !== "conflict"
+  ) {
     // The final required plan-step approval has committed APPROVED + PLAN_APPLIED.
     // Reuse its exact Goal run and immediately dispatch the remaining plan roots.
     // This is a scheduling attempt only; the decision dispatcher revalidates the

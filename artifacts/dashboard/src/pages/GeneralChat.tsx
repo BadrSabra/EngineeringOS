@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   Trash2,
   UserRound,
+  X,
 } from 'lucide-react';
 import {
   getListProjectsQueryKey,
@@ -112,6 +113,7 @@ function GeneralChatSession({
   const [pendingDraftStorageError, setPendingDraftStorageError] = useState('');
   const [scopeDraftRestored, setScopeDraftRestored] = useState(false);
   const [scopeDraftStorageError, setScopeDraftStorageError] = useState('');
+  const sessionSearchRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const restoredScopeDraftKey = useRef('');
   const createSession = useCreateGeneralChatSession();
@@ -145,6 +147,10 @@ function GeneralChatSession({
       : orderedSessions,
     [orderedSessions, sessionSearchTerm],
   );
+  const clearSessionSearch = () => {
+    setSessionSearch('');
+    sessionSearchRef.current?.focus();
+  };
   const activeSession = orderedSessions.find((session) => session.id === activeSessionId);
   const messagesQuery = useListGeneralChatMessages(activeSessionId, {
     query: {
@@ -490,15 +496,29 @@ function GeneralChatSession({
               <label htmlFor="general-session-search" className="sr-only">
                 ابحث في عناوين المحادثات
               </label>
-              <input
-                id="general-session-search"
-                type="search"
-                value={sessionSearch}
-                onChange={(event) => setSessionSearch(event.target.value)}
-                placeholder="ابحث في العناوين"
-                data-testid="input-search-general-sessions"
-                className="w-full rounded-md border border-border bg-background px-3 py-2 text-xs outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-primary"
-              />
+              <div className="relative">
+                <input
+                  ref={sessionSearchRef}
+                  id="general-session-search"
+                  type="search"
+                  value={sessionSearch}
+                  onChange={(event) => setSessionSearch(event.target.value)}
+                  placeholder="ابحث في العناوين"
+                  data-testid="input-search-general-sessions"
+                  className="w-full appearance-none rounded-md border border-border bg-background px-3 py-2 pe-8 text-xs outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-primary"
+                />
+                {sessionSearch && (
+                  <button
+                    type="button"
+                    onClick={clearSessionSearch}
+                    aria-label="مسح البحث"
+                    data-testid="button-clear-general-session-search"
+                    className="absolute end-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  >
+                    <X className="h-3.5 w-3.5" aria-hidden="true" />
+                  </button>
+                )}
+              </div>
             </div>
           )}
           <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
@@ -520,14 +540,6 @@ function GeneralChatSession({
             ) : matchingSessions.length === 0 ? (
               <div dir="rtl" lang="ar" role="status" data-testid="status-general-session-search-empty" className="m-2 rounded-lg border border-dashed border-border px-3 py-5 text-center">
                 <p className="text-xs font-medium">لا توجد عناوين تطابق البحث.</p>
-                <button
-                  type="button"
-                  onClick={() => setSessionSearch('')}
-                  data-testid="button-clear-general-session-search"
-                  className="mt-2 text-xs font-medium text-primary hover:underline"
-                >
-                  مسح البحث
-                </button>
               </div>
             ) : (
               <div className="space-y-1">

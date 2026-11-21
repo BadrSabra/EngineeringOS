@@ -58,6 +58,10 @@ import {
   insertMissionGoalWakeIntent,
 } from "../../lib/mission-goal-wake-outbox.js";
 import {
+  dispatchMissionGoalStartIntent,
+  insertMissionGoalStartIntent,
+} from "../../lib/mission-goal-start-outbox.js";
+import {
   parseExecutionRequest,
   recoverAiExecutionResumeToken,
   recoverAiExecutionRetryToken,
@@ -4501,27 +4505,39 @@ router.post("/ai/missions/:missionId/goals", async (req, res) => {
           autoDispatchEligible: isCurrentPlanRoot,
         },
       });
+      const shouldDispatchImmediately = isCurrentPlanRoot
+        && action.success
+        && action.data.kind !== "task";
+      const startIntentId = shouldDispatchImmediately
+        ? await insertMissionGoalStartIntent(tx, {
+            missionId: owned.mission.id,
+            projectId: owned.project.id,
+            goalId,
+            planRevision: activePlanRevision!,
+            createdAt: now,
+          })
+        : undefined;
       return {
         goal: created[0],
-        shouldDispatchImmediately: isCurrentPlanRoot
-          && action.success
-          && action.data.kind !== "task",
+        startIntentId,
+        shouldDispatchImmediately,
       };
     });
     if (!result.goal) return res.status(404).json({ error: "Mission not found" });
-    if (result.shouldDispatchImmediately) {
+    if (result.startIntentId) {
+      // The start intent commits with the Goal. This immediate dispatch only
+      // reduces latency; the durable worker recovers the same intent on loss.
       try {
-        await runMissionGoal({
-          goalId: result.goal.id,
-          userId: req.userId,
-          trigger: "activation",
-        });
+        await dispatchMissionGoalStartIntent(result.startIntentId);
       } catch (error) {
-        // The Goal is durably marked as an active-plan root. Reconciliation
-        // will retry it after this post-commit dispatch attempt fails.
         logger.error(
-          { error, missionId: owned.mission.id, goalId: result.goal.id },
-          "manual Mission Goal dispatch failed; durable wake reconciliation will retry",
+          {
+            error,
+            missionId: owned.mission.id,
+            goalId: result.goal.id,
+            intentId: result.startIntentId,
+          },
+          "manual Mission Goal start dispatch failed; durable Outbox intent remains pending",
         );
       }
     }

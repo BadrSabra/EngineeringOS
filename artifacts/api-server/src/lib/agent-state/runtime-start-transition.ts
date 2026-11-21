@@ -1550,8 +1550,10 @@ export async function dispatchMissionWorldTransitionWakeIntent(
     } else if (expectedKind === "apply_changes") {
       await missionRuntime.wakeApplyChangesMissionGoals(1, projectId, goalId);
     } else {
+      // Recipe reconciliation commits Goal completion and its
+      // MissionGoalWakeRequested intent together, then dispatches that intent
+      // through the durable Goal outbox. Avoid a competing direct dependency scan.
       await missionRuntime.reconcileCompletedMissionRecipeAcceptances(1, projectId, executionId);
-      await missionRuntime.wakeReadyMissionGoals(32, projectId, goalId);
     }
 
     await markMissionWorldTransitionWakeProcessed(intent.id, payload, {

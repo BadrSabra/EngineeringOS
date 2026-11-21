@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { useUser } from '@clerk/react';
 import { getListProjectsQueryKey, useListProjects } from '@workspace/api-client-react';
-import { Search } from 'lucide-react';
+import { ListTodo, Search } from 'lucide-react';
 import { useLocation } from 'wouter';
 import {
   CommandDialog,
@@ -112,15 +112,27 @@ export function QuickNavigation() {
           {projects.length > 0 && (
             <CommandGroup heading="مشاريعك">
               {projects.map((project) => (
-                <CommandItem
-                  key={project.id}
-                  value={`مشروع ${project.name}`}
-                  data-testid={`quick-nav-project-${project.id}`}
-                  onSelect={() => navigateTo(`/projects/${encodeURIComponent(project.id)}/workspace`)}
-                >
-                  <span className="min-w-0 flex-1 truncate">{project.name}</span>
-                  <CommandShortcut>مساحة العمل</CommandShortcut>
-                </CommandItem>
+                <Fragment key={project.id}>
+                  <CommandItem
+                    key={`${project.id}-workspace`}
+                    value={`مشروع ${project.name}`}
+                    data-testid={`quick-nav-project-${project.id}`}
+                    onSelect={() => navigateTo(`/projects/${encodeURIComponent(project.id)}/workspace`)}
+                  >
+                    <span className="min-w-0 flex-1 truncate">{project.name}</span>
+                    <CommandShortcut>مساحة العمل</CommandShortcut>
+                  </CommandItem>
+                  <CommandItem
+                    key={`${project.id}-tasks`}
+                    value={`مهام ${project.name} tasks`}
+                    data-testid={`quick-nav-project-tasks-${project.id}`}
+                    onSelect={() => navigateTo(`/tasks?projectId=${encodeURIComponent(project.id)}`)}
+                  >
+                    <ListTodo className="h-4 w-4" aria-hidden="true" />
+                    <span className="min-w-0 flex-1 truncate">مهام {project.name}</span>
+                    <CommandShortcut>قائمة المهام</CommandShortcut>
+                  </CommandItem>
+                </Fragment>
               ))}
             </CommandGroup>
           )}

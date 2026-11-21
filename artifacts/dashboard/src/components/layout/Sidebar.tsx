@@ -1,8 +1,9 @@
-import { useEffect, useState, type Ref } from 'react';
+import { useEffect, useMemo, useState, type Ref } from 'react';
 import { Link, useLocation } from 'wouter';
 import { useUser, useClerk } from '@clerk/react';
-import { ChevronDown, LogOut, Network, X } from 'lucide-react';
+import { ChevronDown, FolderOpen, LogOut, Network, X } from 'lucide-react';
 import { basePath } from '@/lib/clerk';
+import { getListProjectsQueryKey, useListProjects } from '@workspace/api-client-react';
 import {
   NAV_GROUPS,
   PRIMARY_NAV_ITEMS,
@@ -29,8 +30,24 @@ export function Sidebar({
   mobileCloseRef?: Ref<HTMLButtonElement>;
 }) {
   const [location] = useLocation();
-  const { user } = useUser();
+  const { user, isLoaded } = useUser();
   const { signOut } = useClerk();
+  const projectsQuery = useListProjects(undefined, {
+    query: { queryKey: getListProjectsQueryKey(), enabled: isLoaded },
+  });
+  const recentProject = useMemo(() => {
+    const projects = projectsQuery.data ?? [];
+    return [...projects].sort((left, right) => {
+      const leftUpdatedAt = Date.parse(String(left.updatedAt));
+      const rightUpdatedAt = Date.parse(String(right.updatedAt));
+      const leftTimestamp = Number.isFinite(leftUpdatedAt) ? leftUpdatedAt : 0;
+      const rightTimestamp = Number.isFinite(rightUpdatedAt) ? rightUpdatedAt : 0;
+      return rightTimestamp - leftTimestamp;
+    })[0] ?? null;
+  }, [projectsQuery.data]);
+  const recentProjectHref = recentProject
+    ? `/projects/${encodeURIComponent(recentProject.id)}/workspace`
+    : null;
   const activeGroupId = NAV_GROUPS.find((group) =>
     group.items.some((item) => isNavigationItemActive(location, item.href)),
   )?.id;
@@ -122,6 +139,32 @@ export function Sidebar({
         <div className="space-y-1">
           {PRIMARY_NAV_ITEMS.map(renderNavigationLink)}
         </div>
+
+        {recentProject && recentProjectHref && (
+          <section aria-label="الوصول السريع إلى المشاريع" className="mt-4 border-t border-border pt-3">
+            <div className="mb-1 px-3 text-[11px] font-medium tracking-wider text-muted-foreground">
+              متابعة سريعة
+            </div>
+            <Link
+              href={recentProjectHref}
+              onClick={onMobileClose}
+              aria-current={isNavigationItemActive(location, recentProjectHref) ? 'page' : undefined}
+              aria-label={`افتح مساحة العمل لمشروع ${recentProject.name}`}
+              data-testid="link-recent-project"
+              className={`flex min-w-0 items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors ${
+                isNavigationItemActive(location, recentProjectHref)
+                  ? 'bg-primary/10 text-primary'
+                  : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
+              }`}
+            >
+              <FolderOpen className="h-4 w-4 shrink-0" aria-hidden="true" />
+              <span className="min-w-0 truncate">
+                <span className="block text-[10px] leading-4">آخر مشروع تم تحديثه</span>
+                <bdi dir="auto" className="block truncate font-medium">{recentProject.name}</bdi>
+              </span>
+            </Link>
+          </section>
+        )}
 
         <div className="mt-5 mb-2 px-3 text-[11px] font-medium tracking-wider text-muted-foreground">
           أدوات متقدمة

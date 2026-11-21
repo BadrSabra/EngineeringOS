@@ -150,9 +150,8 @@ describe("Dashboard goal-first home", () => {
     expect(screen.queryByTestId("panel-goal-destination")).not.toBeInTheDocument();
     expect(screen.queryByTestId("group-home-goal-examples")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId("button-start-goal"));
-    expect(screen.getByTestId("panel-goal-destination")).toBeInTheDocument();
     expect(mockSetLocation).not.toHaveBeenCalled();
+    expect(readGoalDrafts("user-1").drafts).toHaveLength(0);
   });
 
   it("restores an unfinished goal after revisiting without choosing scope or sending it", () => {
@@ -188,6 +187,15 @@ describe("Dashboard goal-first home", () => {
   it("clears the temporary composer copy only after creating the explicit handoff", () => {
     const text = "اشرح لي خيارات التخزين المؤقت";
     saveHomeGoalComposer("user-1", text);
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [
+        { id: 'project-1', name: 'بوابة العملاء', status: 'active', ownerId: 'user-1' },
+        { id: 'project-2', name: 'لوحة الإدارة', status: 'active', ownerId: 'user-1' },
+      ],
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    } as ReturnType<typeof useListProjects>);
     render(<Dashboard />);
 
     fireEvent.click(screen.getByTestId("button-start-goal"));
@@ -213,6 +221,15 @@ describe("Dashboard goal-first home", () => {
     const text = "احتفظ بهذا الهدف إذا تعذر نقله";
     saveHomeGoalComposer("user-1", text);
     expect(readHomeGoalComposer("user-1")).toEqual({ text, status: "saved" });
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [
+        { id: 'project-1', name: 'بوابة العملاء', status: 'active', ownerId: 'user-1' },
+        { id: 'project-2', name: 'لوحة الإدارة', status: 'active', ownerId: 'user-1' },
+      ],
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    } as ReturnType<typeof useListProjects>);
     render(<Dashboard />);
 
     fireEvent.click(screen.getByTestId("button-start-goal"));
@@ -345,12 +362,15 @@ describe("Dashboard goal-first home", () => {
     expect(draft.projectId).toBeNull();
   });
 
-  it('asks for a destination when no project name is present, then routes an explicit general choice', () => {
+  it('keeps an explicit general-chat choice when the only project does not match the goal', () => {
     render(<Dashboard />);
     fireEvent.change(screen.getByTestId('input-home-goal'), { target: { value: 'اشرح لي خيارات التخزين المؤقت' } });
-    fireEvent.click(screen.getByTestId('button-start-goal'));
 
     expect(mockSetLocation).not.toHaveBeenCalled();
+    expect(screen.getByTestId('button-start-goal')).toHaveAccessibleName(
+      'متابعة إلى مشروع بوابة العملاء',
+    );
+    fireEvent.click(screen.getByTestId('button-choose-goal-destination'));
     expect(screen.getByTestId('panel-goal-destination')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('button-route-goal-general'));
 
@@ -378,18 +398,17 @@ describe("Dashboard goal-first home", () => {
     expect(mockSetLocation).toHaveBeenCalledWith(`/general-chat?goalDraftId=${draft.id}`);
   });
 
-  it('offers a one-click explicit handoff for the sole project without assuming scope', () => {
+  it('offers a one-click, clearly named handoff for the only project', () => {
     render(<Dashboard />);
     fireEvent.change(screen.getByTestId('input-home-goal'), { target: { value: 'ساعدني على فهم التخزين المؤقت' } });
-    fireEvent.click(screen.getByTestId('button-start-goal'));
 
     expect(mockSetLocation).not.toHaveBeenCalled();
-    expect(screen.getByTestId('panel-goal-destination')).toHaveTextContent('يمكنك اختيار مشروعك الوحيد للمتابعة');
-    expect(screen.getByTestId('text-only-goal-project')).toHaveTextContent('بوابة العملاء');
-    expect(screen.queryByTestId('select-goal-project')).not.toBeInTheDocument();
+    expect(screen.getByTestId('button-start-goal')).toHaveAccessibleName(
+      'متابعة إلى مشروع بوابة العملاء',
+    );
     expect(readGoalDrafts('user-1').drafts).toHaveLength(0);
 
-    fireEvent.click(screen.getByTestId('button-route-goal-only-project'));
+    fireEvent.click(screen.getByTestId('button-start-goal'));
 
     const [draft] = readGoalDrafts('user-1').drafts;
     expect(draft).toMatchObject({
@@ -564,6 +583,11 @@ describe("Dashboard goal-first home", () => {
     render(<Dashboard />);
 
     expect(screen.getByTestId("text-completed-work-home")).toHaveTextContent("1");
+    // Completed and failed counts are single-status filters; active remains an aggregate.
+    expect(screen.getByTestId("card-completed-work-home"))
+      .toHaveAttribute("href", "/tasks?status=completed");
+    expect(screen.getByTestId("card-failed-work-home"))
+      .toHaveAttribute("href", "/tasks?status=failed");
     expect(screen.getByTestId("card-active-work-home"))
       .toHaveAttribute("href", "/tasks?status=active");
     expect(screen.getByText(/تفاصيل القبول والإثبات تبقى ضمن المهمة/)).toBeInTheDocument();
@@ -592,8 +616,15 @@ describe("Dashboard goal-first home", () => {
     });
     fireEvent.click(screen.getByTestId("button-start-goal"));
 
-    expect(screen.getByTestId("panel-goal-destination")).toBeInTheDocument();
-    expect(mockSetLocation).not.toHaveBeenCalled();
+    const [draft] = readGoalDrafts("user-1").drafts;
+    expect(draft).toMatchObject({
+      text: "اشرح لي طريقة تحسين تسجيل الدخول",
+      projectId: "project-1",
+      sendAttemptedAt: null,
+    });
+    expect(mockSetLocation).toHaveBeenCalledWith(
+      `/projects/project-1/workspace?goalDraftId=${draft.id}`,
+    );
   });
 
   it("keeps goal entry available and hides stale counters when the dashboard request fails", () => {
@@ -625,7 +656,6 @@ describe("Dashboard goal-first home", () => {
       target: { value: "أريد إصلاح مشكلة تسجيل الدخول" },
     });
     fireEvent.click(screen.getByTestId("button-start-goal"));
-    fireEvent.click(screen.getByTestId("button-route-goal-only-project"));
 
     const [draft] = readGoalDrafts("user-1").drafts;
     expect(draft).toMatchObject({
@@ -659,13 +689,6 @@ describe("Dashboard goal-first home", () => {
 
     const startButton = screen.getByTestId("button-start-goal");
     expect(startButton).toHaveFocus();
-    await user.keyboard("{Enter}");
-    expect(screen.getByTestId("panel-goal-destination")).toBeInTheDocument();
-
-    await user.tab({ shift: true });
-    await user.tab({ shift: true });
-    const continueButton = screen.getByTestId("button-route-goal-only-project");
-    expect(continueButton).toHaveFocus();
     await user.keyboard("{Enter}");
 
     const [draft] = readGoalDrafts("user-1").drafts;

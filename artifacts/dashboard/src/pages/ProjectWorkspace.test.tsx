@@ -226,6 +226,8 @@ describe("ProjectWorkspace live snapshot refresh", () => {
 
     expect(screen.getByRole("navigation", { name: "التنقل بين أقسام مساحة المشروع" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "محادثة المشروع" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "عرض مؤشرات المشروع: مشروع البث" }))
+      .toHaveAttribute("href", "/metrics?projectId=project-1");
     expect(screen.getByTestId("workspace-next-step")).toHaveTextContent("ابدأ بطلب جديد");
     expect(screen.getByTestId("workspace-next-step-action"))
       .toHaveAttribute("href", "#workspace-panel-agent");
@@ -234,6 +236,8 @@ describe("ProjectWorkspace live snapshot refresh", () => {
     expect(screen.getByText("أحدث 8 مهام من المصدر؛ هذه ليست قائمة شاملة.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "عرض جميع مهام المشروع" }))
       .toHaveAttribute("href", "/tasks?projectId=project-1");
+    expect(screen.getByRole("link", { name: "إنشاء مهمة جديدة في مشروع البث" }))
+      .toHaveAttribute("href", "/tasks?projectId=project-1&create=1");
     expect(screen.getByTestId("link-start-request-from-empty-work"))
       .toHaveAttribute("href", "#workspace-panel-agent");
     expect(screen.getByTestId("link-discuss-work-from-empty-candidate"))
@@ -1355,5 +1359,44 @@ describe("Workspace execution detail identity", () => {
 
     expect(screen.getByText(/تعذر مطابقة تفاصيل التنفيذ/)).toBeInTheDocument();
     expect(screen.queryByTestId("workspace-execution-projection")).not.toBeInTheDocument();
+  });
+});
+
+describe("Workspace project navigation", () => {
+  it("opens the current project's details without returning to the project list", () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByTestId("link-project-details-from-workspace")).toHaveAttribute(
+      "href",
+      "/projects/project-1",
+    );
+    expect(screen.getByRole("link", { name: "فتح تفاصيل المشروع: مشروع البث" }))
+      .toBeInTheDocument();
+  });
+  it("opens this project's workflows directly from its Workspace", () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectWorkspace />
+      </QueryClientProvider>,
+    );
+
+    const workflowsLink = screen.getByTestId("link-project-workflows");
+    expect(workflowsLink).toHaveAttribute(
+      "href",
+      "/workflows?projectId=project-1",
+    );
+    expect(workflowsLink).toHaveAccessibleName("فتح مسارات العمل لمشروع مشروع البث");
   });
 });
