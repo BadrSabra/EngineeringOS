@@ -36,6 +36,7 @@ vi.mock("wouter", () => ({
     <a href={href} className={className} data-testid={dataTestId} aria-label={ariaLabel} dir={dir}>{children}</a>
   ),
   useLocation: () => ["/", mockSetLocation],
+  useSearch: () => window.location.search,
 }));
 
 vi.mock("@/components/OperatorResilience", () => ({
@@ -130,9 +131,23 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  window.history.replaceState({}, '', '/');
 });
 
 describe("Dashboard goal-first home", () => {
+  it("focuses the goal composer from the global shortcut without sending or changing scope", () => {
+    window.history.replaceState({}, '', '/?focusGoal=1');
+    render(<Dashboard />);
+
+    const input = screen.getByTestId("input-home-goal") as HTMLTextAreaElement;
+    expect(input).toHaveFocus();
+    expect(input.selectionStart).toBe(input.value.length);
+    expect(input.selectionEnd).toBe(input.value.length);
+    expect(mockSetLocation).toHaveBeenCalledWith('/', { replace: true });
+    expect(readGoalDrafts("user-1").drafts).toHaveLength(0);
+    expect(screen.queryByTestId("panel-goal-destination")).not.toBeInTheDocument();
+  });
+
   it("copies an editable goal example without submitting or choosing a project", () => {
     render(<Dashboard />);
 

@@ -1,7 +1,7 @@
 import { useEffect, useState, type Ref } from 'react';
 import { Link, useLocation } from 'wouter';
 import { useUser, useClerk } from '@clerk/react';
-import { ChevronDown, LogOut, Network, X } from 'lucide-react';
+import { ChevronDown, LogOut, Network, Sparkles, X } from 'lucide-react';
 import { basePath } from '@/lib/clerk';
 import {
   NAV_GROUPS,
@@ -116,6 +116,15 @@ export function Sidebar({
         aria-label="التنقل الرئيسي"
         className="flex-1 overflow-y-auto px-3 py-4"
       >
+        <Link
+          href="/?focusGoal=1"
+          onClick={onMobileClose}
+          data-testid="link-nav-start-goal"
+          className="mb-4 flex items-center justify-center gap-2 rounded-md bg-primary px-3 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+        >
+          <Sparkles className="h-4 w-4" aria-hidden="true" />
+          <span>ابدأ هدفًا</span>
+        </Link>
         <div className="mb-2 px-3 text-[11px] font-medium tracking-wider text-muted-foreground">
           الأساسيات
         </div>
