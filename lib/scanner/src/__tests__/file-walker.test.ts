@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdir, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { MAX_FILES, walkProject } from "../file-walker.js";
+import { MAX_FILES, walkProject, walkProjectFiles } from "../file-walker.js";
 
 const TEST_DIR = join(tmpdir(), `scanner-test-${process.pid}`);
 
@@ -92,6 +92,44 @@ describe("walkProject", () => {
     }
     const removed = await walkProject(TEST_DIR);
     expect(removed.revision).toBe(before.revision);
+  });
+
+  it("walks only exact requested paths and skips unrelated directories", async () => {
+    const unrelatedDir = join(TEST_DIR, "unrelated", "deep");
+    await mkdir(unrelatedDir, { recursive: true });
+    await writeFile(join(unrelatedDir, "ignored.ts"), "export const ignored = true;");
+
+    try {
+      const result = await walkProjectFiles(TEST_DIR, ["src/index.ts"]);
+      expect(result.files.map((file) => file.path)).toEqual(["src/index.ts"]);
+      expect(result.missingPaths).toEqual([]);
+      expect(result.incomplete).toBe(false);
+    } finally {
+      await rm(join(TEST_DIR, "unrelated"), { recursive: true, force: true });
+    }
+  });
+
+  it("does not use suffix matches and reports each missing evidence path", async () => {
+    const nestedDir = join(TEST_DIR, "nested", "src");
+    await mkdir(nestedDir, { recursive: true });
+    await writeFile(join(nestedDir, "index.ts"), "export const decoy = true;");
+
+    try {
+      const result = await walkProjectFiles(TEST_DIR, ["src/index.ts", "missing/index.ts"]);
+      expect(result.files.map((file) => file.path)).toEqual(["src/index.ts"]);
+      expect(result.missingPaths).toEqual(["missing/index.ts"]);
+    } finally {
+      await rm(join(TEST_DIR, "nested"), { recursive: true, force: true });
+    }
+  });
+
+  it("rejects absolute and traversal paths before opening selected entries", async () => {
+    await expect(walkProjectFiles(TEST_DIR, ["../outside.ts"])).rejects.toThrow(
+      "normalized project-relative paths",
+    );
+    await expect(walkProjectFiles(TEST_DIR, ["/etc/passwd"])).rejects.toThrow(
+      "normalized project-relative paths",
+    );
   });
 
   it("populates content for small files", async () => {
