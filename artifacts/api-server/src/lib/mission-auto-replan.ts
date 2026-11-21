@@ -14,6 +14,14 @@ import {
 } from "@workspace/db";
 import { inArray } from "drizzle-orm";
 import {
+  hasNewMissionReplanProgressEvidence,
+  isMissionReplanBackoffActive,
+  missionReplanBackoffCandidateCondition,
+  parseMissionReplanBackoff,
+  persistMissionReplanBackoffForMission,
+  persistMissionReplanBackoffInTransaction,
+} from "./mission-replan-backoff.js";
+import {
   normalizeMissionAutonomyPolicy,
   writeCanonicalMissionAutonomyPolicy,
 } from "./mission-autonomy-policy.js";
@@ -74,6 +82,7 @@ type AutoReplanResult =
     };
 
 const TERMINAL_REPLAN_FAILURES = new Set([
+  "automatic_replan_not_enabled",
   "objective_no_longer_mission_eligible",
   "automatic_replan_budget_exhausted",
   "automatic_replan_already_attempted",
@@ -83,8 +92,6 @@ const TERMINAL_REPLAN_FAILURES = new Set([
   "empty_plan",
   "no_eligible_replan_root",
   "runtime_transition_target_unbound",
-  "runtime_failure_evidence_unbound",
-  "failure_source_evidence_unbound",
 ]);
 const approvedDecisionDispatchLastAttemptAt = new Map<string, number>();
 
@@ -647,7 +654,7 @@ async function terminalizeAutomaticReplanFailure(
  * coordinator runs after that commit, under the Mission row lock, so planning
  * and materialization cannot make terminal acceptance less reliable.
  */
-export async function autoReplanMission(
+async function autoReplanMissionAttempt(
   missionId: string,
   runGoal: typeof runMissionGoal = runMissionGoal,
 ): Promise<AutoReplanResult> {
@@ -664,13 +671,19 @@ export async function autoReplanMission(
         reason: mission ? "mission_not_ready" : "mission_not_found",
       };
     }
+    const skip = async (reason: string) => {
+      if (!TERMINAL_REPLAN_FAILURES.has(reason) && !reason.startsWith("strategy_")) {
+        await persistMissionReplanBackoffInTransaction(tx, {
+          missionId: mission.id,
+          currentPolicy: mission.autonomyPolicy,
+          failureCode: reason,
+        });
+      }
+      return { status: "skipped" as const, missionId, reason };
+    };
     const autonomy = normalizeMissionAutonomyPolicy(mission.autonomyPolicy);
     if (autonomy.mode !== "autonomous") {
-      return {
-        status: "skipped" as const,
-        missionId,
-        reason: "automatic_replan_not_enabled",
-      };
+      return skip("automatic_replan_not_enabled");
     }
     const [failedGoal] = await tx
       .select({
@@ -688,6 +701,38 @@ export async function autoReplanMission(
       ))
       .orderBy(asc(aiGoalsTable.updatedAt), asc(aiGoalsTable.id))
       .limit(1);
+
+    const backoff = parseMissionReplanBackoff(
+      jsonRecord(mission.autonomyPolicy).automaticReplanBackoff,
+    );
+    if (backoff) {
+      const clockResult = await tx.execute(sql`SELECT clock_timestamp() AS now`);
+      const rawNow = (clockResult.rows as Array<{ now: Date | string }>)[0]?.now;
+      const databaseNow = rawNow instanceof Date
+        ? rawNow
+        : new Date(String(rawNow ?? ""));
+      if (!rawNow || !Number.isFinite(databaseNow.getTime())) {
+        throw new Error("mission_replan_database_clock_unavailable");
+      }
+      if (isMissionReplanBackoffActive(backoff, databaseNow)) {
+        const hasProgressEvidence = failedGoal
+          ? await hasNewMissionReplanProgressEvidence(tx, {
+              missionId: mission.id,
+              projectId: mission.projectId,
+              failedGoalId: failedGoal.id,
+              after: new Date(backoff.lastAttemptAt),
+            })
+          : false;
+        if (!hasProgressEvidence) {
+          return {
+            status: "skipped" as const,
+            missionId,
+            reason: "automatic_replan_backoff_active",
+          };
+        }
+      }
+    }
+
     const failedOutcome = jsonRecord(failedGoal?.outcomeContract);
     const acceptance = jsonRecord(failedOutcome.acceptance);
     const hasAcceptanceFailureDiagnosis = Object.prototype.hasOwnProperty.call(
@@ -711,25 +756,13 @@ export async function autoReplanMission(
       (hasAcceptanceFailureDiagnosis && !parsedAcceptanceDiagnosis?.success)
       || (hasWorldStateFailureDiagnosis && !worldStateDiagnosis)
     ) {
-      return {
-        status: "skipped" as const,
-        missionId,
-        reason: "failure_diagnosis_invalid",
-      };
+      return skip("failure_diagnosis_invalid");
     }
     if (failureDiagnosis?.requiresApproval) {
-      return {
-        status: "skipped" as const,
-        missionId,
-        reason: "failure_requires_owner_approval",
-      };
+      return skip("failure_requires_owner_approval");
     }
     if (failureDiagnosis && !failureDiagnosis.retryable) {
-      return {
-        status: "skipped" as const,
-        missionId,
-        reason: "failure_not_automatically_retryable",
-      };
+      return skip("failure_not_automatically_retryable");
     }
     const priorPlanRevision = failedGoal
       ? jsonRecord(jsonRecord(failedGoal.outcomeContract).planRevision).hash
@@ -741,11 +774,7 @@ export async function autoReplanMission(
       ? runtimeStartTargetStepIdFromGoal(failedGoal, priorPlanRevision)
       : undefined;
     if (worldStateDiagnosis && !runtimeStartTargetStepId) {
-      return {
-        status: "skipped" as const,
-        missionId,
-        reason: "runtime_transition_target_unbound",
-      };
+      return skip("runtime_transition_target_unbound");
     }
     let runtimeSourceBinding: MissionFailureSourceBinding | undefined;
     let validatorSourceBinding: MissionFailureSourceBinding | undefined;
@@ -761,11 +790,7 @@ export async function autoReplanMission(
           })
         : undefined;
       if (!validatorSourceBinding) {
-        return {
-          status: "skipped" as const,
-          missionId,
-          reason: "failure_source_evidence_unbound",
-        };
+        return skip("failure_source_evidence_unbound");
       }
     }
     if (
@@ -782,11 +807,7 @@ export async function autoReplanMission(
         diagnosis: worldStateDiagnosis,
       });
       if (!runtimeSourceBinding) {
-        return {
-          status: "skipped" as const,
-          missionId,
-          reason: "runtime_failure_evidence_unbound",
-        };
+        return skip("runtime_failure_evidence_unbound");
       }
     }
     const runtimeStartHypothesisEvidence = failedGoal && typeof priorPlanRevision === "string"
@@ -843,11 +864,7 @@ export async function autoReplanMission(
         affectedClaims: replanContext?.affectedClaims ?? [],
       });
       if (selection.status !== "selected") {
-        return {
-          status: "skipped" as const,
-          missionId,
-          reason: `strategy_${selection.reason}`,
-        };
+        return skip(`strategy_${selection.reason}`);
       }
       preview = selection.preview;
     }
@@ -874,7 +891,7 @@ export async function autoReplanMission(
     const alreadyReserved = autonomy.automaticReplanCount > 0
       && jsonRecord(mission.autonomyPolicy).lastAutomaticReplanRevision === revision;
     if (!alreadyReserved && autonomy.automaticReplanCount >= autonomy.maxAutoReplans) {
-      return { status: "skipped" as const, missionId, reason: "automatic_replan_budget_exhausted" };
+      return skip("automatic_replan_budget_exhausted");
     }
     const decisionTrace = preview.strategyDecision
       ? await buildMissionStrategyDecisionTraceInTransaction(tx, {
@@ -900,14 +917,16 @@ export async function autoReplanMission(
       return { status: "skipped" as const, missionId, reason: "empty_plan" };
     }
     const nextReplanCount = autonomy.automaticReplanCount + (alreadyReserved ? 0 : 1);
+    const nextAutonomyPolicy = writeCanonicalMissionAutonomyPolicy(
+      mission.autonomyPolicy,
+      nextReplanCount,
+    );
+    delete nextAutonomyPolicy.automaticReplanBackoff;
     const [updatedMission] = await tx.update(aiMissionsTable)
       .set({
         status: "active",
         autonomyPolicy: {
-          ...writeCanonicalMissionAutonomyPolicy(
-            mission.autonomyPolicy,
-            nextReplanCount,
-          ),
+          ...nextAutonomyPolicy,
           activePlanRevision: revision,
           lastAutomaticReplanRevision: revision,
         },
@@ -1090,6 +1109,29 @@ export async function autoReplanMission(
   };
 }
 
+
+export async function autoReplanMission(
+  missionId: string,
+  runGoal: typeof runMissionGoal = runMissionGoal,
+): Promise<AutoReplanResult> {
+  try {
+    return await autoReplanMissionAttempt(missionId, runGoal);
+  } catch (error) {
+    try {
+      await persistMissionReplanBackoffForMission(
+        missionId,
+        "mission_replan_attempt_failed",
+      );
+    } catch (backoffError) {
+      console.warn("Mission replan backoff persistence failed", {
+        missionId,
+        errorClass: backoffError instanceof Error ? backoffError.name : typeof backoffError,
+      });
+    }
+    throw error;
+  }
+}
+
 export async function reconcileAutomaticMissionReplans(
   limit = 16,
   scopeProjectId?: string,
@@ -1100,13 +1142,21 @@ export async function reconcileAutomaticMissionReplans(
     .where(and(
       eq(aiMissionsTable.status, "needs_replan"),
       scopeProjectId ? eq(aiMissionsTable.projectId, scopeProjectId) : undefined,
+      missionReplanBackoffCandidateCondition(),
     ))
     .orderBy(asc(aiMissionsTable.updatedAt), asc(aiMissionsTable.id))
-    .limit(Math.max(1, Math.min(limit, 64)));
+    .limit(Math.max(1, Math.min(Math.floor(limit), 64)));
   let replanned = 0;
   for (const candidate of candidates) {
-    const result = await autoReplanMission(candidate.id);
-    if (result.status === "replanned") replanned++;
+    try {
+      const result = await autoReplanMission(candidate.id);
+      if (result.status === "replanned") replanned++;
+    } catch (error) {
+      console.warn("Automatic Mission replan attempt failed; durable backoff was retained", {
+        missionId: candidate.id,
+        errorClass: error instanceof Error ? error.name : typeof error,
+      });
+    }
   }
   return replanned;
 }

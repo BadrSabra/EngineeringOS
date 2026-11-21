@@ -14,7 +14,7 @@ import {
   projectsTable,
 } from "@workspace/db";
 import { heavyJobQueue } from "./job-queue.js";
-import { autoReplanMission, buildReplanContext } from "./mission-auto-replan.js";
+import { autoReplanMission, buildReplanContext, reconcileAutomaticMissionReplans } from "./mission-auto-replan.js";
 import {
   receiveMissionEvent,
   runMissionGoal,
@@ -44,6 +44,124 @@ afterEach(async () => {
   for (const projectId of projectIds.splice(0)) {
     await db.delete(projectsTable).where(eq(projectsTable.id, projectId)).catch(() => undefined);
   }
+  it("backs off evidence-incomplete Mission replans and wakes on a newer Goal signal", async () => {
+    const projectId = randomUUID();
+    const missionId = randomUUID();
+    const failedGoalId = randomUUID();
+    const now = new Date();
+    projectIds.push(projectId);
+
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "test-user",
+      name: `mission-replan-backoff-${projectId.slice(0, 8)}`,
+      rootPath: process.cwd(),
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId,
+      userId: "test-user",
+      title: "Wait for progress evidence",
+      intent: "Inspect the source, then repair the blocking issue.",
+      status: "needs_replan",
+      scope: { kind: "project", projectId },
+      autonomyPolicy: { mode: "autonomous", maxAutoReplans: 3 },
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiGoalsTable).values({
+      id: failedGoalId,
+      missionId,
+      projectId,
+      title: "Validator failure with unbound source receipt",
+      status: "needs_replan",
+      successCriteria: { kind: "historical_failure" },
+      evidenceContract: { required: true },
+      outcomeContract: {
+        acceptance: {
+          failureDiagnosis: {
+            kind: "VALIDATOR_FAILED",
+            reasonCode: "VALIDATOR_FAILED",
+            nextActionCode: "REPAIR_AND_REVALIDATE",
+            retryable: true,
+            requiresApproval: false,
+          },
+        },
+      },
+      nextAction: { kind: "replan", reason: "repair validator evidence" },
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await expect(autoReplanMission(missionId)).resolves.toMatchObject({
+      status: "skipped",
+      reason: "failure_source_evidence_unbound",
+    });
+    const readBackoff = async () => {
+      const [mission] = await db.select({
+        status: aiMissionsTable.status,
+        autonomyPolicy: aiMissionsTable.autonomyPolicy,
+      }).from(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
+      return {
+        status: mission?.status,
+        backoff: mission?.autonomyPolicy.automaticReplanBackoff as {
+          attemptCount: number;
+          lastAttemptAt: string;
+          nextAttemptAt: string;
+          lastFailureCode: string;
+        } | undefined,
+      };
+    };
+
+    const first = await readBackoff();
+    expect(first.status).toBe("needs_replan");
+    expect(first.backoff).toMatchObject({
+      attemptCount: 1,
+      lastFailureCode: "failure_source_evidence_unbound",
+    });
+    expect(Date.parse(first.backoff!.nextAttemptAt) - Date.parse(first.backoff!.lastAttemptAt))
+      .toBe(30_000);
+
+    await expect(reconcileAutomaticMissionReplans(16, projectId)).resolves.toBe(0);
+    expect((await readBackoff()).backoff?.attemptCount).toBe(1);
+
+    const eventId = randomUUID();
+    const eventTimestamp = new Date(Date.parse(first.backoff!.lastAttemptAt) + 5);
+    const envelope = createMissionEventEnvelope({
+      eventId,
+      type: "evidence.updated",
+      projectId,
+      goalId: failedGoalId,
+      planRevision: "failed-plan-revision",
+      payload: { evidenceRef: "new-validator-receipt" },
+    });
+    await db.insert(eventsTable).values({
+      id: eventId,
+      type: "AiMissionExternalEventReceived",
+      projectId,
+      goalId: failedGoalId,
+      severity: "info",
+      message: "New evidence arrived for a failed Mission Goal.",
+      timestamp: eventTimestamp,
+      payload: { missionEvent: envelope },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    await expect(reconcileAutomaticMissionReplans(16, projectId)).resolves.toBe(0);
+    const afterEvidence = await readBackoff();
+    expect(afterEvidence.status).toBe("needs_replan");
+    expect(afterEvidence.backoff?.attemptCount).toBe(2);
+    expect(Date.parse(afterEvidence.backoff!.lastAttemptAt))
+      .toBeGreaterThan(Date.parse(first.backoff!.lastAttemptAt));
+
+    await expect(reconcileAutomaticMissionReplans(16, projectId)).resolves.toBe(0);
+    expect((await readBackoff()).backoff?.attemptCount).toBe(2);
+  });
+
 });
 
 async function createEventDrivenReplanFixture(waiting: boolean) {

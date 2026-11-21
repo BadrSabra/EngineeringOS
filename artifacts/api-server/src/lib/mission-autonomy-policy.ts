@@ -80,6 +80,7 @@ const serverOwnedMissionPolicyKeys = new Set([
   "activePlanRevision",
   "applyMission",
   "automaticReplanCount",
+  "automaticReplanBackoff",
   "handoffSource",
   "lastAutomaticReplanRevision",
 ]);
