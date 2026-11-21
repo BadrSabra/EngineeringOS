@@ -734,6 +734,38 @@ export async function executeHierarchical(
       evidenceGraph,
     };
   }
+  // A synthesis request cannot recover information when every sub-task
+  // failed, was cancelled, or exhausted its budget without returning usable
+  // text or retained source evidence. Avoid spending a second provider call
+  // merely to restate that deterministic failure.
+  const hasUsableSubResult = subResults.some((result) =>
+    (result.status === "complete" || result.status === "partial")
+    && (Boolean(result.text?.trim()) || result.sourceEvidence.length > 0),
+  );
+  if (!hasUsableSubResult) {
+    const response =
+      "ANALYSIS_INCOMPLETE — no sub-analysis produced a usable result; synthesis was skipped.";
+    const coverage = opts.compoundParts?.length
+      ? validateCompoundSynthesis(response, opts.compoundParts, sourceEvidence)
+      : undefined;
+    console.info(JSON.stringify({
+      scope: "hierarchical-executor",
+      code: "SYNTHESIS_SKIPPED_NO_USABLE_RESULTS",
+      taskCount: tasks.length,
+      receiptCount: subResults.length,
+    }));
+    return {
+      response,
+      toolSources: uniqueSources,
+      sourceEvidence,
+      receipts: subResults,
+      status: aggregate,
+      synthesisStatus: "skipped",
+      ...(coverage ? { coverage } : {}),
+      evidenceGraph,
+    };
+  }
+
   const synthesisMessages: RawMessage[] = [
     {
       role: "system",
