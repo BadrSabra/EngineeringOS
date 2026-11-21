@@ -221,6 +221,68 @@ it("attempts autonomous Mission replanning only after a retryable failure accept
   }]);
 });
 
+it("keeps the current Mission plan while an accepted Task recovery action is pending", async () => {
+  const fixture = await createFixture();
+  const planRevision = "mission-finalize-lock-order-plan";
+  await db.update(aiMissionsTable)
+    .set({
+      autonomyPolicy: {
+        mode: "autonomous",
+        maxAutoReplans: 2,
+        activePlanRevision: planRevision,
+      },
+    })
+    .where(eq(aiMissionsTable.id, fixture.missionId));
+  await db.update(aiGoalsTable)
+    .set({ status: "running", completedAt: null })
+    .where(eq(aiGoalsTable.id, fixture.goalId));
+
+  const replanSpy = vi.spyOn(missionAutoReplanModule, "autoReplanMission");
+  const finalized = await finalizeExecutionAcceptance({
+    executionId: fixture.executionId,
+    expectedAttempt: 0,
+    workerId: fixture.workerId,
+    finalizationKey: `mission-same-plan-recovery:${fixture.executionId}:0`,
+    outcome: "FAILED",
+    terminalStatus: "failed",
+    reasonCode: "EXECUTION_PROVIDER_FAILURE",
+    recoveryState: "REQUIRED",
+    resumable: false,
+    error: "Synthetic provider failure with an authorized same-plan retry.",
+    taskFinalization: {
+      taskId: fixture.taskId,
+      workerId: fixture.workerId,
+      status: "verifying",
+      agentResponse: "Task is waiting for its bounded recovery attempt.",
+    },
+  });
+
+  expect(finalized).toMatchObject({ accepted: true, duplicate: false });
+  expect(replanSpy).not.toHaveBeenCalled();
+
+  const [mission] = await db.select({ status: aiMissionsTable.status })
+    .from(aiMissionsTable).where(eq(aiMissionsTable.id, fixture.missionId));
+  const [goal] = await db.select({ status: aiGoalsTable.status })
+    .from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.goalId));
+  const [task] = await db.select({ status: tasksTable.status })
+    .from(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+  const [acceptance] = await db.select({
+    outcome: aiExecutionAcceptancesTable.outcome,
+    nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+    disposition: aiExecutionAcceptancesTable.disposition,
+  }).from(aiExecutionAcceptancesTable)
+    .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+
+  expect(mission?.status).toBe("active");
+  expect(goal?.status).toBe("running");
+  expect(task?.status).toBe("verifying");
+  expect(acceptance).toMatchObject({
+    outcome: "FAILED",
+    nextActionCode: "RETRY_AFTER_TIMEOUT",
+    disposition: { recoveryState: "REQUIRED" },
+  });
+});
+
 it("does not immediately replan a non-retryable accepted Task failure", async () => {
   const fixture = await createFixture();
   await db.update(aiGoalsTable)
