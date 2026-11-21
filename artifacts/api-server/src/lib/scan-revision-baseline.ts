@@ -1,5 +1,6 @@
 import { and, desc, eq } from "drizzle-orm";
-import { db, scanJobsTable } from "@workspace/db";
+import { scanJobsTable } from "@workspace/db";
+import type { ScanJobTransaction } from "./job-lease.js";
 import type { RevisionManifest, RevisionManifestFile } from "@workspace/scanner";
 
 export type ScanBaselineUnavailableReason =
@@ -161,9 +162,10 @@ export function readPersistedScanBaseline(input: {
  * a known graph gap and could make a later selective refresh unsafe.
  */
 export async function loadLatestCompleteScanBaseline(
+  tx: ScanJobTransaction,
   projectId: string,
 ): Promise<ScanBaselineReadResult> {
-  const [latest] = await db
+  const [latest] = await tx
     .select({
       id: scanJobsTable.id,
       result: scanJobsTable.result,

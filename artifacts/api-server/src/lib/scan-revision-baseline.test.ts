@@ -173,7 +173,7 @@ describe("persisted scan revision baseline", () => {
       createdAt: now,
     });
 
-    expect(await loadLatestCompleteScanBaseline(projectId)).toMatchObject({
+    expect(await db.transaction((tx) => loadLatestCompleteScanBaseline(tx, projectId))).toMatchObject({
       available: true,
       baseline: { scanJobId: baselineId, scannerVersion: "1.0.0" },
     });
@@ -197,7 +197,7 @@ describe("persisted scan revision baseline", () => {
       finishedAt: now,
     });
 
-    expect(await loadLatestCompleteScanBaseline(projectId)).toEqual({
+    expect(await db.transaction((tx) => loadLatestCompleteScanBaseline(tx, projectId))).toEqual({
       available: false,
       reason: "scan_not_complete",
     });
@@ -222,7 +222,7 @@ describe("persisted scan revision baseline", () => {
       finishedAt: null,
     });
 
-    expect(await loadLatestCompleteScanBaseline(projectId)).toEqual({
+    expect(await db.transaction((tx) => loadLatestCompleteScanBaseline(tx, projectId))).toEqual({
       available: false,
       reason: "scan_finished_at_missing",
     });
@@ -230,7 +230,7 @@ describe("persisted scan revision baseline", () => {
 
   it("reports no baseline when the project has no completed scan", async () => {
     const projectId = await insertProject();
-    expect(await loadLatestCompleteScanBaseline(projectId)).toEqual({
+    expect(await db.transaction((tx) => loadLatestCompleteScanBaseline(tx, projectId))).toEqual({
       available: false,
       reason: "no_previous_scan",
     });
