@@ -300,6 +300,40 @@ describe("Mission recovery strategy engine", () => {
     expect(result.decision.planDelta.addedStepIds).toEqual(["strategy-runtime-preflight"]);
   });
 
+  it("does not reuse an approval-gated inspection as runtime preflight", () => {
+    const result = selectAndApplyMissionStrategy({
+      preview: runtimePreviewWithExistingInspection({ approvalRequired: true }),
+      ...sourceIdentity,
+      worldStateFailureDiagnosis: diagnoseRuntimeStartWorldStateFailure({
+        reasonCode: "runtime_status_missing",
+        transition: runtimeTransition,
+        supportingObservationIds: ["observation-1"],
+      }),
+      runtimeStartTargetStepId: "deliver",
+      runtimeSourceBinding: {
+        acceptanceId: "acceptance-1",
+        executionId: runtimeTransition.executionId,
+        episodeId: runtimeTransition.episodeId,
+        attempt: runtimeTransition.attempt,
+        transitionId: runtimeTransition.id,
+      },
+      evidenceRefs: ["world-transition:transition-1", "observation:status-1"],
+      affectedPaths: [],
+      affectedClaims: [],
+    });
+
+    expect(result.status).toBe("selected");
+    if (result.status !== "selected") return;
+    expect(result.preview.plan.steps.map((step) => step.id)).toEqual([
+      "existing-inspect",
+      "strategy-runtime-preflight",
+      "runtime-start",
+      "deliver",
+    ]);
+    expect(result.preview.plan.steps[0]?.approvalRequired).toBe(true);
+    expect(result.preview.plan.steps[2]?.dependencies).toContain("strategy-runtime-preflight");
+  });
+
   it("selects transition-provenance-first when the bound failure is a missing transition", () => {
     const result = selectAndApplyMissionStrategy({
       preview: runtimePreview(),
