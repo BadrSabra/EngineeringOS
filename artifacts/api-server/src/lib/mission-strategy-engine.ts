@@ -426,12 +426,13 @@ function runtimeStrategy(input: StrategyInput): MissionStrategySelection {
           readOnly: true,
           approvalRequired: false,
         };
+    const runtimeInspectionStepId = reusableInspection?.id ?? preflightStepId;
     const steps = input.preview.plan.steps.map((step) => {
       if (reusableInspection && step.id === reusableInspection.id) return preflightStep;
       if (step.id === startStep.id) {
         return {
           ...step,
-          dependencies: [...new Set([...step.dependencies, preflightStepId === reusableInspection?.id ? reusableInspection.id : preflightStepId])],
+          dependencies: [...new Set([...step.dependencies, runtimeInspectionStepId])],
         };
       }
       return step;
