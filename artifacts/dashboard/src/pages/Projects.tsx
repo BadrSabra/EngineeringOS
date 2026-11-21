@@ -45,6 +45,14 @@ function bootstrapStatusLabel(status: string) {
   return bootstrapStatusLabels[status] ?? status;
 }
 
+type ProjectStatusFilter = '' | 'active' | 'scanning' | 'archived';
+
+function readProjectStatusFilter(value: string | null): ProjectStatusFilter {
+  return value === 'active' || value === 'scanning' || value === 'archived'
+    ? value
+    : '';
+}
+
 export default function Projects() {
   const { isLoaded, user } = useUser();
   if (!isLoaded) return <p role="status">جارٍ تحميل الحساب…</p>;
@@ -111,13 +119,18 @@ function ProjectsForAccountSession({
   const [search, setSearch] = useState(
     () => new URLSearchParams(window.location.search).get('search') ?? '',
   );
+  const [statusFilter, setStatusFilter] = useState<ProjectStatusFilter>(
+    () => readProjectStatusFilter(new URLSearchParams(window.location.search).get('status')),
+  );
   const searchInputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     const url = new URL(window.location.href);
     if (search.trim()) url.searchParams.set('search', search);
     else url.searchParams.delete('search');
+    if (statusFilter) url.searchParams.set('status', statusFilter);
+    else url.searchParams.delete('status');
     window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
-  }, [search]);
+  }, [search, statusFilter]);
   const [projectName, setProjectName] = useState(incomingDraft?.bootstrap?.projectName ?? '');
   const [projectDescription, setProjectDescription] = useState(incomingDraft?.text ?? '');
   const [bootstrapId, setBootstrapId] = useState(incomingDraft?.bootstrap?.operationId ?? '');
@@ -263,7 +276,11 @@ function ProjectsForAccountSession({
   }, [error]);
 
   const normalizedSearch = search.trim().toLowerCase();
-  const filtered = projects?.filter((project) => matchesProjectSearch(project, search));
+  const searchMatches = projects?.filter((project) => matchesProjectSearch(project, search));
+  const filtered = searchMatches?.filter((project) =>
+    !statusFilter || project.status === statusFilter,
+  );
+  const hasActiveFilters = Boolean(normalizedSearch || statusFilter);
 
   return (
     <>
@@ -406,12 +423,14 @@ function ProjectsForAccountSession({
                 }`}
               />
                 <span id="project-search-keyboard-status" aria-live="polite" aria-atomic="true" className="sr-only">
-                  {normalizedSearch && filtered?.length === 1
+                  {hasActiveFilters && filtered?.length === 1
                     ? 'مشروع واحد مطابق. اضغط Enter لفتح مساحة العمل.'
-                    : normalizedSearch && filtered && filtered.length > 1
+                    : hasActiveFilters && filtered && filtered.length > 1
                       ? 'توجد عدة مشاريع مطابقة. اختر المشروع المطلوب من النتائج.'
-                      : normalizedSearch && filtered?.length === 0
+                      : normalizedSearch && searchMatches?.length === 0 && filtered?.length === 0
                         ? 'لا توجد مشاريع مطابقة. يمكنك استخدام عبارة البحث اسمًا لمشروع جديد.'
+                        : hasActiveFilters && filtered?.length === 0
+                          ? 'لا توجد مشاريع تطابق هذه الاختيارات. غيّر حالة المشروع أو امسح الفلاتر.'
                         : ''}
                 </span>
               {normalizedSearch && (
@@ -428,6 +447,24 @@ function ProjectsForAccountSession({
                   <X className="h-3.5 w-3.5" aria-hidden="true" />
                 </button>
               )}
+            </div>
+            <div>
+              <label htmlFor="project-status-filter" className="sr-only">
+                فلتر المشاريع حسب الحالة
+              </label>
+              <select
+                id="project-status-filter"
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(readProjectStatusFilter(event.target.value))}
+                data-testid="select-project-status-filter"
+                dir="rtl"
+                className="h-9 rounded-md border border-border bg-card px-3 text-sm outline-none transition focus:border-primary focus:ring-1 focus:ring-primary"
+              >
+                <option value="">كل الحالات</option>
+                <option value="active">نشطة</option>
+                <option value="scanning">قيد الفحص</option>
+                <option value="archived">مؤرشفة</option>
+              </select>
             </div>
             <button
               onClick={() => setShowDiscover(true)}
@@ -487,14 +524,24 @@ function ProjectsForAccountSession({
               <Radar className="w-7 h-7 text-primary/60" />
             </div>
             <h3 className="font-semibold text-lg mb-1">
-              {normalizedSearch ? 'لا توجد مشاريع تطابق بحثك' : 'لا توجد مشاريع بعد'}
+              {normalizedSearch && statusFilter
+                ? 'لا توجد مشاريع تطابق البحث والحالة'
+                : normalizedSearch
+                  ? 'لا توجد مشاريع تطابق بحثك'
+                  : statusFilter
+                    ? 'لا توجد مشاريع بهذه الحالة'
+                    : 'لا توجد مشاريع بعد'}
             </h3>
             <p className="text-sm text-muted-foreground max-w-xs mb-5">
-              {normalizedSearch
-                ? 'جرّب اسم المشروع أو وصفه أو إحدى تقنياته.'
-                : 'يمكنك تجهيز مشروع، أو استكشاف مشروع موجود، أو البدء بوصف النتيجة التي تريدها.'}
+              {normalizedSearch && statusFilter
+                ? 'غيّر عبارة البحث أو حالة المشروع، أو اعرض كل المشاريع.'
+                : normalizedSearch
+                  ? 'جرّب اسم المشروع أو وصفه أو إحدى تقنياته.'
+                  : statusFilter
+                    ? 'غيّر حالة المشروع أو اعرض كل المشاريع.'
+                    : 'يمكنك تجهيز مشروع، أو استكشاف مشروع موجود، أو البدء بوصف النتيجة التي تريدها.'}
             </p>
-            {normalizedSearch && filtered?.length === 0 && (
+            {normalizedSearch && !statusFilter && searchMatches?.length === 0 && filtered?.length === 0 && (
               <div className="mb-5 flex flex-col items-center gap-2">
                 <button
                   type="button"
@@ -508,7 +555,21 @@ function ProjectsForAccountSession({
                 <span className="text-xs text-muted-foreground">سيفتح النموذج لتعديل الاسم وإضافة وصف قبل البدء.</span>
               </div>
             )}
-            {!normalizedSearch && (
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch('');
+                  setStatusFilter('');
+                  searchInputRef.current?.focus();
+                }}
+                data-testid="button-clear-project-filters"
+                className="mb-5 rounded-md border border-border px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                اعرض كل المشاريع
+              </button>
+            )}
+            {!hasActiveFilters && (
               <div className="flex flex-wrap justify-center gap-3">
                 <Link
                   href="/"
