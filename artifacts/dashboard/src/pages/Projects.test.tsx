@@ -387,8 +387,23 @@ describe("Projects", () => {
     fireEvent.change(input, { target: { value: "zzz-no-match" } });
     expect(screen.queryByText("alpha-service")).not.toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('لا توجد مشاريع تطابق بحثك');
+    expect(screen.getByTestId('button-create-project-from-search')).toHaveTextContent('zzz-no-match');
     expect(screen.queryByTestId('button-empty-create-project')).not.toBeInTheDocument();
     expect(screen.queryByTestId('link-empty-goal-first')).not.toBeInTheDocument();
+    expect(mocks.mutate).not.toHaveBeenCalled();
+  });
+
+  it('prefills the new-project name from an unmatched search without creating automatically', () => {
+    render(<Projects />);
+    fireEvent.change(screen.getByTestId('input-project-search'), {
+      target: { value: '  لوحة متابعة الورشة  ' },
+    });
+
+    fireEvent.click(screen.getByTestId('button-create-project-from-search'));
+
+    expect(screen.getByRole('dialog', { name: 'ابدأ مشروعك من قالب ويب جاهز' })).toBeInTheDocument();
+    expect(screen.getByTestId('input-project-name')).toHaveValue('لوحة متابعة الورشة');
+    expect(screen.getByTestId('input-project-description')).toHaveValue('');
     expect(mocks.mutate).not.toHaveBeenCalled();
   });
 

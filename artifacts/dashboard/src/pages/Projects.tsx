@@ -197,6 +197,12 @@ function ProjectsForAccountSession({
     setShowCreate(true);
   };
 
+  const openCreateFromSearch = () => {
+    setProjectName(search.trim().slice(0, 80));
+    setProjectDescription('');
+    openCreate();
+  };
+
   const submitCreate = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const name = projectName.trim();
@@ -405,7 +411,7 @@ function ProjectsForAccountSession({
                     : normalizedSearch && filtered && filtered.length > 1
                       ? 'توجد عدة مشاريع مطابقة. اختر المشروع المطلوب من النتائج.'
                       : normalizedSearch && filtered?.length === 0
-                        ? 'لا توجد مشاريع مطابقة.'
+                        ? 'لا توجد مشاريع مطابقة. يمكنك استخدام عبارة البحث اسمًا لمشروع جديد.'
                         : ''}
                 </span>
               {normalizedSearch && (
@@ -488,6 +494,20 @@ function ProjectsForAccountSession({
                 ? 'جرّب اسم المشروع أو وصفه أو إحدى تقنياته.'
                 : 'يمكنك تجهيز مشروع، أو استكشاف مشروع موجود، أو البدء بوصف النتيجة التي تريدها.'}
             </p>
+            {normalizedSearch && filtered?.length === 0 && (
+              <div className="mb-5 flex flex-col items-center gap-2">
+                <button
+                  type="button"
+                  onClick={openCreateFromSearch}
+                  data-testid="button-create-project-from-search"
+                  className="inline-flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/10 px-5 py-2.5 text-sm font-semibold text-primary transition-colors hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                  <Plus className="h-4 w-4" aria-hidden="true" />
+                  استخدم «<bdi dir="auto">{search.trim().slice(0, 80)}</bdi>» اسمًا لمشروع جديد
+                </button>
+                <span className="text-xs text-muted-foreground">سيفتح النموذج لتعديل الاسم وإضافة وصف قبل البدء.</span>
+              </div>
+            )}
             {!normalizedSearch && (
               <div className="flex flex-wrap justify-center gap-3">
                 <Link
