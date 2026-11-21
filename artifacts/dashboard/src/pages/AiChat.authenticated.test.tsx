@@ -1190,6 +1190,36 @@ describe('workspace goal draft handoff', () => {
 });
 
 describe('AI conversation return links', () => {
+  it('searches project conversation titles and clears the filter without changing the active session', async () => {
+    const originalPath = window.location.pathname + window.location.search;
+    mocks.sessions = [
+      { id: 'session-1', title: 'مراجعة شاشة الدخول', updatedAt: '2026-10-15T10:00:00Z' },
+      { id: 'session-2', title: 'جلسة إصلاح التقارير', updatedAt: '2026-10-14T10:00:00Z' },
+    ];
+    try {
+      window.history.replaceState({}, '', '/ai?projectId=project-1&sessionId=session-1');
+      renderAiChat();
+
+      const search = await screen.findByRole('searchbox', { name: 'ابحث في محادثات المشروع' });
+      await waitFor(() => expect(screen.getByTestId('button-chat-session-session-1')).toHaveAttribute('aria-current', 'true'));
+      fireEvent.change(search, { target: { value: 'الدخول' } });
+      expect(screen.getByTestId('button-chat-session-session-1')).toBeInTheDocument();
+      expect(screen.queryByTestId('button-chat-session-session-2')).not.toBeInTheDocument();
+
+      fireEvent.change(search, { target: { value: 'محادثة غير موجودة' } });
+      expect(screen.getByTestId('text-chat-session-search-empty')).toBeInTheDocument();
+      fireEvent.click(screen.getByTestId('button-clear-chat-session-search'));
+
+      expect(screen.getByTestId('button-chat-session-session-1')).toBeInTheDocument();
+      expect(screen.getByTestId('button-chat-session-session-2')).toBeInTheDocument();
+      expect(screen.getByTestId('button-chat-session-session-1')).toHaveAttribute('aria-current', 'true');
+      expect(search).toHaveValue('');
+      expect(mocks.sentParams).toBeUndefined();
+    } finally {
+      window.history.replaceState({}, '', originalPath);
+    }
+  });
+
   it('keeps project drafts on their exact session while switching between sessions', async () => {
     const originalPath = window.location.pathname + window.location.search;
     const unsentText = 'هذه مسودة للجلسة الحالية';
