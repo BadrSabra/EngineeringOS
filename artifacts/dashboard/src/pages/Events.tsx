@@ -368,6 +368,16 @@ export default function Events() {
                               افتح سجل التشغيل
                             </Link>
                           )}
+                          {eventProject && evt.taskId && (
+                            <Link
+                              href={`/tasks?projectId=${encodeURIComponent(evt.projectId)}&taskId=${encodeURIComponent(evt.taskId)}`}
+                              aria-label={`افتح تفاصيل المهمة المرتبطة: ${typeLabel}`}
+                              data-testid={`link-event-task-${evt.id}`}
+                              className="mt-1 block truncate text-[10px] font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                            >
+                              افتح تفاصيل المهمة
+                            </Link>
+                          )}
                         </div>
                         <div className="flex w-48 shrink-0 items-center gap-1">
                           {eventProject ? (

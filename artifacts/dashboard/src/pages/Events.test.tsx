@@ -267,6 +267,42 @@ describe("Events", () => {
     expect(screen.queryByTestId("link-event-workflow-event-2")).not.toBeInTheDocument();
   });
 
+  it("opens the event's exact task only when its project is known", () => {
+    vi.mocked(useListEvents).mockReturnValue({
+      data: {
+        events: [
+          { ...mockEvents[1], taskId: "task/beta" },
+          { ...mockEvents[0], id: "event-without-task" },
+          {
+            ...mockEvents[0],
+            id: "event-orphan-task",
+            projectId: "deleted-project",
+            taskId: "task/deleted-project",
+          },
+        ],
+        total: 3,
+      },
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+      error: null,
+      dataUpdatedAt: new Date("2026-08-22T12:01:00.000Z").getTime(),
+      refetch,
+    } as ReturnType<typeof useListEvents>);
+
+    render(<Events />);
+
+    expect(screen.getByTestId("link-event-task-event-2")).toHaveAttribute(
+      "href",
+      "/tasks?projectId=project-beta&taskId=task%2Fbeta",
+    );
+    expect(screen.getByRole("link", {
+      name: "افتح تفاصيل المهمة المرتبطة: تعثر تنفيذ الخطوة",
+    })).toBeInTheDocument();
+    expect(screen.queryByTestId("link-event-task-event-without-task")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("link-event-task-event-orphan-task")).not.toBeInTheDocument();
+  });
+
   it("offers assistant context only for warning or error events in a known project", () => {
     vi.mocked(useListEvents).mockReturnValue({
       data: {
