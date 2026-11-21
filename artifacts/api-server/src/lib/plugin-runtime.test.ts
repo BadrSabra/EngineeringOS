@@ -313,6 +313,7 @@ describe("plugin-docs", () => {
         { ...entity("function", "documented"), isDocumented: true },
         { ...entity("function", "undocumented"), isDocumented: false },
         entity("class", "unknown"),
+        { ...entity("class", "legacy-null"), isDocumented: null },
       ],
     });
 
@@ -320,12 +321,12 @@ describe("plugin-docs", () => {
     const analysis = result.events?.find((event) => event.type === "DocsPluginAnalysis");
 
     expect(analysis?.message).toContain("Documentation heuristic (advisory)");
-    expect(analysis?.message).toContain("documentation metadata unavailable for 1 entity/entities");
+    expect(analysis?.message).toContain("documentation metadata unavailable for 2 entity/entities");
     expect(analysis?.payload).toMatchObject({
-      documentableCount: 3,
+      documentableCount: 4,
       documentedCount: null,
-      unknownDocumentableCount: 1,
-      coverageRatio: 0.3,
+      unknownDocumentableCount: 2,
+      coverageRatio: 0.4,
       isHeuristic: true,
     });
   });
