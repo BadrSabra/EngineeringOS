@@ -7,7 +7,7 @@ type Fixture = {
   targetName: string;
   sourcePath?: string;
   targetPath?: string;
-  isRuntimeObserved?: boolean;
+  isRuntimeObserved?: boolean | null;
   provenance?: unknown;
 };
 
