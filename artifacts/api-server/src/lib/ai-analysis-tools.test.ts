@@ -33,6 +33,98 @@ beforeEach(() => {
 });
 
 describe("project analysis root failure classification", () => {
+  it("joins API discovery rows with the guarded project revision", async () => {
+    const projectRevision = "2026-10-04T12:00:00.000Z";
+    const apiEntity = {
+      id: "api-1",
+      type: "api",
+      name: "GET /health",
+      path: "src/routes.ts",
+      confidence: 1,
+    } as never;
+    mockDbSelect.mockImplementation(() => ({
+      from: () => ({
+        leftJoin: () => ({
+          where: () => ({
+            limit: async () => [{
+              projectUpdatedAt: new Date(projectRevision),
+              entity: apiEntity,
+            }],
+          }),
+        }),
+        where: () => ({
+          limit: async () => [{ updatedAt: new Date(projectRevision) }],
+        }),
+      }),
+    }));
+
+    const runner = createProjectAnalysisToolRunner("project-a", process.cwd());
+    const result = await runner(
+      "discover_project_apis",
+      { query: "health" },
+      undefined,
+      {
+        operationId: "operation-a",
+        projectId: "project-a",
+        projectRevision,
+        rootAvailable: true,
+        evidenceProvenance: "project-analysis",
+      },
+    );
+
+    expect(result).toMatchObject({
+      status: "complete",
+      source: "analysis:api-discovery",
+    });
+    expect(result.output).toContain("GET /health");
+    // One joined API/revision read, followed by the completion-time revision check.
+    expect(mockDbSelect).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects API discovery when the joined project revision is stale", async () => {
+    const projectRevision = "2026-10-04T12:00:00.000Z";
+    mockDbSelect.mockImplementation(() => ({
+      from: () => ({
+        leftJoin: () => ({
+          where: () => ({
+            limit: async () => [{
+              projectUpdatedAt: new Date("2026-10-04T12:01:00.000Z"),
+              entity: {
+                id: "api-1",
+                type: "api",
+                name: "GET /health",
+              } as never,
+            }],
+          }),
+        }),
+        where: () => ({
+          limit: async () => [{ updatedAt: new Date(projectRevision) }],
+        }),
+      }),
+    }));
+
+    const runner = createProjectAnalysisToolRunner("project-a", process.cwd());
+    const result = await runner(
+      "discover_project_apis",
+      {},
+      undefined,
+      {
+        operationId: "operation-a",
+        projectId: "project-a",
+        projectRevision,
+        rootAvailable: true,
+        evidenceProvenance: "project-analysis",
+      },
+    );
+
+    expect(result).toMatchObject({
+      status: "unavailable",
+      failureCategory: "stale_revision",
+    });
+    expect(result).not.toHaveProperty("source");
+    expect(mockDbSelect).toHaveBeenCalledOnce();
+  });
+
   it("reports an initially unavailable root before any tool work", async () => {
     const runner = createProjectAnalysisToolRunner("project-a", "/tmp/missing-root");
     const result = await runner(
