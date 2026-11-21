@@ -301,23 +301,37 @@ describe("reconcileStuckJobs", () => {
     expect(failures).toHaveLength(1);
   });
 
-  it("batch-recovers retryable stale scan jobs exactly once across concurrent reconcilers", async () => {
+  it("batch-recovers retryable scan jobs exactly once and preserves queued siblings", async () => {
     const projectId = await insertProject("scanning");
     projectCleanup.push(projectId);
 
     const now = new Date();
     const jobIds = Array.from({ length: 3 }, () => randomUUID());
-    await db.insert(scanJobsTable).values(jobIds.map((id) => ({
-      id,
-      projectId,
-      status: "running" as const,
-      retryCount: 0,
-      maxRetries: 2,
-      workerId: randomUUID(),
-      leaseUntil: new Date(now.getTime() - 60_000),
-      startedAt: now,
-      createdAt: now,
-    })));
+    const exhaustedJobId = randomUUID();
+    await db.insert(scanJobsTable).values([
+      ...jobIds.map((id) => ({
+        id,
+        projectId,
+        status: "running" as const,
+        retryCount: 0,
+        maxRetries: 2,
+        workerId: randomUUID(),
+        leaseUntil: new Date(now.getTime() - 60_000),
+        startedAt: now,
+        createdAt: now,
+      })),
+      {
+        id: exhaustedJobId,
+        projectId,
+        status: "running",
+        retryCount: 2,
+        maxRetries: 2,
+        workerId: randomUUID(),
+        leaseUntil: new Date(now.getTime() - 60_000),
+        startedAt: now,
+        createdAt: now,
+      },
+    ]);
 
     await Promise.all([reconcileStuckJobs(), reconcileStuckJobs()]);
 
@@ -326,6 +340,7 @@ describe("reconcileStuckJobs", () => {
         id: scanJobsTable.id,
         status: scanJobsTable.status,
         retryCount: scanJobsTable.retryCount,
+        error: scanJobsTable.error,
         workerId: scanJobsTable.workerId,
         leaseUntil: scanJobsTable.leaseUntil,
         startedAt: scanJobsTable.startedAt,
@@ -333,10 +348,11 @@ describe("reconcileStuckJobs", () => {
       .from(scanJobsTable)
       .where(eq(scanJobsTable.projectId, projectId));
 
-    expect(recoveredJobs).toHaveLength(jobIds.length);
-    for (const job of recoveredJobs) {
+    expect(recoveredJobs).toHaveLength(jobIds.length + 1);
+    for (const job of recoveredJobs.filter((row) => jobIds.includes(row.id))) {
       expect(job.status).toBe("queued");
       expect(job.retryCount).toBe(1);
+      expect(job.error).toBeNull();
       expect(job.workerId).toBeNull();
       expect(job.leaseUntil).toBeNull();
       expect(job.startedAt).toBeNull();
@@ -345,6 +361,24 @@ describe("reconcileStuckJobs", () => {
         expect.any(Function),
       );
     }
+
+    const failedJob = recoveredJobs.find((job) => job.id === exhaustedJobId);
+    expect(failedJob?.status).toBe("failed");
+    expect(failedJob?.error).toContain("retry limit");
+    const [project] = await db
+      .select({ status: projectsTable.status })
+      .from(projectsTable)
+      .where(eq(projectsTable.id, projectId));
+    expect(project?.status).toBe("scanning");
+
+    const failures = await db.select({ id: eventsTable.id })
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.projectId, projectId),
+        eq(eventsTable.type, "ProjectScanFailed"),
+        eq(eventsTable.correlationId, exhaustedJobId),
+      ));
+    expect(failures).toHaveLength(1);
   });
 
   it("only one concurrent reconciler owns an interrupted scan transition", async () => {
