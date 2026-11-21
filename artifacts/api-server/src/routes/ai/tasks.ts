@@ -623,6 +623,7 @@ async function runAiTaskExecution(
 
         if (
           !currentTask
+          || currentTask.projectId !== task.projectId
           || currentTask.status !== "verifying"
           || !currentTask.prompt
           || currentTask.retryCount !== retryCount
