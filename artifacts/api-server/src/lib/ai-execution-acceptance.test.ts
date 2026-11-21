@@ -505,7 +505,7 @@ describe("server-owned execution acceptance", () => {
       retryable: false,
       siblingTaskStatuses: [],
       samePlanRecoveryPending: true,
-    })).toBe("running");
+    })).toBe("verifying");
 
     expect(deriveLinkedGoalStatus({
       outcome: "FAILED",
