@@ -35,7 +35,7 @@ function taskAttention(userId: string): SQL {
   )`;
 }
 
-function taskGroupExpression(userId: string): SQL {
+function taskGroupExpression(userId: string): SQL<Group> {
   const attention = taskAttention(userId);
   return sql`CASE
     WHEN ${attention} THEN 'decisions'
@@ -60,7 +60,7 @@ function missionAttention(): SQL {
   )))`;
 }
 
-function missionGroupExpression(): SQL {
+function missionGroupExpression(): SQL<Group> {
   const attention = missionAttention();
   return sql`CASE
     WHEN ${attention} THEN 'decisions'
@@ -70,7 +70,7 @@ function missionGroupExpression(): SQL {
   END`;
 }
 
-function executionGroupExpression(): SQL {
+function executionGroupExpression(): SQL<Group> {
   return sql`CASE
     WHEN ${executions.status} = 'paused' THEN 'decisions'
     WHEN ${executions.status} IN ('completed','failed','cancelled') THEN 'recent'
