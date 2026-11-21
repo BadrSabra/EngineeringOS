@@ -590,6 +590,10 @@ describe("Dashboard goal-first home", () => {
       .toHaveAttribute("href", "/tasks?status=failed");
     expect(screen.getByTestId("card-active-work-home"))
       .toHaveAttribute("href", "/tasks?status=active");
+    expect(screen.getByTestId("card-completed-work-home"))
+      .toHaveAttribute("href", "/tasks?status=completed");
+    expect(screen.getByTestId("card-failed-work-home"))
+      .toHaveAttribute("href", "/tasks?status=failed");
     expect(screen.getByText(/تفاصيل القبول والإثبات تبقى ضمن المهمة/)).toBeInTheDocument();
   });
 
