@@ -11,7 +11,7 @@ import {
 } from "@workspace/db";
 import type { AiExecution } from "@workspace/db";
 import { redactUserFacingText, redactUserFacingValue } from "./ai-route-helpers.js";
-import { evaluateReadinessFromEvidence, type OperationalReadinessDecision } from "./operational-readiness-gate.js";
+import { evaluateReadinessFromEvidence, type OperationalReadinessDecision, type ReadinessCheck } from "./operational-readiness-gate.js";
 import {
   loadCanonicalProof,
   projectCanonicalProof,
@@ -189,6 +189,65 @@ function addGap(gaps: EvidenceGap[], gap: EvidenceGap): void {
   if (gaps.length < OPERATION_EVIDENCE_LIMITS.gaps) gaps.push(gap);
 }
 
+function bindReadinessToCanonicalProof(args: {
+  readiness: OperationalReadinessDecision;
+  proof: PublicCanonicalProofProjection;
+  execution: EvidenceInput["execution"];
+  projectRevision: string | null;
+}): OperationalReadinessDecision {
+  const proofSourceRevision = typeof args.proof.sourceRevision === "string" && args.proof.sourceRevision.trim().length > 0
+    ? args.proof.sourceRevision
+    : null;
+  const operationMatches = !args.execution.operationId
+    || args.proof.operationId === args.execution.operationId;
+  const identityMatches = args.proof.executionId === args.execution.id
+    && args.proof.attempt === args.execution.attempt
+    && Boolean(args.projectRevision)
+    && proofSourceRevision === args.projectRevision
+    && operationMatches;
+  const accepted = args.proof.accepted
+    && args.proof.verdict === "PROVEN"
+    && identityMatches;
+  const claimsProvenButMismatched = args.proof.verdict === "PROVEN"
+    && (!args.proof.accepted || !identityMatches);
+  const recoveryAction = "Reload the current execution attempt's Canonical Proof and reconcile any stale acceptance, revision, or operation binding before claiming readiness.";
+  const proofCheck: ReadinessCheck = {
+    id: "canonical-proof-binding",
+    status: accepted ? "passed" : "failed",
+    blocking: true,
+    detail: accepted
+      ? "An accepted Canonical Proof is bound to this execution, attempt, operation, and project revision."
+      : claimsProvenButMismatched
+        ? "The Canonical Proof claims PROVEN but does not match the current execution identity, attempt, operation, or revision."
+        : "The current execution has no accepted PROVEN Canonical Proof.",
+    ...(!accepted ? { recoveryAction } : {}),
+  };
+  const status = accepted
+    ? args.readiness.status
+    : args.readiness.status === "failed"
+      ? "failed"
+      : args.readiness.status === "blocked"
+        ? "blocked"
+        : args.readiness.status === "incomplete"
+          ? "incomplete"
+          : claimsProvenButMismatched
+            ? "blocked"
+            : "incomplete";
+  return {
+    ...args.readiness,
+    status,
+    releaseRecommendation: status === "proven" ? "ready" : "not-ready",
+    deterministicProof: status === "proven" ? "proven" : "not-proven",
+    checks: [...args.readiness.checks, proofCheck],
+    blockers: accepted
+      ? args.readiness.blockers
+      : [...new Set([...args.readiness.blockers, proofCheck.id])],
+    recoveryActions: accepted
+      ? args.readiness.recoveryActions
+      : [...new Set([...args.readiness.recoveryActions, recoveryAction])],
+  };
+}
+
 export function buildOperationEvidenceProjection(input: EvidenceInput): InternalOperationEvidenceProjection {
   const execution = input.execution;
   const checkpoint = record(parseJson(execution.checkpoint));
@@ -352,7 +411,7 @@ export function buildOperationEvidenceProjection(input: EvidenceInput): Internal
     status: string;
     evidenceRefs?: string[];
   }> } | undefined;
-  projection.readiness = evaluateReadinessFromEvidence(projection, {
+  const readiness = evaluateReadinessFromEvidence(projection, {
     approvedScope: Array.isArray(request.validationTargetPaths)
       ? request.validationTargetPaths.filter((item): item is string => typeof item === "string")
       : [],
@@ -367,6 +426,12 @@ export function buildOperationEvidenceProjection(input: EvidenceInput): Internal
       : [],
     terminalVerdict: typeof checkpoint.evidenceVerdict === "string" ? checkpoint.evidenceVerdict : null,
   }, { evaluatedAt: execution.completedAt?.toISOString?.() ?? execution.createdAt.toISOString() });
+  projection.readiness = bindReadinessToCanonicalProof({
+    readiness,
+    proof: projection.proof,
+    execution,
+    projectRevision: projection.revision,
+  });
   return projection;
 }
 
