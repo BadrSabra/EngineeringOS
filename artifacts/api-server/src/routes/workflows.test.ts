@@ -398,6 +398,76 @@ describe("Workflow phase orchestration", () => {
     expect(rollbackAudit?.correlationId).toBe(rollbackEvent?.correlationId);
   });
 
+  it("rejects rollback when the workflow state changes after the execution is claimed", async () => {
+    const { projectId, workflowId } = await createStartedWorkflow();
+    await request(app).post(`/api/workflows/${workflowId}/advance`);
+    await request(app).post(`/api/workflows/${workflowId}/advance`);
+    await request(app).post(`/api/workflows/${workflowId}/advance`);
+
+    const [completedExecution] = await db
+      .select()
+      .from(workflowExecutionsTable)
+      .where(eq(workflowExecutionsTable.workflowId, workflowId));
+
+    let rollbackResponsePromise:
+      | Promise<{ status: number; body: { error?: string } }>
+      | undefined;
+    await db.transaction(async (tx) => {
+      await tx
+        .select({ id: workflowsTable.id })
+        .from(workflowsTable)
+        .where(eq(workflowsTable.id, workflowId))
+        .for("update");
+
+      rollbackResponsePromise = request(app)
+        .post(`/api/workflows/${workflowId}/executions/${completedExecution.id}/rollback-phase`)
+        .send({ targetPhase: "test" })
+        .then(({ status, body }) => ({ status, body }));
+
+      // The rollback has already claimed the execution and is waiting to
+      // update the locked workflow row. Change that row before releasing it
+      // to reproduce a stale workflow projection under READ COMMITTED.
+      await waitForBlockedWorkflowWrites(1);
+      await tx
+        .update(workflowsTable)
+        .set({ currentPhase: "deploy" })
+        .where(eq(workflowsTable.id, workflowId));
+    });
+
+    const rollbackResponse = await rollbackResponsePromise;
+    expect(rollbackResponse?.status).toBe(409);
+    expect(rollbackResponse?.body.error).toBe(
+      "Workflow state changed before the execution could be rolled back",
+    );
+
+    const [workflow] = await db
+      .select()
+      .from(workflowsTable)
+      .where(eq(workflowsTable.id, workflowId))
+      .limit(1);
+    const [execution] = await db
+      .select()
+      .from(workflowExecutionsTable)
+      .where(eq(workflowExecutionsTable.id, completedExecution.id))
+      .limit(1);
+    expect(workflow?.status).toBe("completed");
+    expect(workflow?.currentPhase).toBe("deploy");
+    expect(execution?.status).toBe("completed");
+    expect(execution?.currentPhase).toBeNull();
+    expect(execution?.completedPhases).toEqual(["build", "test", "deploy"]);
+
+    const events = await db
+      .select()
+      .from(eventsTable)
+      .where(eq(eventsTable.projectId, projectId));
+    expect(events.some((event) => event.type === "WorkflowPhaseRolledBack")).toBe(false);
+    const audits = await db
+      .select()
+      .from(auditLogsTable)
+      .where(eq(auditLogsTable.projectId, projectId));
+    expect(audits.some((audit) => audit.action === "rolled_back")).toBe(false);
+  });
+
   it("rejects rollback to a phase that was not completed by the execution", async () => {
     const { workflowId } = await createStartedWorkflow();
     const [execution] = await db
