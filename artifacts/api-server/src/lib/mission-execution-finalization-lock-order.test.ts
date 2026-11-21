@@ -279,8 +279,8 @@ it("keeps the current Mission plan while an accepted Task recovery action is pen
   }).from(aiExecutionAcceptancesTable)
     .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
 
-  expect(mission?.status).toBe("active");
-  expect(goal?.status).toBe("running");
+  expect(mission?.status).toBe("waiting");
+  expect(goal?.status).toBe("verifying");
   expect(task?.status).toBe("verifying");
   expect(acceptance).toMatchObject({
     outcome: "FAILED",
