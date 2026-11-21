@@ -1,17 +1,5 @@
 import type { Request, Response } from "express";
-import { and, eq, inArray, sql } from "drizzle-orm";
-import {
-  aiExecutionAcceptancesTable,
-  aiExecutionsTable,
-  db,
-} from "@workspace/db";
-import {
-  getAiExecutionForUser,
-  hasAiExecutionResumeContract,
-  parseExecutionRequest,
-  recoverAiExecutionRetryToken,
-  recoverAiExecutionResumeToken,
-} from "./ai-execution-state.js";
+import { getAiExecutionForUser, hasAiExecutionResumeContract, parseExecutionRequest, recoverAiExecutionResumeToken, recoverAiExecutionRetryTokenWithDatabaseDeadline } from "./ai-execution-state.js";
 import {
   finalizeChatRecoveryExhaustion,
   handleChatStream,
@@ -193,51 +181,10 @@ export async function runChatExecutionRecovery(params: {
   }
 
   const recovered = params.mode === "retry"
-    ? await db.transaction(async (tx) => {
-        // Lock the exact execution/acceptance pair, then compare the durable
-        // retryAt to PostgreSQL time before the helper rotates its capability.
-        const [lockedExecution] = await tx
-          .select({
-            databaseNow: sql<string>`clock_timestamp()::text`,
-          })
-          .from(aiExecutionsTable)
-          .where(and(
-            eq(aiExecutionsTable.id, execution.id),
-            eq(aiExecutionsTable.userId, params.userId),
-            eq(aiExecutionsTable.attempt, params.expectedAttempt),
-            inArray(aiExecutionsTable.status, ["paused", "failed"]),
-          ))
-          .for("update")
-          .limit(1);
-        if (!lockedExecution) return { kind: "conflict" as const };
-
-        const [acceptance] = await tx
-          .select({ disposition: aiExecutionAcceptancesTable.disposition })
-          .from(aiExecutionAcceptancesTable)
-          .where(and(
-            eq(aiExecutionAcceptancesTable.executionId, execution.id),
-            eq(aiExecutionAcceptancesTable.attempt, params.expectedAttempt),
-          ))
-          .for("update")
-          .limit(1);
-        const disposition = acceptance?.disposition;
-        const retryAt = disposition && typeof disposition === "object" && !Array.isArray(disposition)
-          ? (disposition as Record<string, unknown>).retryAt
-          : undefined;
-        const databaseNowMs = Date.parse(lockedExecution.databaseNow);
-        const retryWindow = evaluateRetryWindowAtDatabaseTime(retryAt, databaseNowMs);
-        if (retryWindow === "not_due") return { kind: "not_due" as const };
-        if (retryWindow === "invalid") return { kind: "conflict" as const };
-
-        const recovered = await recoverAiExecutionRetryToken({
-          executionId: execution.id,
-          userId: params.userId,
-          expectedAttempt: params.expectedAttempt,
-          transaction: tx,
-        });
-        return recovered
-          ? { kind: "recovered" as const, recovered }
-          : { kind: "conflict" as const };
+    ? await recoverAiExecutionRetryTokenWithDatabaseDeadline({
+        executionId: execution.id,
+        userId: params.userId,
+        expectedAttempt: params.expectedAttempt,
       })
     : {
         kind: "recovered" as const,
