@@ -142,6 +142,15 @@ export interface WalkResult {
   revisionManifest: RevisionManifest;
 }
 
+export interface TargetedWalkResult {
+  /** Files found at the exact requested project-relative paths. */
+  files: ScannedFile[];
+  /** Requested paths that were not safely read by the scanner. */
+  missingPaths: string[];
+  /** True when a requested directory or file could not be fully inspected. */
+  incomplete: boolean;
+}
+
 /** Mutable walk state — shared across the recursive walkDir calls. */
 interface WalkState {
   aborted: boolean;
@@ -257,6 +266,8 @@ async function walkDir(
   state: WalkState,
   depth = 0,
   signal?: AbortSignal,
+  selectedPaths?: ReadonlySet<string>,
+  selectedDirectories?: ReadonlySet<string>,
 ): Promise<void> {
   signal?.throwIfAborted();
   if (depth > MAX_DEPTH) {
@@ -299,6 +310,8 @@ async function walkDir(
         if (IGNORE_DIRS.has(entry.name) || (entry.name.startsWith(".") && entry.name !== ".github")) {
           continue;
         }
+        const childPath = relativeDirectory ? join(relativeDirectory, entry.name) : entry.name;
+        if (selectedPaths && !selectedDirectories?.has(childPath)) continue;
         await flushPendingFiles();
         if (state.aborted) break;
         let child: FileHandle | undefined;
@@ -310,9 +323,18 @@ async function walkDir(
           continue;
         }
         if (!child) continue;
-        const childPath = relativeDirectory ? join(relativeDirectory, entry.name) : entry.name;
         try {
-          await walkDir(child, childPath, rootPath, files, state, depth + 1, signal);
+          await walkDir(
+            child,
+            childPath,
+            rootPath,
+            files,
+            state,
+            depth + 1,
+            signal,
+            selectedPaths,
+            selectedDirectories,
+          );
         } finally {
           await child.close().catch(() => undefined);
         }
@@ -325,6 +347,10 @@ async function walkDir(
       // import paths, but it has no extension in the language map.
       const language = entry.name === "go.mod" ? "go-module" : LANGUAGE_MAP[ext];
       if (!language) continue;
+      const relativeFilePath = relativeDirectory
+        ? join(relativeDirectory, entry.name)
+        : entry.name;
+      if (selectedPaths && !selectedPaths.has(relativeFilePath)) continue;
 
       if (state.filesReserved >= MAX_FILES) {
         state.aborted = true;
@@ -377,7 +403,12 @@ async function walkDir(
  * with the files collected so far, so callers can persist a partial result
  * and surface the truncation to the user.
  */
-export async function walkProject(rootPath: string, signal?: AbortSignal): Promise<WalkResult> {
+async function walkProjectInternal(
+  rootPath: string,
+  signal?: AbortSignal,
+  selectedPaths?: ReadonlySet<string>,
+  selectedDirectories?: ReadonlySet<string>,
+): Promise<WalkResult> {
   signal?.throwIfAborted();
   let initialRootStat;
   try {
@@ -429,7 +460,17 @@ export async function walkProject(rootPath: string, signal?: AbortSignal): Promi
   };
 
   try {
-    await walkDir(rootHandle, "", canonicalRootPath, files, state, 0, signal);
+    await walkDir(
+      rootHandle,
+      "",
+      canonicalRootPath,
+      files,
+      state,
+      0,
+      signal,
+      selectedPaths,
+      selectedDirectories,
+    );
   } finally {
     await rootHandle.close().catch(() => undefined);
   }
@@ -493,5 +534,67 @@ export async function walkProject(rootPath: string, signal?: AbortSignal): Promi
       completeness: state.aborted || incompleteReasons.length > 0 ? "PARTIAL" : "COMPLETE",
       incompleteReasons,
     },
+  };
+}
+
+
+/** Walk every supported project file. */
+export function walkProject(rootPath: string, signal?: AbortSignal): Promise<WalkResult> {
+  return walkProjectInternal(rootPath, signal);
+}
+
+/**
+ * Read only a bounded set of exact, normalized project-relative paths.
+ * Traversal still uses the same descriptor-relative, no-follow filesystem
+ * operations as the full project scan; unrelated directories are not opened.
+ */
+export async function walkProjectFiles(
+  rootPath: string,
+  relativePaths: readonly string[],
+  signal?: AbortSignal,
+): Promise<TargetedWalkResult> {
+  const uniquePaths = [...new Set(relativePaths)];
+  if (uniquePaths.length > MAX_FILES) {
+    throw new Error(`Targeted scan exceeds the ${MAX_FILES}-path limit.`);
+  }
+  if (uniquePaths.some((path) => {
+    if (
+      typeof path !== "string" ||
+      path.length === 0 ||
+      path.trim() !== path ||
+      path.startsWith("/") ||
+      path.includes("\\") ||
+      path.includes(String.fromCharCode(0))
+    ) return true;
+    return path.split("/").some((segment) =>
+      segment.length === 0 || segment === "." || segment === ".."
+    );
+  })) {
+    throw new Error("Targeted scan paths must be normalized project-relative paths.");
+  }
+  if (uniquePaths.length === 0) {
+    return { files: [], missingPaths: [], incomplete: false };
+  }
+
+  const selectedPaths = new Set(uniquePaths);
+  const selectedDirectories = new Set<string>();
+  for (const path of uniquePaths) {
+    const segments = path.split("/");
+    for (let index = 1; index < segments.length; index += 1) {
+      selectedDirectories.add(segments.slice(0, index).join("/"));
+    }
+  }
+
+  const result = await walkProjectInternal(
+    rootPath,
+    signal,
+    selectedPaths,
+    selectedDirectories,
+  );
+  const foundPaths = new Set(result.files.map((file) => file.path));
+  return {
+    files: result.files,
+    missingPaths: uniquePaths.filter((path) => !foundPaths.has(path)),
+    incomplete: result.revisionManifest.completeness !== "COMPLETE",
   };
 }

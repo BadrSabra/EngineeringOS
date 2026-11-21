@@ -15,7 +15,7 @@
  * dependency (inject/mock `db`) and the filesystem dependency (`projectRootPath`
  * must exist on disk or walkProject will throw).
  */
-import { walkProject, checkPatternInFiles } from "@workspace/scanner";
+import { walkProject, walkProjectFiles, checkPatternInFiles } from "@workspace/scanner";
 import { db, rulesTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { buildRuleVerificationChecks } from "../lib/remediation-plan.js";
@@ -53,6 +53,34 @@ export interface VerifiableTask {
     verificationSteps: unknown;
     verificationChecks?: unknown;
   } | null;
+}
+
+const MAX_VERIFICATION_RELATED_FILES = 100;
+
+function parseRelatedFiles(value: unknown): { paths: string[]; valid: boolean } {
+  if (value === null || value === undefined) return { paths: [], valid: true };
+  if (!Array.isArray(value) || value.length > MAX_VERIFICATION_RELATED_FILES) {
+    return { paths: [], valid: false };
+  }
+
+  const paths: string[] = [];
+  for (const candidate of value) {
+    if (
+      typeof candidate !== "string" ||
+      candidate.length === 0 ||
+      candidate.trim() !== candidate ||
+      candidate.startsWith("/") ||
+      candidate.includes("\\") ||
+      candidate.includes(String.fromCharCode(0)) ||
+      candidate.split("/").some((segment) =>
+        segment.length === 0 || segment === "." || segment === ".."
+      )
+    ) {
+      return { paths: [], valid: false };
+    }
+    if (!paths.includes(candidate)) paths.push(candidate);
+  }
+  return { paths, valid: true };
 }
 
 function planVerificationChecks(
@@ -127,7 +155,21 @@ export async function runTaskVerification(
   projectRootPath: string,
 ): Promise<VerificationOutcome> {
   const steps: VerificationStep[] = [];
-  const relatedFiles = (task.relatedFiles as string[] | null) ?? [];
+  const relatedFileResult = parseRelatedFiles(task.relatedFiles);
+  if (!relatedFileResult.valid) {
+    steps.push({
+      name: "File reference validation",
+      passed: false,
+      output: "Related file references are invalid or exceed the supported limit",
+    });
+    return outcomeWithGuidance(
+      steps,
+      task.remediationPlan,
+      "verifying",
+      "Verification blocked — related file references are invalid",
+    );
+  }
+  const relatedFiles = relatedFileResult.paths;
 
   // A plan with incomplete evidence or no supplied checks can be reviewed,
   // but it cannot be promoted to a verified task by pattern disappearance
@@ -164,31 +206,43 @@ export async function runTaskVerification(
     rulePattern = rule[0]?.pattern ?? null;
   }
 
+  // Evidence-backed tasks need only inspect the exact files that produced
+  // their server-owned related-file evidence. Tasks without file evidence
+  // retain the full-project fallback.
+  const targetedScan = relatedFiles.length > 0
+    ? await walkProjectFiles(projectRootPath, relatedFiles)
+    : null;
+
   // ── Branch 1: rule pattern present → scan + pattern check ────────────────
   if (rulePattern) {
-    const { files: projectFiles } = await walkProject(projectRootPath);
+    const targetFiles = targetedScan
+      ? targetedScan.files
+      : (await walkProject(projectRootPath)).files;
 
-    let targetFiles = projectFiles;
-    if (relatedFiles.length > 0) {
-      targetFiles = projectFiles.filter((f) =>
-        relatedFiles.some(
-          (rf) => f.path === rf || f.path.endsWith("/" + rf) || f.path.endsWith(rf),
-        ),
+    if (
+      targetedScan &&
+      (
+        targetedScan.missingPaths.length > 0 ||
+        targetedScan.incomplete ||
+        targetFiles.some((file) => file.oversized)
+      )
+    ) {
+      const details = [
+        ...targetedScan.missingPaths.map((path) => `missing: ${path}`),
+        ...(targetedScan.incomplete ? ["targeted scan was incomplete"] : []),
+        ...(targetFiles.some((file) => file.oversized) ? ["one or more files exceeded the content limit"] : []),
+      ];
+      steps.push({
+        name: "File scan",
+        passed: false,
+        output: `Required evidence files could not be fully inspected — ${details.join("; ")}`,
+      });
+      return outcomeWithGuidance(
+        steps,
+        task.remediationPlan,
+        "verifying",
+        "Verification inconclusive — required evidence files were not fully inspected",
       );
-
-      if (targetFiles.length === 0 && projectFiles.length > 0) {
-        steps.push({
-          name: "File scan",
-          passed: false,
-          output: "relatedFiles specified but none found in project tree — cannot confirm fix",
-        });
-        return outcomeWithGuidance(
-          steps,
-          task.remediationPlan,
-          "verifying",
-          "Verification inconclusive — related files not found in project tree",
-        );
-      }
     }
 
     if (targetFiles.length > 0 || relatedFiles.length === 0) {
@@ -221,15 +275,9 @@ export async function runTaskVerification(
     }
   }
 
-  // ── Branch 2: related files only → existence check ───────────────────────
+  // ── Branch 2: related files only → exact-path existence check ───────────
   if (relatedFiles.length > 0) {
-    const { files: projectFiles } = await walkProject(projectRootPath);
-    const projectPaths = new Set(projectFiles.map((f) => f.path));
-    const missing = relatedFiles.filter(
-      (rf) =>
-        !projectPaths.has(rf) &&
-        ![...projectPaths].some((p) => p.endsWith("/" + rf) || p.endsWith(rf)),
-    );
+    const missing = targetedScan?.missingPaths ?? relatedFiles;
 
     if (missing.length === 0) {
       steps.push({ name: "File existence check", passed: true, output: "All related files present" });

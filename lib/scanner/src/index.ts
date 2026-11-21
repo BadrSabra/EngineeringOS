@@ -1,5 +1,11 @@
-export { walkProject } from "./file-walker.js";
-export type { ScannedFile, WalkResult, RevisionManifest, RevisionManifestFile } from "./file-walker.js";
+export { walkProject, walkProjectFiles } from "./file-walker.js";
+export type {
+  ScannedFile,
+  WalkResult,
+  TargetedWalkResult,
+  RevisionManifest,
+  RevisionManifestFile,
+} from "./file-walker.js";
 
 export { planRevisionManifestDiff } from "./revision-manifest-diff.js";
 export type {

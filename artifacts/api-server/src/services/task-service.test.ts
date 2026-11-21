@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { runTaskVerification } from "./task-service.js";
 
 describe("runTaskVerification remediation safeguards", () => {
@@ -20,6 +23,64 @@ describe("runTaskVerification remediation safeguards", () => {
     expect(result.finalStatus).toBe("verifying");
     expect(result.steps[0]).toMatchObject({
       name: "Remediation plan review",
+      passed: false,
+    });
+  });
+
+  it("verifies only the exact related files and avoids suffix collisions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "task-verification-targeted-"));
+    try {
+      await mkdir(join(root, "src"), { recursive: true });
+      await mkdir(join(root, "other", "src"), { recursive: true });
+      await writeFile(join(root, "src", "target.ts"), "export const target = true;");
+      await writeFile(join(root, "other", "src", "target.ts"), "export const decoy = true;");
+      await writeFile(join(root, "unrelated.ts"), "export const unrelated = true;");
+
+      const result = await runTaskVerification(
+        { id: "task-targeted", ruleId: null, relatedFiles: ["src/target.ts"] },
+        root,
+      );
+
+      expect(result.finalStatus).toBe("completed");
+      expect(result.steps).toContainEqual(
+        expect.objectContaining({ name: "File existence check", passed: true }),
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("does not accept a partial set of related files as complete", async () => {
+    const root = await mkdtemp(join(tmpdir(), "task-verification-missing-"));
+    try {
+      await mkdir(join(root, "src"), { recursive: true });
+      await writeFile(join(root, "src", "present.ts"), "export const present = true;");
+
+      const result = await runTaskVerification(
+        {
+          id: "task-missing",
+          ruleId: null,
+          relatedFiles: ["src/present.ts", "other/missing.ts"],
+        },
+        root,
+      );
+
+      expect(result.finalStatus).toBe("verifying");
+      expect(result.steps[0]?.output).toContain("other/missing.ts");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects malformed related-file references without scanning", async () => {
+    const result = await runTaskVerification(
+      { id: "task-invalid-path", ruleId: null, relatedFiles: ["../outside.ts"] },
+      "/not-read",
+    );
+
+    expect(result.finalStatus).toBe("verifying");
+    expect(result.steps[0]).toMatchObject({
+      name: "File reference validation",
       passed: false,
     });
   });
