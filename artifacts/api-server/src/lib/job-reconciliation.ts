@@ -579,72 +579,86 @@ async function reconcileScanJobs(): Promise<number> {
   // owning project is reset to "active".
   // PR-01: also select retryCount and maxRetries so we can decide whether to
   // retry or permanently fail each interrupted job.
-  const running = await db
+  // ── 1. Running → queued / failed ──────────────────────────────────────────
+  // Retryable rows are transitioned in one conditional UPDATE. Do this
+  // before terminalizing exhausted siblings so each failed job observes any
+  // queued successor for the same project and cannot incorrectly reset it.
+  const retried = await db
+    .update(scanJobsTable)
+    .set({
+      status: "queued",
+      retryCount: sql`${scanJobsTable.retryCount} + 1`,
+      error: null,
+      startedAt: null,
+      finishedAt: null,
+      workerId: null,
+      leaseUntil: null,
+      lastHeartbeatAt: null,
+    })
+    .where(and(
+      eq(scanJobsTable.status, "running"),
+      abandonedScan,
+      sql`${scanJobsTable.retryCount} < ${scanJobsTable.maxRetries}`,
+    ))
+    .returning({
+      id: scanJobsTable.id,
+      projectId: scanJobsTable.projectId,
+    });
+
+  // Exhausted rows need per-job terminal side effects (project reset + event).
+  // Recheck their status and lease after the batch update to preserve the
+  // existing conditional ownership fence across concurrent reconcilers.
+  const exhausted = await db
     .select({
       id: scanJobsTable.id,
       projectId: scanJobsTable.projectId,
-      retryCount: scanJobsTable.retryCount,
       maxRetries: scanJobsTable.maxRetries,
     })
     .from(scanJobsTable)
-    .where(and(eq(scanJobsTable.status, "running"), abandonedScan));
+    .where(and(
+      eq(scanJobsTable.status, "running"),
+      abandonedScan,
+      sql`${scanJobsTable.retryCount} >= ${scanJobsTable.maxRetries}`,
+    ));
 
-  let retriedCount = 0;
-  let failedCount  = 0;
-
-  for (const job of running) {
-    if (job.retryCount < job.maxRetries) {
-      // PR-01: Job was mid-flight when the process died. Re-queue it — transient
-      // crashes (OOM, SIGKILL) shouldn't permanently fail a scan. Increment
-      // retryCount so we eventually give up after maxRetries attempts.
-      const [recovered] = await db
-        .update(scanJobsTable)
-        .set({
-          status: "queued",
-          retryCount: job.retryCount + 1,
-          error: null,
-          startedAt: null,
-          finishedAt: null,
-          // PR-01: clear lease so the recovering worker can claim cleanly
-          workerId: null,
-          leaseUntil: null,
-          lastHeartbeatAt: null,
-        })
-        .where(and(eq(scanJobsTable.id, job.id), eq(scanJobsTable.status, "running"), abandonedScan))
-        .returning({ id: scanJobsTable.id });
-
-      if (!recovered) {
-        logger.debug({ jobId: job.id }, "scan recovery lost ownership race");
-        continue;
-      }
-      // PR-D1: use enqueueWithId to prevent double-execution if another
-      // process or a concurrent reconciliation path already enqueued this job.
-      heavyJobQueue.enqueueWithId(job.id, () => runScanJob(job.id, job.projectId));
-      retriedCount++;
-    } else {
-      // Exceeded maxRetries — atomically fail the job, restore the project,
-      // and append the failure event under the same stale-lease fence.
-      const recovered = await terminalizeFailedScanJob({
-        jobId: job.id,
-        projectId: job.projectId,
-        error: `${ORPHANED_RUNNING_MESSAGE} (retry limit of ${job.maxRetries} exceeded)`,
-        guard: abandonedScan,
-      });
-      if (!recovered) {
-        logger.debug({ jobId: job.id }, "scan failure recovery lost ownership race");
-        continue;
-      }
-      failedCount++;
+  let failedCount = 0;
+  for (const job of exhausted) {
+    // Exceeded maxRetries — atomically fail the job, restore the project,
+    // and append the failure event under the same stale-lease fence.
+    const terminalized = await terminalizeFailedScanJob({
+      jobId: job.id,
+      projectId: job.projectId,
+      error: `${ORPHANED_RUNNING_MESSAGE} (retry limit of ${job.maxRetries} exceeded)`,
+      guard: abandonedScan,
+    });
+    if (!terminalized) {
+      logger.debug({ jobId: job.id }, "scan failure recovery lost ownership race");
+      continue;
     }
+    failedCount++;
   }
 
-  if (running.length > 0) {
-    const runningIds         = running.map((j) => j.id);
-    const runningProjectIds  = [...new Set(running.map((j) => j.projectId))];
+  // Enqueue only rows actually returned by the conditional database update.
+  // Local deduplication prevents duplicate closures in this process; the
+  // persisted status/lease transition is the cross-instance ownership fence.
+  for (const job of retried) {
+    heavyJobQueue.enqueueWithId(job.id, () => runScanJob(job.id, job.projectId));
+  }
+
+  const runningCount = exhausted.length + retried.length;
+  if (runningCount > 0) {
+    const runningIds = [
+      ...exhausted.map((job) => job.id),
+      ...retried.map((job) => job.id),
+    ];
+    const runningProjectIds = [...new Set([
+      ...exhausted.map((job) => job.projectId),
+      ...retried.map((job) => job.projectId),
+    ])];
     logger.warn(
       {
-        count: running.length,
-        retried: retriedCount,
+        count: runningCount,
+        retried: retried.length,
         failed: failedCount,
         jobIds: runningIds,
         projectIds: runningProjectIds,
@@ -677,7 +691,7 @@ async function reconcileScanJobs(): Promise<number> {
     );
   }
 
-  return running.length + queued.length;
+  return exhausted.length + retried.length + queued.length;
 }
 
 /**
