@@ -16,7 +16,7 @@ import { randomUUID } from "node:crypto";
 import type { AgentContext } from "./schemas/context.schema.js";
 import { parseAgentContext } from "./schemas/context.schema.js";
 import { buildContextCacheKey, getCachedContext, setCachedContext, hashExecutionPlan, type ContextCacheRuntime } from "./context-cache-manager.js";
-import { loadCurrentContextManifestCacheIdentity, loadProjectContext, type BuildProjectContextOptions, type ContextLoadSection } from "./context-loader.js";
+import { loadCurrentContextManifestCacheIdentity, loadProjectContext, type BuildProjectContextOptions, type ContextLoadSection, type LoadedProjectContext } from "./context-loader.js";
 import { contextManifestCacheIdentityMatches } from "./context-manifest.js";
 import { buildProjectContextFromLoadedContext } from "./context-serializer.js";
 import { resolveExecutionDecision } from "./model-selection/decision-engine.js";
@@ -40,6 +40,38 @@ import { CONTEXT_SCHEMA_VERSION } from "./context-contract.js";
 
 export { invalidateContextCache, invalidateContextSlice, hashExecutionPlan, setInvalidationNotifier, startContextInvalidationChannel } from "./context-cache-manager.js";
 export type { BuildProjectContextOptions, ContextLoadSection } from "./context-loader.js";
+
+/**
+ * Coalesce identical uncancelled context loads while a cache miss is in flight.
+ * The shared value is the raw, read-only DB projection; each caller still runs
+ * its own admission, operation binding, intent/tool binding, and serialization.
+ *
+ * Caller-specific cancellation/deadline policies must never be inherited by
+ * another request, so those loads deliberately bypass coalescing.
+ */
+const inFlightContextLoads = new Map<string, Promise<LoadedProjectContext>>();
+
+function loadProjectContextOnce(
+  projectId: string,
+  options: BuildProjectContextOptions,
+): Promise<LoadedProjectContext> {
+  if (options.signal || options.deadlineMs !== undefined) {
+    return loadProjectContext(projectId, options);
+  }
+
+  const sectionIdentity = [...new Set(options.sections ?? [])];
+  const key = JSON.stringify([projectId, sectionIdentity]);
+  const existing = inFlightContextLoads.get(key);
+  if (existing) return existing;
+
+  const pending = loadProjectContext(projectId, options).finally(() => {
+    if (inFlightContextLoads.get(key) === pending) {
+      inFlightContextLoads.delete(key);
+    }
+  });
+  inFlightContextLoads.set(key, pending);
+  return pending;
+}
 
 /** The context object every agent prompt is built from. Shape enforced by AgentContextSchema. */
 export type ProjectContext = AgentContext;
@@ -365,7 +397,7 @@ export async function buildProjectContext(
   }
 
   // Load raw DB rows and serialize to prompt strings.
-  const loaded = await loadProjectContext(projectId, { ...options, sections });
+  const loaded = await loadProjectContextOnce(projectId, { ...options, sections });
   const raw = buildProjectContextFromLoadedContext(loaded);
 
   // Wrap each string field as a ContextSlice with load metadata.
