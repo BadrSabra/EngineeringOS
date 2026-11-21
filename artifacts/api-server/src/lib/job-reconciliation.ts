@@ -1614,7 +1614,7 @@ export function startDurableJobDispatcher(): NodeJS.Timeout {
   return setInterval(() => {
     void dispatchPersistedPendingJobs();
     void dispatchPendingMaterializedMissionTransitionWakes();
-      void wakeReadyMissionGoals();
+    void wakeReadyMissionGoals();
     void retryTransitionsAndReconcileApplyGoals();
   }, DURABLE_JOB_DISPATCH_INTERVAL_MS);
 }
