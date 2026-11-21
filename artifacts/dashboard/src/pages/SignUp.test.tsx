@@ -22,6 +22,8 @@ describe('SignUpPage', () => {
     render(<SignUpPage />);
     const widget = screen.getByTestId('clerk-sign-up');
 
+    expect(screen.getByRole('main')).toHaveAttribute('dir', 'rtl');
+    expect(screen.getByRole('main')).toHaveAttribute('lang', 'ar');
     expect(widget).toHaveAttribute('data-routing', 'path');
     expect(widget).toHaveAttribute('data-path', '/dashboard/sign-up');
     expect(widget).toHaveAttribute('data-sign-in-url', '/dashboard/sign-in');
