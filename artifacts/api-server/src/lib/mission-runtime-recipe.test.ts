@@ -456,6 +456,59 @@ async function createQueuedMissionRecipeFixture(label: string): Promise<QueuedMi
 
 
 describe("Mission recipe dispatch", () => {
+  it("filters queued non-recipe Goal executions before applying the recovery page limit", async () => {
+    const fixture = await createQueuedMissionRecipeFixture("recipe-page-filter");
+    const nonRecipeGoalId = randomUUID();
+    const nonRecipeExecutionId = randomUUID();
+    const earlierAt = new Date(Date.now() - 60_000);
+
+    await db.insert(aiGoalsTable).values({
+      id: nonRecipeGoalId,
+      missionId: fixture.missionId,
+      projectId: fixture.projectId,
+      title: "A Task Goal that is not a Recipe recovery candidate",
+      status: "running",
+      outcomeContract: { deliveryRequired: false },
+      nextAction: { kind: "task" },
+      createdAt: earlierAt,
+      updatedAt: earlierAt,
+    });
+    await db.insert(aiExecutionsTable).values({
+      id: nonRecipeExecutionId,
+      projectId: fixture.projectId,
+      goalId: nonRecipeGoalId,
+      userId: "test-user",
+      idempotencyKey: `non-recipe-task:${nonRecipeExecutionId}`,
+      resumeTokenHash: `non-recipe-task-token:${nonRecipeExecutionId}`,
+      request: JSON.stringify({
+        projectId: fixture.projectId,
+        missionId: fixture.missionId,
+        goalId: nonRecipeGoalId,
+        message: "Task execution; not a recipe operation",
+      }),
+      checkpoint: "{}",
+      status: "queued",
+      createdAt: earlierAt,
+      updatedAt: earlierAt,
+    });
+
+    const queuedExecutionIds: string[] = [];
+    const queueSpy = vi.spyOn(heavyJobQueue, "enqueueWithId")
+      .mockImplementation((executionId) => {
+        queuedExecutionIds.push(executionId);
+        return true;
+      });
+    try {
+      // A page of one must still contain the older valid Recipe execution.
+      expect(await dispatchPendingMissionRecipes(1, fixture.projectId)).toBe(1);
+    } finally {
+      queueSpy.mockRestore();
+    }
+
+    expect(queuedExecutionIds).toEqual([fixture.executionId]);
+    expect(queuedExecutionIds).not.toContain(nonRecipeExecutionId);
+  });
+
   it("does not cancel or block a queued replay when another worker claims it before preflight", async () => {
     const fixture = await createQueuedMissionRecipeFixture("preflight-owner-race");
     const queuedJobs: Array<() => Promise<void>> = [];

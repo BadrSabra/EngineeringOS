@@ -2277,6 +2277,9 @@ export async function dispatchPendingMissionRecipes(
     .where(and(
       eq(aiExecutionsTable.status, "queued"),
       isNotNull(aiExecutionsTable.goalId),
+      // Filter before LIMIT so unrelated Goal executions cannot starve
+      // queued Mission recipes during bounded restart recovery.
+      sql`${aiGoalsTable.nextAction}->>'kind' = 'recipe'`,
       scopeProjectId ? eq(aiExecutionsTable.projectId, scopeProjectId) : undefined,
     ))
     .orderBy(aiExecutionsTable.createdAt, aiExecutionsTable.id)
