@@ -1246,6 +1246,32 @@ describe("Task lifecycle", () => {
     expect(task?.status).toBe("verifying");
   });
 
+  it("keeps the committed Task Outbox intent when the local retry wake fails", async () => {
+    const { projectId, taskId } = await createTask({
+      prompt: "Resume this task automatically after the retry is accepted.",
+    });
+    await db.update(tasksTable).set({
+      status: "failed",
+      maxRetries: 1,
+    }).where(eq(tasksTable.id, taskId));
+    mockScheduleAiTaskExecution.mockClear();
+    mockScheduleAiTaskExecution.mockRejectedValueOnce(new Error("local queue unavailable"));
+
+    const retried = await request(app).post(`/api/tasks/${taskId}/retry`);
+    expect(retried.status).toBe(202);
+    expect(retried.body.status).toBe("verifying");
+
+    const [intent] = await db.select().from(eventsTable)
+      .where(eq(eventsTable.id, taskAutoExecutionIntentId(taskId)));
+    expect(intent?.type).toBe(TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE);
+    expect(intent?.projectId).toBe(projectId);
+    expect(intent?.payload).toMatchObject({
+      userId: "test-user",
+      taskRetryCount: 1,
+      taskCorrelationId: retried.body.correlationId,
+    });
+  });
+
   it("rolls back a task to cancelled", async () => {
     const { taskId } = await createTask();
 
