@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, or, sql } from "drizzle-orm";
 import { createHash, randomUUID } from "node:crypto";
 import {
   aiAgentEpisodesTable,
@@ -11,6 +11,7 @@ import {
   aiWorldTransitionsTable,
   db,
   eventsTable,
+  tasksTable,
 } from "@workspace/db";
 import { inArray } from "drizzle-orm";
 import {
@@ -50,6 +51,7 @@ import {
   type MissionFailureSourceBinding,
 } from "./mission-strategy-engine.js";
 import { runMissionGoal, type MissionGoalRunResult } from "./mission-runtime.js";
+import { decideTaskContinuation } from "./task-recovery-contract.js";
 import { buildMissionStrategyDecisionTraceInTransaction } from "./mission-strategy-decision-trace.js";
 import {
   appendMissionDecisionLifecycleEventInTransaction,
@@ -586,6 +588,118 @@ worldStatePlanningRead?: MissionWorldStatePlanningRead) {
   };
 }
 
+type MissionReplanTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+async function hasPendingTaskContinuationForGoal(
+  tx: MissionReplanTransaction,
+  input: {
+    projectId: string;
+    goalId: string;
+    nextAction: unknown;
+  },
+): Promise<boolean> {
+  const nextActionTaskId = jsonRecord(input.nextAction).taskId;
+  const directTaskId = typeof nextActionTaskId === "string" ? nextActionTaskId : undefined;
+  const taskScope = directTaskId
+    ? or(eq(tasksTable.goalId, input.goalId), eq(tasksTable.id, directTaskId))
+    : eq(tasksTable.goalId, input.goalId);
+
+  // Task retry admission rotates the Task generation and writes its Outbox
+  // intent in the same transaction. This single joined read sees either the
+  // old accepted recovery or the new Outbox, never the transition gap.
+  const rows = await tx
+    .select({
+      taskId: tasksTable.id,
+      taskProjectId: tasksTable.projectId,
+      taskStatus: tasksTable.status,
+      prompt: tasksTable.prompt,
+      retryCount: tasksTable.retryCount,
+      maxRetries: tasksTable.maxRetries,
+      taskCorrelationId: tasksTable.correlationId,
+      executionStatus: aiExecutionsTable.status,
+      executionCorrelationId: aiExecutionsTable.correlationId,
+      acceptanceOutcome: aiExecutionAcceptancesTable.outcome,
+      acceptanceNextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+      acceptanceResumable: aiExecutionAcceptancesTable.resumable,
+      acceptanceDisposition: aiExecutionAcceptancesTable.disposition,
+      outboxType: eventsTable.type,
+      outboxProjectId: eventsTable.projectId,
+      outboxTaskId: eventsTable.taskId,
+      outboxPayload: eventsTable.payload,
+    })
+    .from(tasksTable)
+    .leftJoin(aiExecutionsTable, and(
+      eq(aiExecutionsTable.projectId, tasksTable.projectId),
+      eq(aiExecutionsTable.linkedTaskId, tasksTable.id),
+      eq(aiExecutionsTable.goalId, input.goalId),
+      eq(aiExecutionsTable.correlationId, tasksTable.correlationId),
+      inArray(aiExecutionsTable.status, [
+        "queued",
+        "running",
+        "paused",
+        "cancelling",
+        "failed",
+      ]),
+    ))
+    .leftJoin(aiExecutionAcceptancesTable, and(
+      eq(aiExecutionAcceptancesTable.executionId, aiExecutionsTable.id),
+      eq(aiExecutionAcceptancesTable.attempt, aiExecutionsTable.attempt),
+    ))
+    .leftJoin(eventsTable, eq(
+      eventsTable.id,
+      sql<string>`'task-auto-execution-deferred:' || ${tasksTable.id}`,
+    ))
+    .where(and(
+      eq(tasksTable.projectId, input.projectId),
+      taskScope,
+    ))
+    .orderBy(asc(tasksTable.createdAt), asc(tasksTable.id));
+
+  return rows.some((row) => decideTaskContinuation({
+    task: {
+      taskId: row.taskId,
+      taskProjectId: row.taskProjectId,
+      taskStatus: row.taskStatus,
+      prompt: row.prompt,
+      retryCount: row.retryCount,
+      maxRetries: row.maxRetries,
+      taskCorrelationId: row.taskCorrelationId,
+    },
+    ...(row.executionStatus !== null
+      ? {
+          execution: {
+            status: row.executionStatus,
+            correlationId: row.executionCorrelationId,
+          },
+        }
+      : {}),
+    ...(row.acceptanceOutcome !== null
+      ? {
+          acceptance: {
+            outcome: row.acceptanceOutcome,
+            recoveryState: jsonRecord(row.acceptanceDisposition).recoveryState,
+            nextActionCode: row.acceptanceNextActionCode,
+            resumable: row.acceptanceResumable,
+            retryAt: jsonRecord(row.acceptanceDisposition).retryAt,
+            failureKind: jsonRecord(row.acceptanceDisposition).failureKind,
+            retryAfterSource: jsonRecord(row.acceptanceDisposition).retryAfterSource,
+            rateLimitScope: jsonRecord(row.acceptanceDisposition).rateLimitScope,
+          },
+        }
+      : {}),
+    ...(row.outboxType !== null
+      ? {
+          outbox: {
+            eventType: row.outboxType,
+            eventProjectId: row.outboxProjectId,
+            eventTaskId: row.outboxTaskId,
+            eventPayload: row.outboxPayload,
+          },
+        }
+      : {}),
+  }).kind === "continue");
+}
+
 /**
  * A replan request is durable work, not a retry loop. If the coordinator
  * cannot produce or dispatch a new bounded plan, leave the Mission in an
@@ -688,6 +802,20 @@ export async function autoReplanMission(
       ))
       .orderBy(asc(aiGoalsTable.updatedAt), asc(aiGoalsTable.id))
       .limit(1);
+    if (
+      failedGoal
+      && await hasPendingTaskContinuationForGoal(tx, {
+        projectId: mission.projectId,
+        goalId: failedGoal.id,
+        nextAction: failedGoal.nextAction,
+      })
+    ) {
+      return {
+        status: "skipped" as const,
+        missionId,
+        reason: "task_continuation_pending",
+      };
+    }
     const failedOutcome = jsonRecord(failedGoal?.outcomeContract);
     const acceptance = jsonRecord(failedOutcome.acceptance);
     const hasAcceptanceFailureDiagnosis = Object.prototype.hasOwnProperty.call(

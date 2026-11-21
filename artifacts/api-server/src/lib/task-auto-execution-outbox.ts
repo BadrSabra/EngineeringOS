@@ -1,5 +1,6 @@
 import { db, eventsTable, tasksTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { isTaskAutoExecutionIntentPending } from "./task-recovery-contract.js";
 
 export const TASK_AUTO_EXECUTION_REQUESTED_EVENT_TYPE =
   "TaskAutoExecutionDispatchRequested";
@@ -94,10 +95,23 @@ export async function insertTaskAutoExecutionIntent(
   const existingTaskCorrelationId = existingPayload.taskCorrelationId;
   const correlationMatches = existingTaskCorrelationId === task.correlationId
     || (existingTaskCorrelationId === undefined && task.correlationId === null);
+  const sameGenerationIntent = existing && isTaskAutoExecutionIntentPending({
+    eventType: existing.type,
+    eventProjectId: existing.projectId,
+    eventTaskId: existing.taskId,
+    eventPayload: existing.payload,
+    taskId: input.taskId,
+    taskProjectId: task.projectId,
+    taskStatus: task.status,
+    prompt: task.prompt,
+    taskRetryCount: task.retryCount,
+    taskCorrelationId: task.correlationId,
+  });
   if (
     existing
     && existingRetryCount === input.retryCount
     && correlationMatches
+    && sameGenerationIntent
   ) {
     const existingParentExecutionId = existingPayload.parentExecutionId ?? null;
     const requestedParentExecutionId = input.options?.parentExecutionId;

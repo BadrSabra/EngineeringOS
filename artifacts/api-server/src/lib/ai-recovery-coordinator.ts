@@ -24,6 +24,13 @@ import {
 import { insertTaskAutoExecutionIntent } from "./task-auto-execution-outbox.js";
 import { getTaskDependencyBlockers } from "./task-dependencies.js";
 import { taskTransitionConflict, type TaskStatus } from "./task-state.js";
+import {
+  TASK_RECOVERY_ACTION_CODES,
+  TASK_RECOVERY_EXECUTION_STATUSES,
+  TASK_RECOVERY_TASK_STATUSES,
+  isSamePlanTaskRecoveryPending,
+  isProviderLimitRecoveryManual,
+} from "./task-recovery-contract.js";
 
 const SAFE_CHAT_RECOVERY_FAILURE_CODES = new Set([
   "EXECUTION_ACCEPTANCE_INCOMPLETE",
@@ -56,25 +63,14 @@ export function sanitizeChatRecoveryFailureCode(code: unknown): string | undefin
     : undefined;
 }
 
-const RECOVERY_ACTIONS = [
-  "RESUME_ALLOWED",
-  "RETRY_AFTER_TIMEOUT",
-  "RETRY_AFTER_RATE_LIMIT",
-] as const;
+const RECOVERY_ACTIONS = TASK_RECOVERY_ACTION_CODES;
 
-const RECOVERY_TASK_STATUSES = ["pending", "queued", "verifying"] as const;
-const RECOVERY_EXECUTION_STATUSES = ["paused", "failed"] as const;
+const RECOVERY_TASK_STATUSES = TASK_RECOVERY_TASK_STATUSES;
+const RECOVERY_EXECUTION_STATUSES = TASK_RECOVERY_EXECUTION_STATUSES;
 const MAX_RECOVERY_CANDIDATES = 64;
 const TASK_RECOVERY_DEPENDENCY_RECHECK_MS = 30_000;
 const MAX_AUTOMATIC_CHAT_PARSER_RECOVERY_ATTEMPTS = 2;
 const MAX_AUTOMATIC_CHAT_PROVIDER_RECOVERY_ATTEMPTS = 3;
-const PROVIDER_LIMIT_FAILURE_KINDS = new Set([
-  "RATE_LIMIT",
-  "RATE_LIMITED",
-  "QUOTA",
-  "QUOTA_EXCEEDED",
-  "QUOTA_EXHAUSTED",
-]);
 
 type RecoveryAction = (typeof RECOVERY_ACTIONS)[number];
 type RecoveryTaskStatus = (typeof RECOVERY_TASK_STATUSES)[number];
@@ -92,6 +88,7 @@ type RecoveryDisposition = {
 export type TaskRecoveryCandidate = {
   taskId: string;
   taskProjectId: string;
+  taskCorrelationId?: string | null;
   taskStatus: string;
   prompt: string | null;
   retryCount: number;
@@ -214,46 +211,12 @@ function requiresManualProviderLimitAction(
   action: string,
   disposition: RecoveryDisposition,
 ): boolean {
-  const retryAfterSource = typeof disposition.retryAfterSource === "string"
-    ? disposition.retryAfterSource
-    : undefined;
-  const failureKind = typeof disposition.failureKind === "string"
-    ? disposition.failureKind.trim().toUpperCase()
-    : "";
-  const rateLimitScope = typeof disposition.rateLimitScope === "string"
-    ? disposition.rateLimitScope.trim().toLowerCase()
-    : "";
-  const hasNonLocalRateLimitScope = Boolean(rateLimitScope)
-    && rateLimitScope !== "project"
-    && rateLimitScope !== "local_admission";
-  const hasProviderRetrySource = retryAfterSource === "provider"
-    || retryAfterSource === "local_adaptive"
-    || retryAfterSource === "adaptive_default"
-    || retryAfterSource === "server_default";
-  const hasProviderSpecificLimitFailure = failureKind !== "RATE_LIMIT"
-    && PROVIDER_LIMIT_FAILURE_KINDS.has(failureKind);
-
-  // Provider/quota evidence and an unknown or upstream scope take precedence
-  // over a local source that may have been written by a later project cooldown.
-  if (
-    hasProviderSpecificLimitFailure
-    || hasNonLocalRateLimitScope
-    || hasProviderRetrySource
-  ) {
-    return true;
-  }
-
-  if (
-    retryAfterSource === "project_rate_limit"
-    || retryAfterSource === "local_admission"
-    || rateLimitScope === "project"
-    || rateLimitScope === "local_admission"
-  ) {
-    return false;
-  }
-
-  return action === "RETRY_AFTER_RATE_LIMIT"
-    || PROVIDER_LIMIT_FAILURE_KINDS.has(failureKind);
+  return isProviderLimitRecoveryManual({
+    action,
+    failureKind: disposition.failureKind,
+    retryAfterSource: disposition.retryAfterSource,
+    rateLimitScope: disposition.rateLimitScope,
+  });
 }
 
 function parseRetryAt(value: unknown): number | undefined {
@@ -454,7 +417,6 @@ export function planTaskRecovery(
   if (disposition.recoveryState !== "REQUIRED") {
     return { kind: "skip", reason: "resume_not_authorized" };
   }
-
   const retryAtMs = parseRetryAt(disposition.retryAt);
   if (action === "RETRY_AFTER_RATE_LIMIT" && retryAtMs === undefined) {
     return { kind: "skip", reason: "rate_limit_window_unavailable" };
@@ -469,6 +431,28 @@ export function planTaskRecovery(
   if (requiresManualProviderLimitAction(action, disposition)) {
     return { kind: "skip", reason: "provider_rate_limit_requires_manual_action" };
   }
+  if (!isSamePlanTaskRecoveryPending({
+    outcome: "FAILED",
+    recoveryState: disposition.recoveryState,
+    nextActionCode: action,
+    resumable: candidate.resumable,
+    retryAt: disposition.retryAt,
+    failureKind: disposition.failureKind,
+    retryAfterSource: disposition.retryAfterSource,
+    rateLimitScope: disposition.rateLimitScope,
+    taskStatus: candidate.taskStatus,
+    prompt: candidate.prompt,
+    retryCount: candidate.retryCount,
+    maxRetries: candidate.maxRetries,
+    executionStatus: candidate.executionStatus,
+    taskCorrelationId: candidate.taskCorrelationId === undefined
+      ? candidate.executionCorrelationId
+      : candidate.taskCorrelationId,
+    executionCorrelationId: candidate.executionCorrelationId,
+  })) {
+    return { kind: "skip", reason: "invalid_scope" };
+  }
+
 
   if (action === "RESUME_ALLOWED") {
     if (candidate.resumable !== 1) {
@@ -628,6 +612,7 @@ async function findRecoveryCandidates(scope: {
     .select({
       taskId: tasksTable.id,
       taskProjectId: tasksTable.projectId,
+      taskCorrelationId: tasksTable.correlationId,
       taskStatus: tasksTable.status,
       prompt: tasksTable.prompt,
       retryCount: tasksTable.retryCount,
