@@ -532,6 +532,7 @@ describe("server-owned execution acceptance", () => {
         outcome: "FAILED",
         recoveryState: "REQUIRED",
         nextActionCode,
+        resumable: nextActionCode === "RESUME_ALLOWED" ? 1 : 0,
       })).toBe(true);
     }
     expect(isSamePlanTaskRecoveryPending({
@@ -545,12 +546,14 @@ describe("server-owned execution acceptance", () => {
       outcome: "SUCCEEDED",
       recoveryState: "REQUIRED",
       nextActionCode: "RESUME_ALLOWED",
+      resumable: 0,
     })).toBe(false);
     expect(isSamePlanTaskRecoveryPending({
       ...eligible,
       outcome: "FAILED",
       recoveryState: "REQUIRED",
       nextActionCode: "RETRY_AFTER_PARSE",
+      resumable: 0,
     })).toBe(false);
     expect(isSamePlanTaskRecoveryPending({
       ...eligible,
