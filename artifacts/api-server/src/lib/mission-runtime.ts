@@ -775,7 +775,7 @@ async function persistGoalDependencyReplan(
     goal: typeof aiGoalsTable.$inferSelect;
     mission: typeof aiMissionsTable.$inferSelect;
     planRevision?: string;
-    dependency: { id: string; title: string };
+    dependency: { id: string; title: string; status?: string | null };
     reasonCode: "dependency_proof_unproven" | "dependency_failed";
   },
 ): Promise<string> {
@@ -805,6 +805,7 @@ async function persistGoalDependencyReplan(
       missionId: input.mission.id,
       planRevision: input.planRevision ?? null,
       dependencyGoalId: input.dependency.id,
+      dependencyStatus: input.dependency.status ?? null,
       reasonCode: input.reasonCode,
     },
   });
@@ -829,7 +830,7 @@ export async function persistGoalDependencyProofBlocked(
     goal: typeof aiGoalsTable.$inferSelect;
     mission: typeof aiMissionsTable.$inferSelect;
     planRevision?: string;
-    dependency: { id: string; title: string };
+    dependency: { id: string; title: string; status?: string | null };
   },
 ): Promise<string> {
   return persistGoalDependencyReplan(tx, {
@@ -844,7 +845,7 @@ export async function persistGoalDependencyFailed(
     goal: typeof aiGoalsTable.$inferSelect;
     mission: typeof aiMissionsTable.$inferSelect;
     planRevision?: string;
-    dependency: { id: string; title: string };
+    dependency: { id: string; title: string; status?: string | null };
   },
 ): Promise<string> {
   return persistGoalDependencyReplan(tx, {
@@ -3001,6 +3002,7 @@ export async function runMissionGoal(params: {
 }): Promise<MissionGoalRunResult> {
   let taskDispatchGeneration: { retryCount: number; correlationId: string | null } | undefined;
   let eventWaitIntentId: string | undefined;
+  let missionReplanIntentId: string | undefined;
   const decision = await db.transaction(async (tx): Promise<MissionGoalRunResult> => {
     const recordActionEffect = async <T extends MissionGoalRunResult>(run: T): Promise<T> => {
       if (
@@ -3242,30 +3244,14 @@ export async function runMissionGoal(params: {
           const failedStatus = dependencyState.dependencyGoals.find((dependency) =>
             dependency.id === failedDependency.id,
           )?.status;
-          const now = new Date();
-          await tx.update(aiGoalsTable)
-            .set({
-              status: "needs_replan",
-              blockedReason: `Dependency "${failedDependency.title}" did not complete.`,
-              nextWakeAt: null,
-              updatedAt: now,
-            })
-            .where(eq(aiGoalsTable.id, goal.id));
-          await tx.update(aiMissionsTable)
-            .set({ status: "needs_replan", updatedAt: now })
-            .where(eq(aiMissionsTable.id, mission.id));
-          await tx.insert(eventsTable).values({
-            id: randomUUID(),
-            type: "AiGoalDependencyBlocked",
-            projectId: goal.projectId,
-            goalId: goal.id,
-            severity: "warning",
-            message: `AI goal "${goal.title}" requires a replan because a dependency did not complete`,
-            payload: {
-              missionId: mission.id,
-              planRevision: dependencyState.planRevision,
-              dependencyGoalId: failedDependency.id,
-              dependencyStatus: failedStatus ?? null,
+          missionReplanIntentId = await persistGoalDependencyFailed(tx, {
+            goal,
+            mission,
+            planRevision: dependencyState.planRevision,
+            dependency: {
+              id: failedDependency.id,
+              title: failedDependency.title,
+              status: failedStatus ?? null,
             },
           });
         }
@@ -3276,7 +3262,7 @@ export async function runMissionGoal(params: {
           || continuation.reason === "dependency_proof_unproven")
         && dependencyState
       ) {
-        await persistGoalDependencyProofBlocked(tx, {
+        missionReplanIntentId = await persistGoalDependencyProofBlocked(tx, {
           goal,
           mission,
           planRevision: dependencyState.planRevision,
@@ -4074,6 +4060,22 @@ export async function runMissionGoal(params: {
     }
     return decision;
   });
+
+  if (missionReplanIntentId) {
+    try {
+      const { dispatchMissionReplanIntent } = await import("./mission-replan-outbox.js");
+      await dispatchMissionReplanIntent(missionReplanIntentId);
+    } catch (error) {
+      // The request committed with the needs_replan projection. The durable
+      // Outbox worker remains responsible for recovery after a failed fast path.
+      logger.warn({
+        error,
+        goalId: decision.goalId,
+        intentId: missionReplanIntentId,
+        scope: "mission-runtime",
+      }, "Immediate Mission replan dispatch failed; durable Outbox recovery remains available");
+    }
+  }
 
   if (eventWaitIntentId) {
     try {
