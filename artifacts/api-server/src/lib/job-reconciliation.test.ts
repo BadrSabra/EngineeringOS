@@ -301,6 +301,52 @@ describe("reconcileStuckJobs", () => {
     expect(failures).toHaveLength(1);
   });
 
+  it("batch-recovers retryable stale scan jobs exactly once across concurrent reconcilers", async () => {
+    const projectId = await insertProject("scanning");
+    projectCleanup.push(projectId);
+
+    const now = new Date();
+    const jobIds = Array.from({ length: 3 }, () => randomUUID());
+    await db.insert(scanJobsTable).values(jobIds.map((id) => ({
+      id,
+      projectId,
+      status: "running" as const,
+      retryCount: 0,
+      maxRetries: 2,
+      workerId: randomUUID(),
+      leaseUntil: new Date(now.getTime() - 60_000),
+      startedAt: now,
+      createdAt: now,
+    })));
+
+    await Promise.all([reconcileStuckJobs(), reconcileStuckJobs()]);
+
+    const recoveredJobs = await db
+      .select({
+        id: scanJobsTable.id,
+        status: scanJobsTable.status,
+        retryCount: scanJobsTable.retryCount,
+        workerId: scanJobsTable.workerId,
+        leaseUntil: scanJobsTable.leaseUntil,
+        startedAt: scanJobsTable.startedAt,
+      })
+      .from(scanJobsTable)
+      .where(eq(scanJobsTable.projectId, projectId));
+
+    expect(recoveredJobs).toHaveLength(jobIds.length);
+    for (const job of recoveredJobs) {
+      expect(job.status).toBe("queued");
+      expect(job.retryCount).toBe(1);
+      expect(job.workerId).toBeNull();
+      expect(job.leaseUntil).toBeNull();
+      expect(job.startedAt).toBeNull();
+      expect(vi.mocked(heavyJobQueue.enqueueWithId)).toHaveBeenCalledWith(
+        job.id,
+        expect.any(Function),
+      );
+    }
+  });
+
   it("only one concurrent reconciler owns an interrupted scan transition", async () => {
     const projectId = await insertProject("scanning");
     projectCleanup.push(projectId);
