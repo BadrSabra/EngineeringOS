@@ -210,6 +210,7 @@ describe("autonomous Task recovery dependency wake", () => {
       .toBeLessThanOrEqual(Date.now() + 5_000);
     expect(readyDisposition.dependencyBlockerReasons).toEqual(["dependency_not_completed"]);
     expect(readyDisposition.retryAt).toBe(providerRetryAt);
+    expect(Date.parse(String(readyDisposition.retryAt))).toBeGreaterThan(Date.now());
     expect(blockedDisposition.dependencyRetryAt).toBe(retryAt);
     expect(unrelatedDisposition.dependencyRetryAt).toBe(retryAt);
 
