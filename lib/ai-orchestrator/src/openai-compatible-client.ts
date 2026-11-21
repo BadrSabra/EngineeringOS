@@ -2442,6 +2442,33 @@ export async function openrouterCompleteWithFallback(
       // retry in openrouterCompleteRaw. If that retry is exhausted, advance to
       // the next compatible free candidate. Preserve Retry-After as a wait
       // signal and never rotate around a provider/account rate limit.
+      // Model availability/eligibility failures are properties of this exact
+      // candidate, not of the user's request. Persist a bounded adaptive
+      // cooldown so later requests prefer another eligible free model instead
+      // of repeatedly probing a model already rejected by the provider.
+      // Tool/request-shape errors are excluded because they do not establish
+      // that the model is unavailable for other requests.
+      const candidateUnavailable = err instanceof GroqClientError && (
+        err.code === "MODEL_NOT_FOUND"
+        || err.code === "MODEL_UNAVAILABLE"
+        || err.code === "PLAN_RESTRICTED"
+        || err.code === "EMPTY_RESPONSE"
+      );
+      if (candidateUnavailable) {
+        const cooldown = await recordLocalAdaptiveModelCooldown(
+          "openrouter",
+          model,
+          opts.modelCooldownPersistence,
+        );
+        console.info(JSON.stringify({
+          scope: "openrouter-fallback",
+          code: "MODEL_CANDIDATE_COOLDOWN",
+          model,
+          reason: err.code,
+          cooldownMs: cooldown.cooldownMs,
+          persistence: cooldown.persistence,
+        }));
+      }
       const fallbackOnTransient =
         isTransientError(err) &&
         !isRateLimitFailure(err) &&
