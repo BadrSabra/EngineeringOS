@@ -42,6 +42,7 @@ export type WorldStateFactRow = Pick<
   typeof aiWorldFactsTable.$inferSelect,
   "id" | "subject" | "predicate" | "value" | "valueHash" | "version"
   | "status" | "projectRevision" | "supersedesFactId"
+  | "taskScope" | "environmentRevision" | "environmentFreshness"
 >;
 
 // ─── Projection DTOs ──────────────────────────────────────────────────────────
@@ -431,6 +432,9 @@ export async function loadWorldState(
       status: aiWorldFactsTable.status,
       projectRevision: aiWorldFactsTable.projectRevision,
       supersedesFactId: aiWorldFactsTable.supersedesFactId,
+      taskScope: aiWorldFactsTable.taskScope,
+      environmentRevision: aiWorldFactsTable.environmentRevision,
+      environmentFreshness: aiWorldFactsTable.environmentFreshness,
     })
     .from(aiWorldFactsTable)
     .where(eq(aiWorldFactsTable.projectId, projectId))
