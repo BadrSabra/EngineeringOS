@@ -70,6 +70,8 @@ export async function wakeDeferredTaskDependencyIntents(
         AND intent.project_id = dependent.project_id
         AND intent.type = ${TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE}
         AND jsonb_typeof(intent.payload) = 'object'
+        AND jsonb_typeof(intent.payload->'taskRetryCount') = 'number'
+        AND jsonb_typeof(intent.payload->'userId') = 'string'
         AND intent.payload->>'lastFailureCode' = ${TASK_DEPENDENCY_WAKE_FAILURE_CODE}
         AND intent.payload->>'taskRetryCount' = dependent.retry_count::text
         AND intent.payload->>'taskCorrelationId' IS NOT DISTINCT FROM dependent.correlation_id
