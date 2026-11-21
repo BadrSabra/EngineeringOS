@@ -573,12 +573,6 @@ async function reconcileInterruptedGitHubDeliveryAttempts(): Promise<number> {
 async function reconcileScanJobs(): Promise<number> {
   const abandonedScan = staleScanLeaseCondition();
 
-  // ── 1. Running → failed ───────────────────────────────────────────────────
-  // These jobs were actively executing when the process died. We cannot
-  // safely determine how far they got, so they are marked failed and the
-  // owning project is reset to "active".
-  // PR-01: also select retryCount and maxRetries so we can decide whether to
-  // retry or permanently fail each interrupted job.
   // ── 1. Running → queued / failed ──────────────────────────────────────────
   // Retryable rows are transitioned in one conditional UPDATE. Do this
   // before terminalizing exhausted siblings so each failed job observes any
