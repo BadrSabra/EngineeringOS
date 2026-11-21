@@ -1198,7 +1198,14 @@ router.post("/tasks/:taskId/retry", async (req, res) => {
 
   const retryCount = task[0].retryCount ?? 0;
   const maxRetries = task[0].maxRetries ?? 3;
-  const retryTransition = taskTransitionConflict(task[0].status as TaskStatus, "queued", "retry");
+  // AI-backed retries enter the same durable dispatch path as Mission handoffs.
+  // Tasks without a generated prompt remain queued for the ordinary manual path.
+  const nextStatus = task[0].prompt ? "verifying" as const : "queued" as const;
+  const retryTransition = taskTransitionConflict(
+    task[0].status as TaskStatus,
+    nextStatus,
+    "retry",
+  );
   if (retryTransition) {
     return res.status(409).json({ error: retryTransition });
   }
@@ -1220,7 +1227,7 @@ router.post("/tasks/:taskId/retry", async (req, res) => {
       const [row] = await tx
         .update(tasksTable)
         .set({
-          status: "queued",
+          status: nextStatus,
           retryCount: retryCount + 1,
           correlationId,
           updatedAt: now,
@@ -1251,15 +1258,31 @@ router.post("/tasks/:taskId/retry", async (req, res) => {
         projectId: task[0].projectId,
         taskId,
         severity: "warning",
-        message: `Task "${task[0].title}" queued for retry (#${retryCount + 1})`,
+        message: `Task "${task[0].title}" ${nextStatus === "verifying" ? "scheduled for retry" : "queued for retry"} (#${retryCount + 1})`,
         correlationId,
-        payload: { before: { status: task[0].status, retryCount }, after: { status: "queued", retryCount: retryCount + 1 } },
+        payload: {
+          before: { status: task[0].status, retryCount },
+          after: { status: nextStatus, retryCount: retryCount + 1 },
+        },
       });
       await recordAuditInTransaction(tx, {
         entityType: "task", entityId: taskId, action: "retried",
         projectId: task[0].projectId, stateBefore: { status: task[0].status, retryCount },
-        stateAfter: { status: "queued", retryCount: retryCount + 1 }, correlationId,
+        stateAfter: { status: nextStatus, retryCount: retryCount + 1 }, correlationId,
       });
+
+      if (row.status === "verifying" && row.prompt) {
+        const intentPersisted = await insertTaskAutoExecutionIntent(tx, {
+          taskId,
+          userId: req.userId,
+          retryCount: row.retryCount,
+        });
+        if (!intentPersisted) {
+          throw new TaskStateConflictError(
+            "The Task generation is already bound to a different dispatch identity.",
+          );
+        }
+      }
 
       return [row];
     });
@@ -1268,6 +1291,25 @@ router.post("/tasks/:taskId/retry", async (req, res) => {
       return res.status(409).json({ error: err.message });
     }
     throw err;
+  }
+
+  if (updated.status === "verifying" && updated.prompt) {
+    try {
+      // The retry and its Outbox intent are already committed. This wake-up
+      // only reduces latency; the durable dispatcher remains the recovery path.
+      await scheduleAiTaskExecution(
+        taskId,
+        req.userId,
+        undefined,
+        updated.retryCount,
+        updated.correlationId,
+      );
+    } catch (error) {
+      logger.warn(
+        { error, taskId, projectId: project.id, correlationId },
+        "Task retry committed with a durable execution intent; local queue wake-up failed",
+      );
+    }
   }
 
   invalidateContextCache(project.id);
