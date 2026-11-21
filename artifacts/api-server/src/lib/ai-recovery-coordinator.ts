@@ -24,7 +24,11 @@ import {
 import { insertTaskAutoExecutionIntent } from "./task-auto-execution-outbox.js";
 import { getTaskDependencyBlockers } from "./task-dependencies.js";
 import { taskTransitionConflict, type TaskStatus } from "./task-state.js";
-import { TASK_RECOVERY_ACTION_CODES } from "./task-recovery-contract.js";
+import {
+  TASK_RECOVERY_ACTION_CODES,
+  TASK_RECOVERY_EXECUTION_STATUSES,
+  TASK_RECOVERY_TASK_STATUSES,
+} from "./task-recovery-contract.js";
 
 const SAFE_CHAT_RECOVERY_FAILURE_CODES = new Set([
   "EXECUTION_ACCEPTANCE_INCOMPLETE",
@@ -59,8 +63,8 @@ export function sanitizeChatRecoveryFailureCode(code: unknown): string | undefin
 
 const RECOVERY_ACTIONS = TASK_RECOVERY_ACTION_CODES;
 
-const RECOVERY_TASK_STATUSES = ["pending", "queued", "verifying"] as const;
-const RECOVERY_EXECUTION_STATUSES = ["paused", "failed"] as const;
+const RECOVERY_TASK_STATUSES = TASK_RECOVERY_TASK_STATUSES;
+const RECOVERY_EXECUTION_STATUSES = TASK_RECOVERY_EXECUTION_STATUSES;
 const MAX_RECOVERY_CANDIDATES = 64;
 const TASK_RECOVERY_DEPENDENCY_RECHECK_MS = 30_000;
 const MAX_AUTOMATIC_CHAT_PARSER_RECOVERY_ATTEMPTS = 2;
