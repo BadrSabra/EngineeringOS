@@ -18,7 +18,7 @@ import {
   getFullAuthorizedToolManifest,
 } from "@workspace/ai-orchestrator";
 import app from "../app.js";
-import { reconcileBuiltinPluginRegistry } from "./plugins.js";
+import { createPluginRegistrySeeder, reconcileBuiltinPluginRegistry } from "./plugins.js";
 
 const projectIds: string[] = [];
 
@@ -62,6 +62,43 @@ afterEach(async () => {
 });
 
 describe("Plugin registry", () => {
+  it("coalesces concurrent cold-start initialization and caches a successful seed", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let reconciliationCalls = 0;
+    const ensureSeeded = createPluginRegistrySeeder(async () => {
+      reconciliationCalls += 1;
+      await gate;
+    });
+
+    const first = ensureSeeded();
+    const second = ensureSeeded();
+    await Promise.resolve();
+    expect(reconciliationCalls).toBe(1);
+
+    release();
+    await Promise.all([first, second]);
+    await ensureSeeded();
+    expect(reconciliationCalls).toBe(1);
+  });
+
+  it("allows a later request to retry after registry initialization fails", async () => {
+    let reconciliationCalls = 0;
+    const ensureSeeded = createPluginRegistrySeeder(async () => {
+      reconciliationCalls += 1;
+      if (reconciliationCalls === 1) {
+        throw new Error("registry initialization failed");
+      }
+    });
+
+    await expect(ensureSeeded()).rejects.toThrow("registry initialization failed");
+    await ensureSeeded();
+    await ensureSeeded();
+    expect(reconciliationCalls).toBe(2);
+  });
+
   it("reconciles a partial registry while preserving global disablement and legacy config", async () => {
     await request(app).get("/api/plugins");
     await expect(db.transaction(async (tx) => {
