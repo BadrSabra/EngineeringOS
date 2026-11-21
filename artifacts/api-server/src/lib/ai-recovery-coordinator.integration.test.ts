@@ -365,6 +365,171 @@ describe("durable automatic task recovery", () => {
     await cleanupRecoveryFixtures();
   });
 
+  it("keeps due Task recoveries reachable behind 65 newer future retry windows", async () => {
+    const fixture = await insertFixture();
+    const candidateCount = 65;
+    const futureRetryAt = new Date(Date.now() + 60 * 60_000).toISOString();
+    const futureCreatedAt = Date.now() + 1_000;
+    const candidates = Array.from({ length: candidateCount }, () => ({
+      taskId: randomUUID(),
+      executionId: randomUUID(),
+    }));
+
+    try {
+      await db.insert(tasksTable).values(candidates.map((candidate, index) => ({
+        id: candidate.taskId,
+        projectId: fixture.projectId,
+        title: "Future retry candidate",
+        prompt: "Wait until the retry window is due",
+        status: "verifying" as const,
+        correlationId: candidate.executionId,
+        retryCount: 0,
+        maxRetries: 2,
+        createdAt: new Date(futureCreatedAt + index * 1_000),
+        updatedAt: new Date(futureCreatedAt + index * 1_000),
+      })));
+      await db.insert(aiExecutionsTable).values(candidates.map((candidate, index) => ({
+        id: candidate.executionId,
+        projectId: fixture.projectId,
+        linkedTaskId: candidate.taskId,
+        userId: "recovery-test-user",
+        operationId: candidate.executionId,
+        idempotencyKey: "future-task-recovery:" + candidate.executionId,
+        correlationId: candidate.executionId,
+        attempt: 0,
+        resumeTokenHash: "future-task-token-" + candidate.executionId,
+        request: JSON.stringify({
+          projectId: fixture.projectId,
+          turnIntent: "DELIVERY",
+          message: "Wait until the retry window is due",
+          modelMessage: "Wait until the retry window is due",
+          validationTargetPaths: [],
+          proofRequired: true,
+        }),
+        checkpoint: "{}",
+        status: "failed" as const,
+        createdAt: new Date(futureCreatedAt + index * 1_000),
+        updatedAt: new Date(futureCreatedAt + index * 1_000),
+      })));
+      await db.insert(aiExecutionAcceptancesTable).values(candidates.map((candidate, index) => ({
+        id: randomUUID(),
+        executionId: candidate.executionId,
+        projectId: fixture.projectId,
+        attempt: 0,
+        finalizationKey: "future-task-acceptance:" + candidate.executionId,
+        operationId: candidate.executionId,
+        terminalStatus: "failed" as const,
+        outcome: "FAILED" as const,
+        reasonCode: "EXECUTION_PROVIDER_FAILURE",
+        nextActionCode: "RETRY_AFTER_TIMEOUT" as const,
+        disposition: {
+          recoveryState: "REQUIRED",
+          nextActionCode: "RETRY_AFTER_TIMEOUT",
+          retryAt: futureRetryAt,
+        },
+        evidenceRequired: 1,
+        evidenceComplete: 0,
+        resumable: 0,
+        sourceRevision: new Date(futureCreatedAt + index * 1_000).toISOString(),
+        createdAt: new Date(futureCreatedAt + index * 1_000),
+      })));
+
+      expect(await dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId })).toBe(1);
+      expect(queuedJobs).toHaveLength(1);
+      expect(queuedJobs[0]!.id).toBe(
+        "ai-recovery:" + fixture.taskId + ":" + fixture.executionId + ":0:retry:0",
+      );
+    } finally {
+      // afterEach removes every fixture owned by this recovery test user.
+    }
+  });
+
+  it("keeps due Chat recoveries reachable behind 65 newer future retry windows", async () => {
+    const fixture = await insertChatFixture();
+    const candidateCount = 65;
+    const futureRetryAt = new Date(Date.now() + 60 * 60_000).toISOString();
+    const futureCreatedAt = Date.now() + 1_000;
+    const candidates = Array.from({ length: candidateCount }, () => ({
+      sessionId: randomUUID(),
+      executionId: randomUUID(),
+    }));
+    const workspaceRevision = new Date().toISOString();
+
+    try {
+      await db.insert(aiChatSessionsTable).values(candidates.map((candidate) => ({
+        id: candidate.sessionId,
+        projectId: fixture.projectId,
+        title: "Future retry chat",
+        createdAt: new Date(futureCreatedAt),
+        updatedAt: new Date(futureCreatedAt),
+      })));
+      await db.insert(aiExecutionsTable).values(candidates.map((candidate, index) => ({
+        id: candidate.executionId,
+        projectId: fixture.projectId,
+        sessionId: candidate.sessionId,
+        operationId: candidate.executionId,
+        userId: "recovery-chat-test-user",
+        idempotencyKey: "future-chat-recovery:" + candidate.executionId,
+        correlationId: candidate.executionId,
+        attempt: 0,
+        resumeTokenHash: "future-chat-token-" + candidate.executionId,
+        request: JSON.stringify({
+          projectId: fixture.projectId,
+          turnIntent: "PROJECT_QUERY",
+          sessionId: candidate.sessionId,
+          message: "Wait until the retry window is due",
+          modelMessage: "Wait until the retry window is due",
+          workspaceRevision,
+          validationTargetPaths: [],
+          proofRequired: true,
+          resumeContract: {
+            taskType: "BEHAVIOR_QUERY",
+            outputContract: "BEHAVIOR_ANSWER",
+            contextProfile: "project_query",
+            sessionId: candidate.sessionId,
+            projectRevision: workspaceRevision,
+            requiresEvidence: true,
+            scope: { projectId: fixture.projectId, rootPath: null, linkedTaskId: null },
+          },
+        }),
+        checkpoint: "{}",
+        status: "failed" as const,
+        createdAt: new Date(futureCreatedAt + index * 1_000),
+        updatedAt: new Date(futureCreatedAt + index * 1_000),
+      })));
+      await db.insert(aiExecutionAcceptancesTable).values(candidates.map((candidate, index) => ({
+        id: randomUUID(),
+        executionId: candidate.executionId,
+        projectId: fixture.projectId,
+        attempt: 0,
+        finalizationKey: "future-chat-acceptance:" + candidate.executionId,
+        operationId: candidate.executionId,
+        terminalStatus: "failed" as const,
+        outcome: "FAILED" as const,
+        reasonCode: "EXECUTION_PROVIDER_FAILURE",
+        nextActionCode: "RESUME_ALLOWED" as const,
+        disposition: {
+          recoveryState: "REQUIRED",
+          nextActionCode: "RESUME_ALLOWED",
+          retryAt: futureRetryAt,
+        },
+        evidenceRequired: 1,
+        evidenceComplete: 0,
+        resumable: 1,
+        sourceRevision: workspaceRevision,
+        createdAt: new Date(futureCreatedAt + index * 1_000),
+      })));
+
+      expect(await dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId })).toBe(1);
+      expect(queuedJobs).toHaveLength(1);
+      expect(queuedJobs[0]!.id).toBe(
+        "ai-recovery:chat:" + fixture.executionId + ":0:resume",
+      );
+    } finally {
+      // afterEach removes every fixture owned by this recovery test user.
+    }
+  });
+
   it("deduplicates concurrent dispatch and atomically advances the retry budget", async () => {
     const fixture = await insertFixture();
     try {
