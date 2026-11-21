@@ -275,6 +275,31 @@ describe('Graph', () => {
     expect(graphHandoffMocks.setLocation).not.toHaveBeenCalled();
   });
 
+  it('restores search from a direct graph URL without selecting an ambiguous result', () => {
+    graphHandoffMocks.search = '?projectId=project-1&search=buildGraph';
+    vi.mocked(useListGraphEntities).mockReturnValue({
+      data: {
+        items: [
+          targetEntity,
+          { ...targetEntity, id: 'entity-target-copy', path: 'src/legacy-graph.ts' },
+        ],
+        meta: { ...graphMeta, total: 2 },
+      },
+      isLoading: false,
+    } as ReturnType<typeof useListGraphEntities>);
+
+    render(<Graph />);
+
+    expect(screen.getByRole('textbox', { name: 'البحث في عناصر الرسم البياني' }))
+      .toHaveValue('buildGraph');
+    expect(screen.getByTestId('graph-search-status'))
+      .toHaveTextContent('أُبرزت 2 نتيجة وروابطها على الخريطة');
+    expect(useGetGraphEntityNeighbors).toHaveBeenLastCalledWith(
+      '',
+      expect.objectContaining({ query: expect.objectContaining({ enabled: false }) }),
+    );
+  });
+
   it('follows project URL changes when navigating through browser history', () => {
     graphHandoffMocks.search = '?projectId=project-2';
     vi.mocked(useListProjects).mockReturnValue({
