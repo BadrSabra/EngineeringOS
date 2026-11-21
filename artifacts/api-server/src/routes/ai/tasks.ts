@@ -102,8 +102,18 @@ router.post("/ai/tasks/:taskId/resume", async (req, res) => {
     .select({
       id: aiExecutionsTable.id,
       attempt: aiExecutionsTable.attempt,
+      resumable: aiExecutionAcceptancesTable.resumable,
+      nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+      disposition: aiExecutionAcceptancesTable.disposition,
     })
     .from(aiExecutionsTable)
+    .leftJoin(
+      aiExecutionAcceptancesTable,
+      and(
+        eq(aiExecutionAcceptancesTable.executionId, aiExecutionsTable.id),
+        eq(aiExecutionAcceptancesTable.attempt, aiExecutionsTable.attempt),
+      ),
+    )
     .where(and(
       eq(aiExecutionsTable.linkedTaskId, task.id),
       eq(aiExecutionsTable.projectId, task.projectId),
@@ -120,26 +130,13 @@ router.post("/ai/tasks/:taskId/resume", async (req, res) => {
   }
   const execution = matchingExecutions[0]!;
 
-  const [acceptance] = await db
-    .select({
-      resumable: aiExecutionAcceptancesTable.resumable,
-      nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
-      disposition: aiExecutionAcceptancesTable.disposition,
-    })
-    .from(aiExecutionAcceptancesTable)
-    .where(and(
-      eq(aiExecutionAcceptancesTable.executionId, execution.id),
-      eq(aiExecutionAcceptancesTable.attempt, execution.attempt),
-    ))
-    .limit(1);
-  const recoveryState = acceptance?.disposition
-    && typeof acceptance.disposition === "object"
-    && acceptance.disposition !== null
-    && (acceptance.disposition as { recoveryState?: unknown }).recoveryState;
+  const recoveryState = execution.disposition
+    && typeof execution.disposition === "object"
+    && execution.disposition !== null
+    && (execution.disposition as { recoveryState?: unknown }).recoveryState;
   if (
-    !acceptance
-    || acceptance.resumable !== 1
-    || acceptance.nextActionCode !== "RESUME_ALLOWED"
+    execution.resumable !== 1
+    || execution.nextActionCode !== "RESUME_ALLOWED"
     || recoveryState !== "REQUIRED"
   ) {
     return res.status(409).json({
