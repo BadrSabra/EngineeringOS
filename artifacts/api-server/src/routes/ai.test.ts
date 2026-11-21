@@ -11043,7 +11043,7 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
     });
   });
 
-  it("does not let an old local queue job clear a newer Task generation intent", async () => {
+  it("queues a newer Task generation while an old local queue job is still pending", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
     const taskId = await insertTask(projectId, "verifying");
@@ -11051,45 +11051,61 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
     const newCorrelationId = "queued-new-task-generation";
     await db.update(tasksTable)
       .set({
-        prompt: "Do not let the old queue closure clear this new intent",
+        prompt: "Queue the replacement generation without waiting for reconciliation",
         correlationId: oldCorrelationId,
       })
       .where(eq(tasksTable.id, taskId));
 
     const queuedJobs: Array<() => Promise<void>> = [];
+    const queuedJobIds: string[] = [];
     const enqueueSpy = vi.spyOn(heavyJobQueue, "enqueueWithIdDetailed")
-      .mockImplementationOnce((_id, job) => {
+      .mockImplementation((_id, job) => {
+        queuedJobIds.push(_id);
         queuedJobs.push(job);
         return "enqueued";
       });
-    await scheduleAiTaskExecution(taskId, "test-user", undefined, 0, oldCorrelationId);
-    expect(queuedJobs).toHaveLength(1);
+    try {
+      await scheduleAiTaskExecution(taskId, "test-user", undefined, 0, oldCorrelationId);
+      expect(queuedJobs).toHaveLength(1);
 
-    await db.update(tasksTable)
-      .set({ correlationId: newCorrelationId })
-      .where(eq(tasksTable.id, taskId));
-    await db.transaction(async (tx) => {
-      const persisted = await insertTaskAutoExecutionIntent(tx, {
-        taskId,
-        userId: "test-user",
-        retryCount: 0,
+      await db.update(tasksTable)
+        .set({ correlationId: newCorrelationId })
+        .where(eq(tasksTable.id, taskId));
+      await db.transaction(async (tx) => {
+        const persisted = await insertTaskAutoExecutionIntent(tx, {
+          taskId,
+          userId: "test-user",
+          retryCount: 0,
+        });
+        expect(persisted).toBe(true);
       });
-      expect(persisted).toBe(true);
-    });
 
-    await queuedJobs[0]!();
-    enqueueSpy.mockRestore();
+      // The stale job is still pending, but the new generation must get its
+      // own process-local single-flight entry and queue identity immediately.
+      await scheduleAiTaskExecution(taskId, "test-user", undefined, 0, newCorrelationId);
+      expect(queuedJobs).toHaveLength(2);
+      expect(queuedJobIds[0]).not.toBe(queuedJobIds[1]);
 
-    const [intent] = await db.select().from(eventsTable)
-      .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
-    expect(intent?.type).toBe("TaskAutoExecutionDispatchRequested");
-    expect(intent?.payload).toMatchObject({
-      userId: "test-user",
-      taskRetryCount: 0,
-      taskCorrelationId: newCorrelationId,
-    });
+      await queuedJobs[0]!();
+      const [intent] = await db.select().from(eventsTable)
+        .where(eq(eventsTable.id, `task-auto-execution-deferred:${taskId}`));
+      expect(intent?.type).toBe("TaskAutoExecutionDispatchRequested");
+      expect(intent?.payload).toMatchObject({
+        userId: "test-user",
+        taskRetryCount: 0,
+        taskCorrelationId: newCorrelationId,
+      });
+
+      // Retire the test generation before draining its queued closure. This
+      // proves its completion also releases the generation-scoped map entry.
+      await db.update(tasksTable)
+        .set({ status: "queued" })
+        .where(eq(tasksTable.id, taskId));
+      await queuedJobs[1]!();
+    } finally {
+      enqueueSpy.mockRestore();
+    }
   });
-
   it("refreshes the Outbox timestamp when a newer Task generation replaces an old intent", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
