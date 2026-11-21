@@ -26,6 +26,7 @@ import type {
   ProjectQueryTargetMode,
   ProjectQueryTargetResolution,
 } from "./project-query-target.js";
+import type { ContextIntent } from "./context-contract.js";
 import {
   isArabicExplicitExecutionActionRequest,
   isArabicMutationActionRequest,
@@ -109,6 +110,32 @@ export type TurnIntent = {
   /** Details for a deterministic operational command, when one was recognized. */
   operationalCommand?: OperationalCommand;
 };
+
+/**
+ * Project the canonical turn-routing decision into the versioned context
+ * identity contract. Keep the request category and execution profile as
+ * distinct fields: the former describes the user's request, while the latter
+ * selects server-owned execution/context policy.
+ *
+ * Routes may override only the evidence bit when a separately validated
+ * server-owned condition (such as project orientation) changes that bit.
+ */
+export function toContextIntent(
+  intent: TurnIntent,
+  overrides: { requiresEvidence?: boolean } = {},
+): ContextIntent {
+  return {
+    kind: intent.kind,
+    classification: intent.classification.category,
+    executionTaskType: intent.executionTaskType,
+    operationMode: intent.operationMode,
+    phases: [...intent.phases],
+    requiresEvidence: overrides.requiresEvidence ?? intent.requiresEvidence,
+    contextMode: intent.contextMode,
+    compoundExecution: intent.compoundExecution,
+    compoundWrite: intent.compoundWrite,
+  };
+}
 
 /**
  * Apply serialization is only needed while a turn is allowed to prepare
