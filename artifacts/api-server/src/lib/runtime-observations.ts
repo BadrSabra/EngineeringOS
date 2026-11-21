@@ -60,49 +60,6 @@ function observationId(input: RuntimeObservationInput, sourceId: string, targetI
     .digest("hex")}`;
 }
 
-async function assertRuntimeIdentity(input: RuntimeObservationInput): Promise<void> {
-  const [runtime] = await db
-    .select({
-      sessionId: workspaceRuntimeTable.sessionId,
-      revision: workspaceRuntimeTable.revision,
-      status: workspaceRuntimeTable.status,
-    })
-    .from(workspaceRuntimeTable)
-    .where(eq(workspaceRuntimeTable.projectId, input.projectId))
-    .limit(1);
-  if (!runtime || !["starting", "running"].includes(runtime.status)) {
-    throw new RuntimeObservationError(
-      "Runtime observations require an active workspace runtime.",
-      "RUNTIME_SESSION_UNAVAILABLE",
-    );
-  }
-  if (runtime.sessionId !== input.sessionId) {
-    throw new RuntimeObservationError(
-      "The runtime observation session is no longer current.",
-      "RUNTIME_SESSION_MISMATCH",
-    );
-  }
-  if (runtime.revision !== input.runtimeRevision) {
-    throw new RuntimeObservationError(
-      "The runtime observation revision is no longer current.",
-      "RUNTIME_REVISION_MISMATCH",
-    );
-  }
-}
-
-async function resolveEntity(projectId: string, name: string, path: string) {
-  const [entity] = await db
-    .select()
-    .from(graphEntitiesTable)
-    .where(and(
-      eq(graphEntitiesTable.projectId, projectId),
-      eq(graphEntitiesTable.path, path),
-      or(eq(graphEntitiesTable.name, name), eq(graphEntitiesTable.name, path)),
-    ))
-    .limit(1);
-  return entity;
-}
-
 export async function recordRuntimeObservation(input: RuntimeObservationInput): Promise<{
   relationshipId: string;
   sourceId: string;
@@ -117,17 +74,6 @@ export async function recordRuntimeObservation(input: RuntimeObservationInput): 
       400,
     );
   }
-  await assertRuntimeIdentity(input);
-  const [source, target] = await Promise.all([
-    resolveEntity(input.projectId, input.sourceName, input.sourcePath),
-    resolveEntity(input.projectId, input.targetName, input.targetPath),
-  ]);
-  if (!source || !target) {
-    throw new RuntimeObservationError(
-      "Runtime observations require path-qualified entities already present in the project graph.",
-      "RUNTIME_ENTITY_NOT_FOUND",
-    );
-  }
 
   const observedAt = input.observedAt ?? new Date();
   const relationType = input.relationType ?? "calls";
@@ -138,47 +84,92 @@ export async function recordRuntimeObservation(input: RuntimeObservationInput): 
     ...(input.snippet ? { snippet: input.snippet.slice(0, 240) } : {}),
     kind: "call-site" as const,
   }];
-  const relationshipId = observationId(input, source.id, target.id);
-  await db
-    .insert(graphRelationshipsTable)
-    .values({
-      id: relationshipId,
-      sourceId: source.id,
-      targetId: target.id,
-      projectId: input.projectId,
-      relation: relationType,
-      relationType,
-      relationSubtype: "runtime-observed",
-      weight: 1,
-      confidence: 1,
-      isHeuristic: false,
-      isRuntimeObserved: true,
-      evidenceJson: evidence,
-      evidenceCount: evidence.length,
-      evidenceSummary: `Observed ${relationType} edge during workspace runtime.`,
-      sourceType: "manual",
-      metadata: {
-        observationSource: RUNTIME_OBSERVATION_SOURCE,
-        runtimeSessionId: input.sessionId,
-        runtimeRevision: input.runtimeRevision,
-        observedAt: observedAt.toISOString(),
-      },
-      provenance: {
-        sourceType: "manual",
-        method: "runtime-observation",
-        extractedAt: observedAt.toISOString(),
-        evidence,
-      },
-      createdAt: observedAt,
-    })
-    .onConflictDoUpdate({
-      target: graphRelationshipsTable.id,
-      set: {
+
+  // Serialize the identity check with runtime lifecycle transitions. Without
+  // this row lock, a session could be replaced after validation but before
+  // the graph edge is committed, leaving evidence from a retired runtime.
+  return db.transaction(async (tx) => {
+    const [runtime] = await tx
+      .select({
+        sessionId: workspaceRuntimeTable.sessionId,
+        revision: workspaceRuntimeTable.revision,
+        status: workspaceRuntimeTable.status,
+      })
+      .from(workspaceRuntimeTable)
+      .where(eq(workspaceRuntimeTable.projectId, input.projectId))
+      .for("update")
+      .limit(1);
+
+    if (!runtime || !["starting", "running"].includes(runtime.status)) {
+      throw new RuntimeObservationError(
+        "Runtime observations require an active workspace runtime.",
+        "RUNTIME_SESSION_UNAVAILABLE",
+      );
+    }
+    if (runtime.sessionId !== input.sessionId) {
+      throw new RuntimeObservationError(
+        "The runtime observation session is no longer current.",
+        "RUNTIME_SESSION_MISMATCH",
+      );
+    }
+    if (runtime.revision !== input.runtimeRevision) {
+      throw new RuntimeObservationError(
+        "The runtime observation revision is no longer current.",
+        "RUNTIME_REVISION_MISMATCH",
+      );
+    }
+
+    const [source] = await tx
+      .select()
+      .from(graphEntitiesTable)
+      .where(and(
+        eq(graphEntitiesTable.projectId, input.projectId),
+        eq(graphEntitiesTable.path, input.sourcePath),
+        or(
+          eq(graphEntitiesTable.name, input.sourceName),
+          eq(graphEntitiesTable.name, input.sourcePath),
+        ),
+      ))
+      .limit(1);
+    const [target] = await tx
+      .select()
+      .from(graphEntitiesTable)
+      .where(and(
+        eq(graphEntitiesTable.projectId, input.projectId),
+        eq(graphEntitiesTable.path, input.targetPath),
+        or(
+          eq(graphEntitiesTable.name, input.targetName),
+          eq(graphEntitiesTable.name, input.targetPath),
+        ),
+      ))
+      .limit(1);
+
+    if (!source || !target) {
+      throw new RuntimeObservationError(
+        "Runtime observations require path-qualified entities already present in the project graph.",
+        "RUNTIME_ENTITY_NOT_FOUND",
+      );
+    }
+
+    const relationshipId = observationId(input, source.id, target.id);
+    await tx
+      .insert(graphRelationshipsTable)
+      .values({
+        id: relationshipId,
+        sourceId: source.id,
+        targetId: target.id,
+        projectId: input.projectId,
+        relation: relationType,
+        relationType,
+        relationSubtype: "runtime-observed",
+        weight: 1,
         confidence: 1,
+        isHeuristic: false,
         isRuntimeObserved: true,
         evidenceJson: evidence,
         evidenceCount: evidence.length,
         evidenceSummary: `Observed ${relationType} edge during workspace runtime.`,
+        sourceType: "manual",
         metadata: {
           observationSource: RUNTIME_OBSERVATION_SOURCE,
           runtimeSessionId: input.sessionId,
@@ -191,16 +182,39 @@ export async function recordRuntimeObservation(input: RuntimeObservationInput): 
           extractedAt: observedAt.toISOString(),
           evidence,
         },
-      },
-    });
+        createdAt: observedAt,
+      })
+      .onConflictDoUpdate({
+        target: graphRelationshipsTable.id,
+        set: {
+          confidence: 1,
+          isRuntimeObserved: true,
+          evidenceJson: evidence,
+          evidenceCount: evidence.length,
+          evidenceSummary: `Observed ${relationType} edge during workspace runtime.`,
+          metadata: {
+            observationSource: RUNTIME_OBSERVATION_SOURCE,
+            runtimeSessionId: input.sessionId,
+            runtimeRevision: input.runtimeRevision,
+            observedAt: observedAt.toISOString(),
+          },
+          provenance: {
+            sourceType: "manual",
+            method: "runtime-observation",
+            extractedAt: observedAt.toISOString(),
+            evidence,
+          },
+        },
+      });
 
-  return {
-    relationshipId,
-    sourceId: source.id,
-    targetId: target.id,
-    runtimeRevision: input.runtimeRevision,
-    observedAt: observedAt.toISOString(),
-  };
+    return {
+      relationshipId,
+      sourceId: source.id,
+      targetId: target.id,
+      runtimeRevision: input.runtimeRevision,
+      observedAt: observedAt.toISOString(),
+    };
+  });
 }
 
 export async function clearRuntimeObservations(
