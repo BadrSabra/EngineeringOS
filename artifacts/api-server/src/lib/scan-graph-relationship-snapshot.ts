@@ -1,10 +1,10 @@
 import { asc, eq, or } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
-  db,
   graphEntitiesTable,
   graphRelationshipsTable,
 } from "@workspace/db";
+import type { ScanJobTransaction } from "./job-lease.js";
 
 const sourceGraphEntity = alias(graphEntitiesTable, "scan_snapshot_source");
 const targetGraphEntity = alias(graphEntitiesTable, "scan_snapshot_target");
@@ -52,6 +52,7 @@ export type GraphRelationshipSnapshotResult =
  * project. A capped result is also rejected rather than treated as complete.
  */
 export async function loadGraphRelationshipSnapshot(
+  tx: ScanJobTransaction,
   projectId: string,
   options: { maxRows?: number } = {},
 ): Promise<GraphRelationshipSnapshotResult> {
@@ -68,7 +69,7 @@ export async function loadGraphRelationshipSnapshot(
     return { available: false, projectId, reason: "invalid_snapshot_limit" };
   }
 
-  const rows = await db
+  const rows = await tx
     .select({
       id: graphRelationshipsTable.id,
       relationshipProjectId: graphRelationshipsTable.projectId,

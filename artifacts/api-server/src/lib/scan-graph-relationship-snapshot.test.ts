@@ -109,7 +109,7 @@ describe("loadGraphRelationshipSnapshot", () => {
       isRuntimeObserved: null,
     });
 
-    const result = await loadGraphRelationshipSnapshot(projectId);
+    const result = await db.transaction((tx) => loadGraphRelationshipSnapshot(tx, projectId));
 
     if (!result.available) throw new Error(`Expected a complete snapshot, got ${result.reason}`);
     expect(result.projectId).toBe(projectId);
@@ -155,7 +155,7 @@ describe("loadGraphRelationshipSnapshot", () => {
       isRuntimeObserved: false,
     });
 
-    expect(await loadGraphRelationshipSnapshot(projectA)).toEqual({
+    expect(await db.transaction((tx) => loadGraphRelationshipSnapshot(tx, projectA))).toEqual({
       available: false,
       projectId: projectA,
       reason: "relationship_scope_mismatch",
@@ -174,7 +174,7 @@ describe("loadGraphRelationshipSnapshot", () => {
       isRuntimeObserved: false,
     });
 
-    expect(await loadGraphRelationshipSnapshot(projectA)).toEqual({
+    expect(await db.transaction((tx) => loadGraphRelationshipSnapshot(tx, projectA))).toEqual({
       available: false,
       projectId: projectA,
       reason: "relationship_scope_mismatch",
@@ -188,7 +188,7 @@ describe("loadGraphRelationshipSnapshot", () => {
     await insertRelationship({ projectId, sourceId, targetId });
     await insertRelationship({ projectId, sourceId, targetId });
 
-    expect(await loadGraphRelationshipSnapshot(projectId, { maxRows: 1 })).toEqual({
+    expect(await db.transaction((tx) => loadGraphRelationshipSnapshot(tx, projectId, { maxRows: 1 }))).toEqual({
       available: false,
       projectId,
       reason: "relationship_snapshot_limit",
@@ -197,7 +197,7 @@ describe("loadGraphRelationshipSnapshot", () => {
 
   it("rejects invalid limits and accepts a project with no relationships", async () => {
     const projectId = await insertProject("empty");
-    expect(await loadGraphRelationshipSnapshot(projectId, { maxRows: 0 })).toEqual({
+    expect(await db.transaction((tx) => loadGraphRelationshipSnapshot(tx, projectId, { maxRows: 0 }))).toEqual({
       available: false,
       projectId,
       reason: "invalid_snapshot_limit",
