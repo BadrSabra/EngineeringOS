@@ -517,27 +517,68 @@ describe("server-owned execution acceptance", () => {
   });
 
   it("recognizes only the current acceptance actions owned by Task recovery", () => {
+    const eligible = {
+      taskStatus: "verifying",
+      prompt: "Continue the linked Mission Task.",
+      retryCount: 0,
+      maxRetries: 3,
+      executionStatus: "failed",
+      taskCorrelationId: "task-correlation",
+      executionCorrelationId: "task-correlation",
+    };
     for (const nextActionCode of TASK_RECOVERY_ACTION_CODES) {
       expect(isSamePlanTaskRecoveryPending({
+        ...eligible,
         outcome: "FAILED",
         recoveryState: "REQUIRED",
         nextActionCode,
       })).toBe(true);
     }
     expect(isSamePlanTaskRecoveryPending({
+      ...eligible,
       outcome: "FAILED",
       recoveryState: "INCOMPLETE",
       nextActionCode: "RESUME_ALLOWED",
     })).toBe(false);
     expect(isSamePlanTaskRecoveryPending({
+      ...eligible,
       outcome: "SUCCEEDED",
       recoveryState: "REQUIRED",
       nextActionCode: "RESUME_ALLOWED",
     })).toBe(false);
     expect(isSamePlanTaskRecoveryPending({
+      ...eligible,
       outcome: "FAILED",
       recoveryState: "REQUIRED",
       nextActionCode: "RETRY_AFTER_PARSE",
+    })).toBe(false);
+    expect(isSamePlanTaskRecoveryPending({
+      ...eligible,
+      outcome: "FAILED",
+      recoveryState: "REQUIRED",
+      nextActionCode: "RESUME_ALLOWED",
+      taskStatus: "failed",
+    })).toBe(false);
+    expect(isSamePlanTaskRecoveryPending({
+      ...eligible,
+      outcome: "FAILED",
+      recoveryState: "REQUIRED",
+      nextActionCode: "RESUME_ALLOWED",
+      prompt: null,
+    })).toBe(false);
+    expect(isSamePlanTaskRecoveryPending({
+      ...eligible,
+      outcome: "FAILED",
+      recoveryState: "REQUIRED",
+      nextActionCode: "RESUME_ALLOWED",
+      retryCount: 3,
+    })).toBe(false);
+    expect(isSamePlanTaskRecoveryPending({
+      ...eligible,
+      outcome: "FAILED",
+      recoveryState: "REQUIRED",
+      nextActionCode: "RESUME_ALLOWED",
+      executionCorrelationId: "stale-correlation",
     })).toBe(false);
   });
 
