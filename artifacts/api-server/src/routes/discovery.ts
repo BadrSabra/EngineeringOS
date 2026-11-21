@@ -73,52 +73,38 @@ function isUniqueViolation(err: unknown, constraintName: string): boolean {
 export async function cleanupOldSessions(): Promise<void> {
   const cutoff = sql<Date>`${databaseNow()} - interval '24 hours'`;
   // A retention TTL must not terminate a worker that still owns a live
-  // database lease. Use the database clock, and repeat this predicate in the
-  // DELETE below so a heartbeat racing this candidate read wins safely.
+  // database lease. Delete only rows whose lease is missing or expired,
+  // rechecking the condition in the same statement that retires the session.
   const leaseExpiredOrMissing = or(
     isNull(discoverySessionsTable.leaseUntil),
     lt(discoverySessionsTable.leaseUntil, databaseNow()),
   );
-  const staleSessions = await db
-    .select({
-      id: discoverySessionsTable.id,
-      rootPath: discoverySessionsTable.rootPath,
-    })
-    .from(discoverySessionsTable)
+
+  // Retire every stale unimported session in one conditional DELETE. The row
+  // lock and predicate recheck preserve the import/cleanup race: if import
+  // claims a session first, it is no longer eligible for deletion; if cleanup
+  // wins, the import claim cannot create a project from the retired session.
+  const retiredSessions = await db
+    .delete(discoverySessionsTable)
     .where(
       and(
         lt(discoverySessionsTable.startedAt, cutoff),
         isNull(discoverySessionsTable.importedProjectId),
         leaseExpiredOrMissing,
       ),
-    );
+    )
+    .returning({ rootPath: discoverySessionsTable.rootPath });
 
-  // Retire each unimported session atomically before removing its filesystem
-  // root. If import claims the row first, the conditional delete returns no
-  // rows and the newly imported project's root is preserved. If GC wins,
-  // import's ready→imported claim rolls back and cannot create a project from
-  // a retired session.
-  for (const session of staleSessions) {
-    const retired = await db
-      .delete(discoverySessionsTable)
-      .where(
-        and(
-          eq(discoverySessionsTable.id, session.id),
-          lt(discoverySessionsTable.startedAt, cutoff),
-          isNull(discoverySessionsTable.importedProjectId),
-          leaseExpiredOrMissing,
-        ),
-      )
-      .returning({ rootPath: discoverySessionsTable.rootPath });
-
-    if (retired.length > 0) {
-      await removeManagedProjectRoot(retired[0].rootPath).catch((err) => {
-        logger.warn(
-          { err, rootPath: retired[0].rootPath },
-          "Could not remove expired discovery durable root",
-        );
-      });
-    }
+  // Remove only roots returned by the successful DELETE. Keep filesystem
+  // cleanup isolated per root so one failure does not prevent other roots
+  // from being reclaimed.
+  for (const session of retiredSessions) {
+    await removeManagedProjectRoot(session.rootPath).catch((err) => {
+      logger.warn(
+        { err, rootPath: session.rootPath },
+        "Could not remove expired discovery durable root",
+      );
+    });
   }
 
   // Imported sessions do not own their project's root and can be removed

@@ -708,31 +708,49 @@ describe("Discovery cleanup ownership and races", () => {
     await cleanupSessionAndProject();
   });
 
-  it("retires stale unimported sessions and removes their managed root", async () => {
-    const discoveryId = randomUUID();
-    const rootPath = join(MANAGED_PROJECT_ROOTS_DIR, `stale-${discoveryId}`);
-    await mkdir(rootPath, { recursive: true });
-    await writeFile(join(rootPath, ".engineeringos-managed-root"), "engineeringos-managed-project-root\n");
-    await db.insert(discoverySessionsTable).values({
-      id: discoveryId,
+  it("retires multiple stale unimported sessions in one sweep and removes their managed roots", async () => {
+    const sessions = Array.from({ length: 3 }, () => ({
+      id: randomUUID(),
+      rootPath: join(MANAGED_PROJECT_ROOTS_DIR, `stale-${randomUUID()}`),
+    }));
+    await Promise.all(sessions.map(async ({ rootPath }) => {
+      await mkdir(rootPath, { recursive: true });
+      await writeFile(
+        join(rootPath, ".engineeringos-managed-root"),
+        "engineeringos-managed-project-root\n",
+      );
+    }));
+    await db.insert(discoverySessionsTable).values(sessions.map(({ id, rootPath }) => ({
+      id,
       ownerId: "test-user",
-      status: "ready",
+      status: "ready" as const,
       rootPath,
-      sourceType: "LOCAL_FOLDER",
+      sourceType: "LOCAL_FOLDER" as const,
       steps: [],
       result: fakeResult(),
       startedAt: new Date(Date.now() - 25 * 60 * 60 * 1000),
-    });
-    sessionId = discoveryId;
+    })));
+    sessionId = sessions[0]!.id;
 
-    await cleanupOldSessions();
+    try {
+      await cleanupOldSessions();
 
-    const rows = await db
-      .select({ id: discoverySessionsTable.id })
-      .from(discoverySessionsTable)
-      .where(eq(discoverySessionsTable.id, discoveryId));
-    expect(rows).toHaveLength(0);
-    await expect(access(rootPath)).rejects.toThrow();
+      for (const session of sessions) {
+        const rows = await db
+          .select({ id: discoverySessionsTable.id })
+          .from(discoverySessionsTable)
+          .where(eq(discoverySessionsTable.id, session.id));
+        expect(rows).toHaveLength(0);
+        await expect(access(session.rootPath)).rejects.toThrow();
+      }
+    } finally {
+      await Promise.all(sessions.map(async ({ id, rootPath }) => {
+        await db.delete(discoverySessionsTable)
+          .where(eq(discoverySessionsTable.id, id))
+          .catch(() => undefined);
+        await removeManagedProjectRoot(rootPath).catch(() => undefined);
+      }));
+    }
   });
 
   it("preserves a stale unimported session while a discovery worker owns a live lease", async () => {
