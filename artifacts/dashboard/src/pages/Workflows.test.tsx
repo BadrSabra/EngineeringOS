@@ -4,6 +4,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Workflows from './Workflows';
 import type { AiOrchestrationDecision } from '@workspace/api-client-react';
 import { useLocation } from 'wouter';
+import { readGoalDrafts } from '@/lib/home-goal-handoff';
+
+vi.mock('@clerk/react', () => ({
+  useUser: () => ({ isLoaded: true, user: { id: 'user-1' } }),
+}));
 
 vi.mock('@workspace/api-client-react', () => ({
   useListWorkflows: vi.fn(),
@@ -55,6 +60,7 @@ function renderPage() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  window.sessionStorage.clear();
   window.history.replaceState({}, '', '/workflows');
   vi.mocked(useListWorkflows).mockReturnValue({
     data: [{
@@ -154,6 +160,14 @@ describe('project-scoped Workflows view', () => {
     expect(screen.getByText(
       'Retry in a moment. Check provider status if it persists; the product will not switch providers.',
     )).toBeInTheDocument();
+    expect(screen.getByTestId('button-workflow-assistant-handoff-execution-1')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('button-workflow-assistant-handoff-execution-1'));
+    const draft = readGoalDrafts('user-1').drafts[0];
+    expect(draft.text).toContain('معرّف التشغيل: execution-1');
+    expect(draft.text).toContain('المرحلة المسجلة: «deploy»');
+    expect(draft.text).not.toContain('Internal provider diagnostic');
+    expect(draft.text).not.toContain('provider-secret-token');
   });
 
   it('keeps workflow history closed when the requested workflow is not in the selected project list', () => {
@@ -418,6 +432,8 @@ describe('Workflows recovery rendering', () => {
 
     expect(screen.getByText('انتهى التشغيل بحسب السجل')).toBeInTheDocument();
     expect(screen.queryByTestId('link-workflow-execution-events-completed-execution'))
+      .not.toBeInTheDocument();
+    expect(screen.queryByTestId('button-workflow-assistant-handoff-completed-execution'))
       .not.toBeInTheDocument();
   });
 
