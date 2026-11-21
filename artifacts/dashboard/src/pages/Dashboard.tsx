@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useUser } from '@clerk/react';
 import {
   getGetAiMissionControlQueryKey,
@@ -25,7 +25,7 @@ import {
   ArrowLeft,
   Sparkles,
 } from 'lucide-react';
-import { Link, useLocation } from 'wouter';
+import { Link, useLocation, useSearch } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { RefreshButton, RequestError } from '@/components/OperatorResilience';
@@ -364,6 +364,7 @@ export default function Dashboard() {
 
 function DashboardForUser({ ownerId }: { ownerId: string | null }) {
   const [, setLocation] = useLocation();
+  const search = useSearch();
   const [goalComposer, setGoalComposer] = useState(() => readHomeGoalComposer(ownerId));
   const goalDraft = goalComposer.text;
   const goalInputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -379,6 +380,18 @@ function DashboardForUser({ ownerId }: { ownerId: string | null }) {
     input.setSelectionRange(input.value.length, input.value.length);
     focusGoalInputAfterUpdate.current = false;
   }, [goalDraft]);
+  const focusGoalOnOpen = new URLSearchParams(search).get('focusGoal') === '1';
+  useEffect(() => {
+    if (!focusGoalOnOpen) return;
+    const input = goalInputRef.current;
+    if (!input) return;
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+    const nextParams = new URLSearchParams(search);
+    nextParams.delete('focusGoal');
+    const remainingQuery = nextParams.toString();
+    setLocation(remainingQuery ? `/?${remainingQuery}` : '/', { replace: true });
+  }, [focusGoalOnOpen, search, setLocation]);
   const projectsQuery = useListProjects(undefined, {
     query: { queryKey: getListProjectsQueryKey() },
   });

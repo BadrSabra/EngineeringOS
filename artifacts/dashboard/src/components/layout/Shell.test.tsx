@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import axe from 'axe-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Router } from 'wouter';
@@ -70,6 +70,19 @@ describe('Shell mobile navigation', () => {
     expect(drawer).not.toHaveAttribute('aria-modal', 'true');
     expect(opener).toHaveAttribute('aria-expanded', 'false');
     expect(document.body.style.overflow).toBe('');
+  });
+
+  it('offers a global goal-first shortcut and closes the mobile drawer when used', async () => {
+    render(<Router><Shell><div>Current page</div></Shell></Router>);
+    const shortcut = screen.getByTestId('link-nav-start-goal');
+    expect(shortcut).toHaveAttribute('href', '/?focusGoal=1');
+    expect(shortcut).toHaveTextContent('ابدأ هدفًا');
+
+    fireEvent.click(screen.getByRole('button', { name: 'فتح القائمة' }));
+    const drawer = await screen.findByRole('dialog', { name: 'قائمة التنقل الرئيسية' });
+    fireEvent.click(shortcut);
+
+    await waitFor(() => expect(drawer).not.toHaveAttribute('aria-modal', 'true'));
   });
 
   it('keeps technical navigation optional and its existing links available when expanded', () => {
