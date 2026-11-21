@@ -255,6 +255,39 @@ function renderTaskAcceptanceWithRetryAt(retryAt: string) {
 }
 
 describe('project-scoped task list contracts', () => {
+  it('opens a task event log directly from the collapsed task row', () => {
+    const fixture = taskListFixture();
+    vi.mocked(useListTasks).mockReturnValue({
+      ...fixture,
+      data: fixture.data?.map((task) => (
+        task.id === 'task-auth' ? { ...task, correlationId: 'trace/123' } : task
+      )),
+    } as ReturnType<typeof useListTasks>);
+
+    renderPage();
+
+    expect(screen.getByRole('button', {
+      name: 'عرض تفاصيل المهمة: Repair provider authentication',
+    })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByTestId('link-task-event-log-row-task-auth'))
+      .toHaveAttribute('href', '/events?projectId=project-1&correlationId=trace%2F123');
+    expect(screen.queryByTestId('link-task-event-log-task-auth')).not.toBeInTheDocument();
+  });
+
+  it('does not offer a task event-log shortcut without a correlation id', () => {
+    const fixture = taskListFixture();
+    vi.mocked(useListTasks).mockReturnValue({
+      ...fixture,
+      data: fixture.data?.map((task) => (
+        task.id === 'task-auth' ? { ...task, correlationId: '  ' } : task
+      )),
+    } as ReturnType<typeof useListTasks>);
+
+    renderPage();
+
+    expect(screen.queryByTestId('link-task-event-log-row-task-auth')).not.toBeInTheDocument();
+  });
+
   it('opens event history scoped to the task project and correlation id', () => {
     const fixture = taskListFixture();
     vi.mocked(useListTasks).mockReturnValue({

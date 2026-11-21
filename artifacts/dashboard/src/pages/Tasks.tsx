@@ -143,6 +143,10 @@ type TaskView = {
   } | null;
 };
 
+function taskEventLogHref(projectId: string, correlationId: string): string {
+  return `/events?projectId=${encodeURIComponent(projectId)}&correlationId=${encodeURIComponent(correlationId)}`;
+}
+
 type TaskExecutionReceipt = {
   kind?: string;
   operationId?: string;
@@ -2404,6 +2408,18 @@ function TasksSession({
                 </button>
 
                 <div className="flex items-center gap-2 shrink-0 pe-4">
+                  {typeof task.correlationId === 'string' && task.correlationId.trim() && (
+                    <Link
+                      href={taskEventLogHref(task.projectId, task.correlationId.trim())}
+                      onClick={(event) => event.stopPropagation()}
+                      aria-label={`عرض سجل الأحداث مباشرة للمهمة: ${task.title}`}
+                      data-testid={`link-task-event-log-row-${task.id}`}
+                      title="سجل الأحداث المرتبط بالمهمة"
+                      className="p-1.5 text-muted-foreground hover:bg-secondary hover:text-primary rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    >
+                      <Activity className="w-4 h-4" aria-hidden="true" />
+                    </Link>
+                  )}
                   {(task.status === 'pending' || task.status === 'queued') && (
                     <button
                       onClick={(e) => { e.stopPropagation(); handleAction('execute', task.id); }}
@@ -2502,7 +2518,7 @@ function TasksSession({
                           {typeof task.correlationId === 'string' && task.correlationId.trim() && (
                             <div className="mb-4">
                               <Link
-                                href={`/events?projectId=${encodeURIComponent(task.projectId)}&correlationId=${encodeURIComponent(task.correlationId.trim())}`}
+                                href={taskEventLogHref(task.projectId, task.correlationId.trim())}
                                 aria-label={`عرض سجل الأحداث للمهمة: ${task.title}`}
                                 data-testid={`link-task-event-log-${task.id}`}
                                 className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
