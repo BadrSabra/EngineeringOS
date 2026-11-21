@@ -25,6 +25,7 @@ import { recordAuditInTransaction, type RecordAuditParams } from "./audit.js";
 import type { MaterializeServerOwnedObservationsInput } from "./agent-state/observation-materializer.js";
 import { parseTaskObjectiveContract, type TaskObjectiveContract } from "./task-objective-contract.js";
 import { projectGoalAcceptance, type GoalAcceptanceProjection } from "./mission-acceptance-projection.js";
+import { isSamePlanTaskRecoveryPending } from "./task-recovery-contract.js";
 import {
   buildExecutionProofProjection,
   parseExecutionProofProjection,
@@ -462,12 +463,16 @@ export function deriveLinkedGoalStatus(params: {
   taskStatus: ObjectiveTaskStatus;
   retryable: boolean;
   siblingTaskStatuses: ObjectiveTaskStatus[];
+  samePlanRecoveryPending?: boolean;
   deliveryRequired?: boolean;
   deliveryReceipt?: { status: "PROVEN" | "completed" | "succeeded" } | null;
   canonicalProofAccepted?: boolean;
 }): ObjectiveGoalStatus {
   if (params.outcome === "INTERRUPTED") return "needs_replan";
-  if (params.outcome === "FAILED") return params.retryable ? "needs_replan" : "failed";
+  if (params.outcome === "FAILED") {
+    if (params.samePlanRecoveryPending) return "running";
+    return params.retryable ? "needs_replan" : "failed";
+  }
   if (params.taskStatus === "verifying") return "verifying";
   if (params.taskStatus !== "completed") return "running";
 
@@ -754,6 +759,11 @@ async function syncLinkedObjectiveState(
           outcome: params.outcome,
           taskStatus: params.taskStatus,
           retryable: params.retryable,
+          samePlanRecoveryPending: isSamePlanTaskRecoveryPending({
+            outcome: acceptance.outcome,
+            recoveryState: recordValue(acceptance.disposition).recoveryState,
+            nextActionCode: acceptance.nextActionCode,
+          }),
           siblingTaskStatuses: siblingTasks
             .filter((task) => task.id !== params.task.id)
             .map((task) => task.status),
