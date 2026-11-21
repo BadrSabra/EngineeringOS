@@ -77,6 +77,7 @@ import {
 } from "./task-dependencies.js";
 import { TASK_AUTO_EXECUTION_DEFERRED_EVENT_TYPE, taskAutoExecutionIntentId } from "./task-auto-execution-outbox.js";
 import { dispatchPendingTaskObservationOutbox } from "./task-observation-outbox.js";
+import { dispatchMissionReplanIntent } from "./mission-replan-outbox.js";
 import { taskTransitionConflict, type TaskStatus } from "./task-state.js";
 import { databaseLeaseUntil, databaseNow } from "./job-lease.js";
 import {
@@ -213,7 +214,23 @@ type MissionTaskAdmission =
         | "mission_dependencies_pending"
         | "mission_dependency_failed"
         | "mission_dependency_proof_unproven";
+      replanIntentId?: string;
     };
+
+async function dispatchMissionAdmissionReplanIntent(input: {
+  intentId: string;
+  projectId: string;
+  goalId: string;
+}): Promise<void> {
+  try {
+    await dispatchMissionReplanIntent(input.intentId);
+  } catch (error) {
+    logger.warn(
+      { ...input, error, scope: "task-execution" },
+      "Immediate Mission admission replan dispatch failed; the durable Outbox remains recoverable.",
+    );
+  }
+}
 
 async function inspectMissionTaskAdmission(
   tx: TaskExecutionTransaction,
@@ -293,13 +310,17 @@ async function inspectMissionTaskAdmission(
   const dependencyState = await missionRuntime.evaluateGoalDependencyState(tx, mission, goal);
   const unprovenDependency = dependencyState.unprovenDependencies[0];
   if (unprovenDependency) {
-    await missionRuntime.persistGoalDependencyProofBlocked(tx, {
+    const replanIntentId = await missionRuntime.persistGoalDependencyProofBlocked(tx, {
       goal,
       mission,
       planRevision: dependencyState.planRevision,
       dependency: unprovenDependency,
     });
-    return { allowed: false, errorCode: "mission_dependency_proof_unproven" };
+    return {
+      allowed: false,
+      errorCode: "mission_dependency_proof_unproven",
+      replanIntentId,
+    };
   }
 
   const failedDependency = dependencyState.dependencyGoals.find((dependency) =>
@@ -309,19 +330,17 @@ async function inspectMissionTaskAdmission(
     || dependency.status === "needs_replan",
   );
   if (failedDependency) {
-    const now = new Date();
-    await tx.update(aiGoalsTable)
-      .set({
-        status: "needs_replan",
-        blockedReason: `Dependency "${failedDependency.title}" did not complete.`,
-        nextWakeAt: null,
-        updatedAt: now,
-      })
-      .where(eq(aiGoalsTable.id, goal.id));
-    await tx.update(aiMissionsTable)
-      .set({ status: "needs_replan", updatedAt: now })
-      .where(eq(aiMissionsTable.id, mission.id));
-    return { allowed: false, errorCode: "mission_dependency_failed" };
+    const replanIntentId = await missionRuntime.persistGoalDependencyFailed(tx, {
+      goal,
+      mission,
+      planRevision: dependencyState.planRevision,
+      dependency: { id: failedDependency.id, title: failedDependency.title },
+    });
+    return {
+      allowed: false,
+      errorCode: "mission_dependency_failed",
+      replanIntentId,
+    };
   }
 
   const dependenciesCompleted =
@@ -4490,6 +4509,13 @@ export async function executeTaskLifecycle(params: {
       userId: params.userId,
     }));
     if (!admission.allowed) {
+      if (admission.replanIntentId) {
+        await dispatchMissionAdmissionReplanIntent({
+          intentId: admission.replanIntentId,
+          projectId: before.projectId,
+          goalId: missionGoal.id,
+        });
+      }
       return {
         ok: false,
         status: "conflict",
@@ -4651,6 +4677,7 @@ export async function executeTaskLifecycle(params: {
         errorCode: string;
         retryAfterMs?: number;
         blockedDependencies?: TaskDependencyBlocker[];
+        replanIntentId?: string;
       };
   try {
     claim = await db.transaction(async (tx) => {
@@ -4661,7 +4688,11 @@ export async function executeTaskLifecycle(params: {
           projectId: before.projectId,
           userId: params.userId,
         });
-        if (!admission.allowed) return { kind: "conflict" as const, errorCode: admission.errorCode };
+        if (!admission.allowed) return {
+          kind: "conflict" as const,
+          errorCode: admission.errorCode,
+          ...(admission.replanIntentId ? { replanIntentId: admission.replanIntentId } : {}),
+        };
       }
 
       // Lock Task under its original CAS before any linked execution or
@@ -4928,6 +4959,13 @@ export async function executeTaskLifecycle(params: {
     throw error;
   }
   if (claim.kind === "conflict") {
+    if (claim.replanIntentId && missionGoal) {
+      await dispatchMissionAdmissionReplanIntent({
+        intentId: claim.replanIntentId,
+        projectId: before.projectId,
+        goalId: missionGoal.id,
+      });
+    }
     return {
       ok: false,
       status: "conflict",

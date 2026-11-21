@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
 import {
   aiGoalsTable,
@@ -21,18 +21,30 @@ const MAX_RETRY_DELAY_MS = 5 * 60_000;
 
 type MissionReplanOutboxTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-type MissionReplanPayload = {
+type MissionReplanPayloadBase = {
   schemaVersion: 1;
   missionId: string;
   projectId: string;
   goalId: string;
-  executionId: string;
-  attempt: number;
-  acceptanceId: string;
   attemptCount: number;
   nextAttemptAt: string;
   lastFailureCode?: string;
 };
+
+type MissionReplanPayload = MissionReplanPayloadBase & (
+  | {
+      source: "execution_acceptance";
+      executionId: string;
+      attempt: number;
+      acceptanceId: string;
+    }
+  | {
+      source: "goal_admission";
+      admissionKey: string;
+      reasonCode: "dependency_proof_unproven" | "dependency_failed";
+      sourcePlanRevision: string | null;
+    }
+);
 
 export type MissionReplanDispatchLeaseClaim =
   | { acquired: true; token: string; expiresAt: string }
@@ -48,21 +60,12 @@ export function missionReplanIntentId(acceptanceId: string): string {
 
 function parsePayload(value: unknown): MissionReplanPayload | null {
   if (!isRecord(value)) return null;
-  const requiredStrings = [
-    "missionId",
-    "projectId",
-    "goalId",
-    "executionId",
-    "acceptanceId",
-  ] as const;
+  const requiredStrings = ["missionId", "projectId", "goalId"] as const;
   if (
     value.schemaVersion !== 1
     || requiredStrings.some((key) =>
       typeof value[key] !== "string" || (value[key] as string).trim().length === 0,
     )
-    || typeof value.attempt !== "number"
-    || !Number.isSafeInteger(value.attempt)
-    || value.attempt < 0
     || typeof value.attemptCount !== "number"
     || !Number.isSafeInteger(value.attemptCount)
     || value.attemptCount < 0
@@ -70,19 +73,49 @@ function parsePayload(value: unknown): MissionReplanPayload | null {
     || !Number.isFinite(Date.parse(value.nextAttemptAt))
   ) return null;
 
-  return {
+  const base: MissionReplanPayloadBase = {
     schemaVersion: 1,
     missionId: value.missionId as string,
     projectId: value.projectId as string,
     goalId: value.goalId as string,
-    executionId: value.executionId as string,
-    attempt: value.attempt,
-    acceptanceId: value.acceptanceId as string,
     attemptCount: value.attemptCount,
     nextAttemptAt: value.nextAttemptAt,
     ...(typeof value.lastFailureCode === "string"
       ? { lastFailureCode: value.lastFailureCode }
       : {}),
+  };
+  const source = value.source ?? "execution_acceptance";
+  if (source === "goal_admission") {
+    if (
+      typeof value.admissionKey !== "string"
+      || value.admissionKey.trim().length === 0
+      || (value.reasonCode !== "dependency_proof_unproven" && value.reasonCode !== "dependency_failed")
+      || !(value.sourcePlanRevision === null || typeof value.sourcePlanRevision === "string")
+    ) return null;
+    return {
+      ...base,
+      source,
+      admissionKey: value.admissionKey,
+      reasonCode: value.reasonCode,
+      sourcePlanRevision: value.sourcePlanRevision,
+    };
+  }
+  if (
+    source !== "execution_acceptance"
+    || typeof value.executionId !== "string"
+    || value.executionId.trim().length === 0
+    || typeof value.acceptanceId !== "string"
+    || value.acceptanceId.trim().length === 0
+    || typeof value.attempt !== "number"
+    || !Number.isSafeInteger(value.attempt)
+    || value.attempt < 0
+  ) return null;
+  return {
+    ...base,
+    source: "execution_acceptance",
+    executionId: value.executionId,
+    attempt: value.attempt,
+    acceptanceId: value.acceptanceId,
   };
 }
 
@@ -121,6 +154,7 @@ export async function insertMissionReplanIntent(
     missionId: input.missionId,
     projectId: input.projectId,
     goalId: input.goalId,
+    source: "execution_acceptance",
     executionId: input.executionId,
     attempt: input.attempt,
     acceptanceId: input.acceptanceId,
@@ -135,6 +169,75 @@ export async function insertMissionReplanIntent(
     correlationId: input.executionId,
     severity: "warning",
     message: "A retryable Task failure requested an automatic Mission replan.",
+    timestamp: input.requestedAt,
+    payload,
+  }).onConflictDoNothing();
+  return id;
+}
+
+/**
+ * Persist a replan wake for an admission failure that has no execution
+ * acceptance yet. The stable key is bound to the Goal, reason, and plan
+ * revision so repeated preflight/claim checks collapse into one intent while a
+ * genuinely newer plan receives a new wake.
+ */
+export function missionReplanAdmissionIntentId(input: {
+  missionId: string;
+  projectId: string;
+  goalId: string;
+  reasonCode: "dependency_proof_unproven" | "dependency_failed";
+  planRevision: string | null;
+}): string {
+  const identityHash = createHash("sha256").update(JSON.stringify([
+    input.missionId,
+    input.projectId,
+    input.goalId,
+    input.reasonCode,
+    input.planRevision,
+  ])).digest("hex");
+  return `mission-replan:admission:${identityHash}`;
+}
+
+export async function insertMissionAdmissionReplanIntent(
+  tx: MissionReplanOutboxTransaction,
+  input: {
+    missionId: string;
+    projectId: string;
+    goalId: string;
+    reasonCode: "dependency_proof_unproven" | "dependency_failed";
+    planRevision: string | null;
+    requestedAt: Date;
+  },
+): Promise<string> {
+  if (
+    !input.missionId.trim()
+    || !input.projectId.trim()
+    || !input.goalId.trim()
+    || (input.planRevision !== null && !input.planRevision.trim())
+  ) {
+    throw new Error("mission_replan_admission_identity_invalid");
+  }
+
+  const id = missionReplanAdmissionIntentId(input);
+  const payload: MissionReplanPayload = {
+    schemaVersion: 1,
+    missionId: input.missionId,
+    projectId: input.projectId,
+    goalId: input.goalId,
+    source: "goal_admission",
+    admissionKey: id,
+    reasonCode: input.reasonCode,
+    sourcePlanRevision: input.planRevision,
+    attemptCount: 0,
+    nextAttemptAt: input.requestedAt.toISOString(),
+  };
+  await tx.insert(eventsTable).values({
+    id,
+    type: MISSION_REPLAN_REQUESTED,
+    projectId: input.projectId,
+    goalId: input.goalId,
+    severity: "warning",
+    message: "A Mission Goal dependency admission failure requested an automatic replan.",
     timestamp: input.requestedAt,
     payload,
   }).onConflictDoNothing();
@@ -345,9 +448,9 @@ async function deferMissionReplanIntent(
 }
 
 /**
- * Dispatches one failure-triggered replan. The stored intent is not execution
- * authority: the Mission and Goal must still be in needs_replan, and the
- * existing coordinator rechecks autonomy, evidence, diagnosis, and budget.
+ * Dispatches one durable Mission replan request. Its trigger is a wake-up hint,
+ * not execution authority: the Mission and Goal must still be in needs_replan,
+ * and the existing coordinator rechecks autonomy, evidence, diagnosis, and budget.
  */
 export async function dispatchMissionReplanIntent(id: string): Promise<boolean> {
   let lease: MissionReplanDispatchLeaseClaim;
@@ -431,6 +534,9 @@ export async function dispatchMissionReplanIntent(id: string): Promise<boolean> 
       missionId: aiGoalsTable.missionId,
       projectId: aiGoalsTable.projectId,
       status: aiGoalsTable.status,
+      blockedReason: aiGoalsTable.blockedReason,
+      outcomeContract: aiGoalsTable.outcomeContract,
+      successCriteria: aiGoalsTable.successCriteria,
     }).from(aiGoalsTable)
       .where(and(
         eq(aiGoalsTable.id, payload.goalId),
@@ -441,6 +547,7 @@ export async function dispatchMissionReplanIntent(id: string): Promise<boolean> 
     const [mission] = await db.select({
       id: aiMissionsTable.id,
       status: aiMissionsTable.status,
+      autonomyPolicy: aiMissionsTable.autonomyPolicy,
     }).from(aiMissionsTable)
       .where(and(
         eq(aiMissionsTable.id, payload.missionId),
@@ -448,7 +555,30 @@ export async function dispatchMissionReplanIntent(id: string): Promise<boolean> 
       ))
       .limit(1);
 
-    if (!goal || !mission || goal.status !== "needs_replan" || mission.status !== "needs_replan") {
+    const goalOutcome = goal && isRecord(goal.outcomeContract) ? goal.outcomeContract : {};
+    const goalCriteria = goal && isRecord(goal.successCriteria) ? goal.successCriteria : {};
+    const effectivePlanRevision = goalOutcome.planRevision ?? goalCriteria.planRevision;
+    const goalPlan = isRecord(effectivePlanRevision) ? effectivePlanRevision : {};
+    const currentPlanRevision = typeof goalPlan.hash === "string" && goalPlan.hash.trim()
+      ? goalPlan.hash.trim()
+      : null;
+    const autonomyPolicy = mission && isRecord(mission.autonomyPolicy) ? mission.autonomyPolicy : {};
+    const activePlanRevision = typeof autonomyPolicy.activePlanRevision === "string"
+      ? autonomyPolicy.activePlanRevision
+      : null;
+    const admissionIntentStale = payload.source === "goal_admission" && (
+      goal?.blockedReason !== payload.reasonCode
+      || currentPlanRevision !== payload.sourcePlanRevision
+      || (activePlanRevision !== null && activePlanRevision !== payload.sourcePlanRevision)
+    );
+
+    if (
+      !goal
+      || !mission
+      || goal.status !== "needs_replan"
+      || mission.status !== "needs_replan"
+      || admissionIntentStale
+    ) {
       await markMissionReplanIntent(
         id,
         MISSION_REPLAN_SUPERSEDED,
