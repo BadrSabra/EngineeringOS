@@ -285,6 +285,26 @@ function MetricsSession({
         <div className="h-96 bg-card border border-border rounded-xl animate-pulse"></div>
       ) : isError ? (
         <RequestError message={error instanceof Error ? error.message : 'تعذّر تحميل المؤشرات.'} retryLabel="حاول مجددًا" onRetry={() => void refetch()} />
+      ) : formatData.length === 0 && allData.length > 0 ? (
+        <div
+          role="status"
+          data-testid="metrics-range-empty"
+          className="min-h-64 bg-card border border-border rounded-xl flex flex-col items-center justify-center gap-2 px-4 py-8 text-center text-muted-foreground"
+        >
+          <AlertTriangle className="w-8 h-8 mb-2 opacity-50" aria-hidden="true" />
+          <p>لا توجد قراءات خلال الفترة المحددة.</p>
+          <p className="text-xs mt-1 opacity-70">
+            توجد قراءات أقدم لهذا المشروع. اعرض السجل الكامل بدل بدء فحص جديد.
+          </p>
+          <button
+            type="button"
+            onClick={() => setDateRange('all')}
+            data-testid="button-show-all-metrics"
+            className="mt-2 inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          >
+            اعرض كل القراءات
+          </button>
+        </div>
       ) : formatData.length === 0 ? (
         <div className="min-h-64 bg-card border border-border rounded-xl flex flex-col items-center justify-center gap-2 px-4 py-8 text-center text-muted-foreground">
           <AlertTriangle className="w-8 h-8 mb-2 opacity-50" />
