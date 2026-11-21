@@ -6,7 +6,7 @@ import {
   pluginsTable,
   projectPluginBindingsTable,
 } from "@workspace/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { recordAudit } from "../lib/audit.js";
 import {
   isPluginLanguageCompatible,
@@ -107,34 +107,63 @@ const DEFAULT_PLUGINS = [
   },
 ];
 
-let seeded = false;
 export async function reconcileBuiltinPluginRegistry(
   executor: Pick<typeof db, "insert"> = db,
 ): Promise<void> {
   const now = new Date();
-  for (const plugin of DEFAULT_PLUGINS) {
-    await executor
-      .insert(pluginsTable)
-      .values({ ...plugin, createdAt: now, updatedAt: now })
-      .onConflictDoUpdate({
-        target: pluginsTable.id,
-        set: {
-          name: plugin.name,
-          description: plugin.description,
-          version: plugin.version,
-          capabilities: plugin.capabilities,
-          supportedLanguages: plugin.supportedLanguages,
-          updatedAt: now,
-        },
-      });
-  }
+  await executor
+    .insert(pluginsTable)
+    .values(
+      DEFAULT_PLUGINS.map((plugin) => ({
+        ...plugin,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    )
+    .onConflictDoUpdate({
+      target: pluginsTable.id,
+      set: {
+        // Keep global availability and legacy configuration untouched; only
+        // reconcile metadata owned by the built-in registry.
+        name: sql`excluded.name`,
+        description: sql`excluded.description`,
+        version: sql`excluded.version`,
+        capabilities: sql`excluded.capabilities`,
+        supportedLanguages: sql`excluded.supported_languages`,
+        updatedAt: now,
+      },
+    });
 }
 
-async function ensureSeeded(): Promise<void> {
-  if (seeded) return;
-  await reconcileBuiltinPluginRegistry();
-  seeded = true;
+/**
+ * Coalesce simultaneous first-use initialization in this API process.
+ * A rejected reconciliation is not cached, so the next request may retry.
+ */
+export function createPluginRegistrySeeder(
+  reconcile: () => Promise<void>,
+): () => Promise<void> {
+  let seeded = false;
+  let inFlight: Promise<void> | null = null;
+
+  return async () => {
+    if (seeded) return;
+    if (!inFlight) {
+      inFlight = Promise.resolve()
+        .then(reconcile)
+        .then(() => {
+          seeded = true;
+        })
+        .finally(() => {
+          inFlight = null;
+        });
+    }
+    await inFlight;
+  };
 }
+
+const ensureSeeded = createPluginRegistrySeeder(
+  () => reconcileBuiltinPluginRegistry(),
+);
 
 router.get("/plugins", async (_req, res) => {
   await ensureSeeded();
