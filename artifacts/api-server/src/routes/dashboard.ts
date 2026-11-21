@@ -7,11 +7,22 @@ import {
   rulesTable,
   metricsTable,
 } from "@workspace/db";
-import { desc, eq, inArray, isNull, or } from "drizzle-orm";
+import { count, desc, eq, inArray, isNull, lte, max, or, sql } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { loadDashboardWorkSummary } from "../lib/dashboard-work-summary.js";
 
 const router = Router();
+
+type TaskStatusAggregate = {
+  status: (typeof tasksTable.$inferSelect)["status"];
+  count: number;
+  latestUpdatedAt: Date | null;
+};
+
+type DashboardMetric = Pick<
+  typeof metricsTable.$inferSelect,
+  "id" | "projectId" | "timestamp" | "overallScore"
+>;
 
 router.get("/dashboard/work-summary", requireAuth, async (req, res) => {
   try {
@@ -56,14 +67,55 @@ router.get("/dashboard", requireAuth, async (req, res) => {
   const hasProjects = projectIds.length > 0;
 
   // Step 2: scope remaining queries to the user's project IDs.
-  const [tasks, recentEvents, allRules, latestMetrics] = await Promise.all([
-    // Tasks are always project-scoped; return empty when the user has no projects.
-    hasProjects
-      ? db
-          .select()
-          .from(tasksTable)
-          .where(inArray(tasksTable.projectId, projectIds))
-      : ([] as (typeof tasksTable.$inferSelect)[]),
+  // The dashboard needs task counts, not task records. Aggregate in
+  // PostgreSQL and carry the maximum update timestamp for the freshness
+  // watermark instead of transferring the full task history.
+  const taskStatusCountsQuery = hasProjects
+    ? db
+        .select({
+          status: tasksTable.status,
+          count: count(),
+          latestUpdatedAt: max(tasksTable.updatedAt),
+        })
+        .from(tasksTable)
+        .where(inArray(tasksTable.projectId, projectIds))
+        .groupBy(tasksTable.status)
+    : ([] as TaskStatusAggregate[]);
+
+  // Only the newest two metrics per project can affect score/trend. Rank in
+  // SQL with an id tie-breaker so equal timestamps have a deterministic order.
+  const latestMetricsQuery = hasProjects
+    ? (() => {
+        const rankedMetrics = db
+          .select({
+            id: metricsTable.id,
+            projectId: metricsTable.projectId,
+            timestamp: metricsTable.timestamp,
+            overallScore: metricsTable.overallScore,
+            position: sql<number>`row_number() over (
+              partition by ${metricsTable.projectId}
+              order by ${metricsTable.timestamp} desc, ${metricsTable.id} desc
+            )`.as("position"),
+          })
+          .from(metricsTable)
+          .where(inArray(metricsTable.projectId, projectIds))
+          .as("ranked_metrics");
+
+        return db
+          .select({
+            id: rankedMetrics.id,
+            projectId: rankedMetrics.projectId,
+            timestamp: rankedMetrics.timestamp,
+            overallScore: rankedMetrics.overallScore,
+          })
+          .from(rankedMetrics)
+          .where(lte(rankedMetrics.position, 2))
+          .orderBy(rankedMetrics.projectId, rankedMetrics.position);
+      })()
+    : ([] as DashboardMetric[]);
+
+  const [taskStats, recentEvents, allRules, latestMetrics] = await Promise.all([
+    taskStatusCountsQuery,
 
     // Events are always project-scoped; capped at 20, newest first.
     hasProjects
@@ -88,38 +140,25 @@ router.get("/dashboard", requireAuth, async (req, res) => {
       .orderBy(desc(rulesTable.hitCount))
       .limit(5),
 
-    // Metrics are project-scoped; newest first for trend calculation.
-    hasProjects
-      ? db
-          .select()
-          .from(metricsTable)
-          .where(inArray(metricsTable.projectId, projectIds))
-          .orderBy(desc(metricsTable.timestamp))
-      : ([] as (typeof metricsTable.$inferSelect)[]),
+    latestMetricsQuery,
   ]);
 
   // ── Task counts ────────────────────────────────────────────────────────────
 
-  const activeTaskCount = tasks.filter(
-    (t) =>
-      t.status === "running" ||
-      t.status === "verifying" ||
-      t.status === "queued",
-  ).length;
-  const completedTaskCount = tasks.filter(
-    (t) => t.status === "completed",
-  ).length;
-  const failedTaskCount = tasks.filter((t) => t.status === "failed").length;
-
   const taskStatusBreakdown: Record<string, number> = {};
-  for (const task of tasks) {
-    taskStatusBreakdown[task.status] =
-      (taskStatusBreakdown[task.status] ?? 0) + 1;
+  for (const row of taskStats) {
+    taskStatusBreakdown[row.status] = row.count;
   }
 
+  const countFor = (status: string) => taskStatusBreakdown[status] ?? 0;
+  const activeTaskCount =
+    countFor("running") + countFor("verifying") + countFor("queued");
+  const completedTaskCount = countFor("completed");
+  const failedTaskCount = countFor("failed");
+
   // ── Per-project metric trends ──────────────────────────────────────────────
-  // latestMetrics is sorted newest-first; the first entry per projectId is the
-  // latest metric, the second is the previous one used for trend comparison.
+  // latestMetrics is grouped by projectId and ordered by row number (ascending),
+  // so each project's first entry is latest and second is its previous snapshot.
 
   const seenProjects = new Set<string>();
   const latestPerProject = new Map<string, (typeof latestMetrics)[0]>();
@@ -159,7 +198,7 @@ router.get("/dashboard", requireAuth, async (req, res) => {
   // request arrival times.
   const freshnessRevision = [
     ...projects.map((p) => p.updatedAt),
-    ...tasks.map((t) => t.updatedAt),
+    ...taskStats.flatMap((row) => (row.latestUpdatedAt ? [row.latestUpdatedAt] : [])),
     ...recentEvents.map((event) => event.timestamp),
     ...latestMetrics.map((metric) => metric.timestamp),
     ...allRules.map((rule) => rule.updatedAt),

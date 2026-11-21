@@ -265,6 +265,43 @@ describe("GET /dashboard", () => {
     expect(scoreEntry?.trend).toBe("declining");
   });
 
+  it("uses metric id as a deterministic tie-breaker when timestamps match", async () => {
+    const pid = await insertProject();
+    projectIds.push(pid);
+
+    const timestamp = new Date("2026-11-18T12:00:00.000Z");
+    const [oldestId, previousId, latestId] = [randomUUID(), randomUUID(), randomUUID()].sort();
+    const metric = (id: string, overallScore: number) => ({
+      id,
+      projectId: pid,
+      timestamp,
+      overallScore,
+      securityScore: overallScore,
+      maintainabilityScore: overallScore,
+      reliabilityScore: overallScore,
+      performanceScore: overallScore,
+      lintIssues: 0,
+      buildStatus: "unknown" as const,
+    });
+
+    await db.insert(metricsTable).values([
+      metric(oldestId, 95),
+      metric(previousId, 20),
+      metric(latestId, 80),
+    ]);
+
+    const res = await request(app).get("/api/dashboard");
+    const scoreEntry = (
+      res.body.projectScores as { projectId: string; score: number; trend: string }[]
+    ).find((entry) => entry.projectId === pid);
+
+    expect(scoreEntry).toEqual(expect.objectContaining({
+      projectId: pid,
+      score: 80,
+      trend: "improving",
+    }));
+  });
+
   it("projectScores trend is 'stable' when there is only one metric row", async () => {
     const pid = await insertProject();
     projectIds.push(pid);
