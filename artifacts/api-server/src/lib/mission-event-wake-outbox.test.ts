@@ -14,10 +14,19 @@ import {
   claimMissionEventWakeDispatchLease,
   dispatchMissionEventWakeIntent,
   dispatchPendingMissionEventWakes,
+  MISSION_EVENT_WAKE_DEFERRED,
   MISSION_EVENT_WAKE_DISPATCHED,
   MISSION_EVENT_WAKE_REQUESTED,
   MISSION_EXTERNAL_EVENT_TYPE,
 } from "./mission-event-wake-outbox.js";
+
+const { autoReplanMission } = vi.hoisted(() => ({
+  autoReplanMission: vi.fn(),
+}));
+
+vi.mock("./mission-auto-replan.js", () => ({
+  autoReplanMission,
+}));
 
 const projectIds: string[] = [];
 
@@ -123,6 +132,7 @@ async function createWakeFixture() {
 
 afterEach(async () => {
   vi.restoreAllMocks();
+  autoReplanMission.mockReset();
   for (const projectId of projectIds.splice(0, projectIds.length)) {
     await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
   }
@@ -254,6 +264,87 @@ describe("Mission event wake dispatch lease", () => {
       await firstDispatch;
     }
   }
+
+  it("retries replanning after the event inbox and Goal transition have already committed", async () => {
+    const fixture = await createWakeFixture();
+    const wakeSpy = vi.spyOn(missionRuntimeModule, "wakeMissionGoalsForEvent");
+    autoReplanMission.mockRejectedValueOnce(new Error("temporary_planner_failure"));
+
+    await expect(dispatchMissionEventWakeIntent(fixture.intentId)).resolves.toEqual({
+      dispatched: false,
+      woken: 0,
+    });
+
+    const [deferred] = await db.select({
+      type: eventsTable.type,
+      payload: eventsTable.payload,
+    }).from(eventsTable)
+      .where(eq(eventsTable.id, fixture.intentId))
+      .limit(1);
+    expect(deferred?.type).toBe(MISSION_EVENT_WAKE_DEFERRED);
+    expect(deferred?.payload).toMatchObject({
+      source: "event_received",
+      goalId: fixture.goalId,
+      replanPending: true,
+      replanMissionId: fixture.missionId,
+      replanGoalId: fixture.goalId,
+      replanEventId: fixture.eventId,
+      replanWakeCount: 1,
+      attemptCount: 1,
+      lastFailureCode: "MISSION_EVENT_WAKE_FAILED",
+    });
+
+    const [goalAfterWake] = await db.select({
+      status: aiGoalsTable.status,
+    }).from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, fixture.goalId))
+      .limit(1);
+    const [inboxAfterWake] = await db.select({
+      payload: eventsTable.payload,
+    }).from(eventsTable)
+      .where(eq(eventsTable.id, fixture.eventId))
+      .limit(1);
+    expect(goalAfterWake?.status).toBe("needs_replan");
+    expect(typeof inboxAfterWake?.payload?.processedAt).toBe("string");
+    expect(wakeSpy).toHaveBeenCalledOnce();
+
+    await db.update(eventsTable).set({
+      payload: {
+        ...(deferred?.payload ?? {}),
+        nextAttemptAt: new Date(Date.now() - 1_000).toISOString(),
+      },
+    }).where(eq(eventsTable.id, fixture.intentId));
+    autoReplanMission.mockResolvedValueOnce({
+      status: "replanned",
+      missionId: fixture.missionId,
+      revision: "event-replan-v1",
+      plan: {},
+      runs: [],
+    });
+
+    await expect(dispatchMissionEventWakeIntent(fixture.intentId)).resolves.toEqual({
+      dispatched: true,
+      woken: 1,
+    });
+
+    const [dispatched] = await db.select({
+      type: eventsTable.type,
+      payload: eventsTable.payload,
+    }).from(eventsTable)
+      .where(eq(eventsTable.id, fixture.intentId))
+      .limit(1);
+    expect(dispatched?.type).toBe(MISSION_EVENT_WAKE_DISPATCHED);
+    expect(dispatched?.payload).toMatchObject({
+      replanPending: false,
+      replanMissionId: fixture.missionId,
+      replanOutcome: "replanned",
+      replanRevision: "event-replan-v1",
+      wokenEvents: 1,
+    });
+    expect(autoReplanMission).toHaveBeenCalledTimes(2);
+    // Recovery resumes from the atomic marker; it does not consume the inbox twice.
+    expect(wakeSpy).toHaveBeenCalledOnce();
+  });
 
   it("fences a late successful worker from acknowledging the replacement owner's wake", async () => {
     await assertLateWorkerCannotOverwriteNewerOwner("success");

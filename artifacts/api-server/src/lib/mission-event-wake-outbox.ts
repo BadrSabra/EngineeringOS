@@ -29,6 +29,11 @@ type MissionEventWakePayload = {
   lastFailureCode?: string;
   dispatchedAt?: string;
   wokenEvents?: number;
+  replanPending?: boolean;
+  replanMissionId?: string;
+  replanGoalId?: string;
+  replanEventId?: string;
+  replanWakeCount?: number;
 };
 
 type WakeIntentRow = {
@@ -71,6 +76,15 @@ function parseWakePayload(value: unknown): MissionEventWakePayload | null {
   if (value.source === "event_received" && (
     typeof value.eventId !== "string" || value.eventId.length === 0
   )) return null;
+  const replanPending = value.replanPending === true;
+  const replanMissionId = typeof value.replanMissionId === "string"
+    && value.replanMissionId.length > 0
+    ? value.replanMissionId
+    : undefined;
+  if (replanPending && !replanMissionId) return null;
+  const replanWakeCount = value.replanWakeCount;
+  if (replanPending && replanWakeCount !== undefined
+    && (!Number.isSafeInteger(replanWakeCount) || Number(replanWakeCount) < 0)) return null;
   return {
     schemaVersion: 1,
     source: value.source,
@@ -80,6 +94,13 @@ function parseWakePayload(value: unknown): MissionEventWakePayload | null {
     nextAttemptAt,
     requestedAt,
     ...(typeof value.lastFailureCode === "string" ? { lastFailureCode: value.lastFailureCode } : {}),
+    ...(replanPending && replanMissionId ? {
+      replanPending: true,
+      replanMissionId,
+      ...(typeof value.replanGoalId === "string" ? { replanGoalId: value.replanGoalId } : {}),
+      ...(typeof value.replanEventId === "string" ? { replanEventId: value.replanEventId } : {}),
+      ...(typeof replanWakeCount === "number" ? { replanWakeCount } : {}),
+    } : {}),
   };
 }
 
@@ -417,20 +438,78 @@ async function loadInboxRows(intent: WakeIntentRow, payload: MissionEventWakePay
     .limit(INBOX_REPLAY_BATCH_SIZE);
 }
 
-async function processIntent(intent: WakeIntentRow, payload: MissionEventWakePayload): Promise<number> {
-  const rows = await loadInboxRows(intent, payload);
-  if (rows.length === 0) return 0;
-  const { wakeMissionGoalsForEvent } = await import("./mission-runtime.js");
-  let woken = 0;
-  for (const row of rows) {
-    const envelope = parseInboxEnvelope(row);
-    if (!envelope) continue;
-    // Goal, Mission, and inbox acknowledgement are committed together by the
-    // wake transaction. A process crash cannot advance the Goal but lose the
-    // event acknowledgement, or acknowledge an event before the Goal moves.
-    woken += await wakeMissionGoalsForEvent(envelope, row.id);
+type MissionEventWakeProcessResult = {
+  woken: number;
+  replan?: {
+    missionId: string;
+    status: "replanned" | "skipped";
+    revision?: string;
+    reason?: string;
+  };
+};
+
+async function processIntent(
+  intent: WakeIntentRow,
+  payload: MissionEventWakePayload,
+  dispatchLeaseToken: string,
+): Promise<MissionEventWakeProcessResult> {
+  // A previous worker may have committed the Goal/inbox transition and then
+  // died before planning. Resume that exact pending handoff without trying to
+  // consume the already-processed external event a second time.
+  let woken = payload.replanPending ? (payload.replanWakeCount ?? 1) : 0;
+  let replanMissionId = payload.replanPending ? payload.replanMissionId : undefined;
+
+  if (!payload.replanPending) {
+    const rows = await loadInboxRows(intent, payload);
+    if (rows.length === 0) return { woken: 0 };
+    const { wakeMissionGoalsForEvent } = await import("./mission-runtime.js");
+    for (const row of rows) {
+      const envelope = parseInboxEnvelope(row);
+      if (!envelope) continue;
+      // The transition, inbox acknowledgement, and replan marker commit
+      // together under this exact Outbox lease. Stop after the first wait
+      // generation advances; a later wait receives its own wake request.
+      woken += await wakeMissionGoalsForEvent(envelope, row.id, {
+        intentId: intent.id,
+        dispatchLeaseToken,
+      });
+      if (woken > 0) break;
+    }
+
+    if (woken > 0) {
+      const [currentIntent] = await db.select({
+        payload: eventsTable.payload,
+      }).from(eventsTable)
+        .where(eq(eventsTable.id, intent.id))
+        .limit(1);
+      const currentPayload: Record<string, unknown> = isRecord(currentIntent?.payload) ? currentIntent.payload : {};
+      if (
+        currentPayload.replanPending === true
+        && typeof currentPayload.replanMissionId === "string"
+        && currentPayload.replanMissionId.length > 0
+      ) {
+        replanMissionId = currentPayload.replanMissionId;
+        const committedWakeCount = currentPayload.replanWakeCount;
+        if (Number.isSafeInteger(committedWakeCount) && Number(committedWakeCount) >= 0) {
+          woken = Number(committedWakeCount);
+        }
+      }
+    }
   }
-  return woken;
+
+  if (!replanMissionId) return { woken };
+  const { autoReplanMission } = await import("./mission-auto-replan.js");
+  const result = await autoReplanMission(replanMissionId);
+  return {
+    woken,
+    replan: {
+      missionId: replanMissionId,
+      status: result.status,
+      ...(result.status === "replanned"
+        ? { revision: result.revision }
+        : { reason: result.reason }),
+    },
+  };
 }
 
 /**
@@ -477,21 +556,29 @@ export async function dispatchMissionEventWakeIntent(id: string): Promise<{
       await deadLetterIntent(id, "INVALID_MISSION_EVENT_WAKE_IDENTITY", lease.token);
       return { dispatched: false, woken: 0 };
     }
-    const woken = await processIntent(intent, payload);
+    const outcome = await processIntent(intent, payload, lease.token);
     const dispatched = await markIntent(
       id,
       [MISSION_EVENT_WAKE_REQUESTED, MISSION_EVENT_WAKE_DEFERRED],
       MISSION_EVENT_WAKE_DISPATCHED,
       {
         ...payload,
+        ...(outcome.replan ? {
+          replanPending: false,
+          replanMissionId: outcome.replan.missionId,
+          replanOutcome: outcome.replan.status,
+          ...(outcome.replan.revision ? { replanRevision: outcome.replan.revision } : {}),
+          ...(outcome.replan.reason ? { replanReason: outcome.replan.reason } : {}),
+          replanCompletedAt: new Date().toISOString(),
+        } : {}),
         dispatchedAt: new Date().toISOString(),
-        wokenEvents: woken,
+        wokenEvents: outcome.woken,
       },
       "info",
-      "Mission event wake request was dispatched.",
+      "Mission event wake request and its replanning handoff were dispatched.",
       lease.token,
     );
-    return { dispatched, woken: dispatched ? woken : 0 };
+    return { dispatched, woken: dispatched ? outcome.woken : 0 };
   } catch (error) {
     try {
       await deferIntent(id, error, lease.token);
