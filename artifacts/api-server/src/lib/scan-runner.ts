@@ -29,6 +29,7 @@ import {
 import { logger } from "./logger.js";
 import { establishProjectRoot, type EstablishRootFailureReason } from "./project-root.js";
 import { tryAdvisoryLock, LockNamespace } from "./advisory-lock.js";
+import { deleteStaticGraphRelationships } from "./scan-graph-persistence.js";
 import { acquireGlobalScanSlot } from "./scan-capacity.js";
 import { heavyJobQueue } from "./job-queue.js";
 import { provenanceFromEntity, provenanceFromRelationship, manualProvenance } from "./graph-provenance.js";
@@ -687,12 +688,11 @@ async function performScanCore(
     }
   }
 
-  // Delete ALL existing relationships for this project before re-inserting.
-  // Relationships are fully recomputed each scan; clearing them prevents
-  // both duplicates on re-scan and stale edges from renamed/deleted nodes.
-  await tx.delete(graphRelationshipsTable).where(
-    eq(graphRelationshipsTable.projectId, projectId),
-  );
+  // Static relationships are recomputed from the current source snapshot.
+  // Runtime-observed edges have independent evidence and survive refresh while
+  // both endpoints remain present. Deleting a stale endpoint below still removes
+  // its observations through the graph entity foreign-key cascade.
+  await deleteStaticGraphRelationships(tx, projectId);
 
   // Delete stale entities (those no longer present in source code).
   if (staleEntityIds.length > 0) {
