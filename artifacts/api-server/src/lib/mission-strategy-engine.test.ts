@@ -76,6 +76,30 @@ function runtimePreview(): MissionPlanPreview {
   }]);
 }
 
+function runtimePreviewWithExistingInspection(
+  overrides: Partial<GeneralTaskPlanStep> = {},
+): MissionPlanPreview {
+  const preview = runtimePreview();
+  const inspection: GeneralTaskPlanStep = {
+    id: "existing-inspect",
+    title: "Inspect the existing workspace",
+    objective: "Inspect the workspace state before retrying runtime startup.",
+    kind: "inspect",
+    dependencies: [],
+    files: ["runtime.config"],
+    readOnly: true,
+    approvalRequired: false,
+    ...overrides,
+  };
+  return {
+    ...preview,
+    plan: {
+      ...preview.plan,
+      steps: [inspection, ...preview.plan.steps],
+    },
+  };
+}
+
 function validatorPreview(): MissionPlanPreview {
   return planPreview([
     {
@@ -191,6 +215,89 @@ describe("Mission recovery strategy engine", () => {
       failedGoalId: "goal-1",
       priorPlanRevision: "prior-revision-1",
     });
+  });
+
+  it("reuses the last safe inspection before runtime.start instead of adding another Goal", () => {
+    const result = selectAndApplyMissionStrategy({
+      preview: runtimePreviewWithExistingInspection(),
+      ...sourceIdentity,
+      worldStateFailureDiagnosis: diagnoseRuntimeStartWorldStateFailure({
+        reasonCode: "runtime_status_missing",
+        transition: runtimeTransition,
+        supportingObservationIds: ["observation-1"],
+      }),
+      runtimeStartTargetStepId: "deliver",
+      runtimeSourceBinding: {
+        acceptanceId: "acceptance-1",
+        executionId: runtimeTransition.executionId,
+        episodeId: runtimeTransition.episodeId,
+        attempt: runtimeTransition.attempt,
+        transitionId: runtimeTransition.id,
+      },
+      evidenceRefs: ["world-transition:transition-1", "observation:status-1"],
+      affectedPaths: [],
+      affectedClaims: [],
+    });
+
+    expect(result.status).toBe("selected");
+    if (result.status !== "selected") return;
+    expect(result.preview.plan.steps.map((step) => step.id)).toEqual([
+      "existing-inspect",
+      "runtime-start",
+      "deliver",
+    ]);
+    expect(result.preview.plan.steps[0]).toMatchObject({
+      id: "existing-inspect",
+      kind: "inspect",
+      readOnly: true,
+      approvalRequired: false,
+      files: ["runtime.config"],
+    });
+    expect(result.preview.plan.steps[0]?.objective).toContain(
+      "Inspect the workspace state before retrying runtime startup.",
+    );
+    for (const code of result.decision.candidatePlanProjections[0]?.expectedObservationCodes ?? []) {
+      expect(result.preview.plan.steps[0]?.objective).toContain(code);
+    }
+    expect(result.preview.plan.steps[1]?.dependencies).toContain("existing-inspect");
+    expect(result.decision.planDelta.addedStepIds).toEqual([]);
+    expect(result.decision.planDelta.changedStepIds).toEqual(["existing-inspect", "runtime-start"]);
+    expect(result.decision.candidatePlanProjections[0]?.addedStepIds).toEqual([]);
+  });
+
+  it("keeps a dedicated runtime preflight when the existing inspection is not read-only", () => {
+    const result = selectAndApplyMissionStrategy({
+      preview: runtimePreviewWithExistingInspection({ readOnly: false }),
+      ...sourceIdentity,
+      worldStateFailureDiagnosis: diagnoseRuntimeStartWorldStateFailure({
+        reasonCode: "runtime_status_missing",
+        transition: runtimeTransition,
+        supportingObservationIds: ["observation-1"],
+      }),
+      runtimeStartTargetStepId: "deliver",
+      runtimeSourceBinding: {
+        acceptanceId: "acceptance-1",
+        executionId: runtimeTransition.executionId,
+        episodeId: runtimeTransition.episodeId,
+        attempt: runtimeTransition.attempt,
+        transitionId: runtimeTransition.id,
+      },
+      evidenceRefs: ["world-transition:transition-1", "observation:status-1"],
+      affectedPaths: [],
+      affectedClaims: [],
+    });
+
+    expect(result.status).toBe("selected");
+    if (result.status !== "selected") return;
+    expect(result.preview.plan.steps.map((step) => step.id)).toEqual([
+      "existing-inspect",
+      "strategy-runtime-preflight",
+      "runtime-start",
+      "deliver",
+    ]);
+    expect(result.preview.plan.steps[0]?.readOnly).toBe(false);
+    expect(result.preview.plan.steps[2]?.dependencies).toContain("strategy-runtime-preflight");
+    expect(result.decision.planDelta.addedStepIds).toEqual(["strategy-runtime-preflight"]);
   });
 
   it("selects transition-provenance-first when the bound failure is a missing transition", () => {
