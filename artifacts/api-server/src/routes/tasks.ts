@@ -1514,8 +1514,15 @@ router.get("/tasks/:taskId/logs/stream", async (req, res) => {
     .where(eq(taskLogsTable.taskId, taskId))
     .orderBy(asc(taskLogsTable.sequence), asc(taskLogsTable.timestamp), asc(taskLogsTable.id));
   const structured = existing.filter((log) => log.executionId && log.sequence !== null);
+  // A previous attempt's terminal row must not close the current attempt's
+  // stream. Task.correlationId is the server-owned pointer to the active
+  // execution generation and changes atomically when a retry is claimed.
+  let activeCorrelationId = task.correlationId;
   const terminalAlreadyKnown = existing.some((log) =>
-    log.eventType === "terminal" && (cursor === 0 || (log.sequence ?? 0) <= cursor),
+    log.eventType === "terminal"
+    && activeCorrelationId !== null
+    && log.correlationId === activeCorrelationId
+    && (cursor === 0 || (log.sequence ?? 0) <= cursor),
   );
   const hasStructuredExecution = structured.length > 0;
   let terminalSeen = terminalAlreadyKnown;
@@ -1523,7 +1530,13 @@ router.get("/tasks/:taskId/logs/stream", async (req, res) => {
     if (cursor === 0 || (log.sequence !== null && log.sequence > cursor)) {
       if (log.sequence !== null) cursor = Math.max(cursor, log.sequence);
       send("log", publicTaskLog(log));
-      if (log.eventType === "terminal") terminalSeen = true;
+      if (
+        log.eventType === "terminal"
+        && activeCorrelationId !== null
+        && log.correlationId === activeCorrelationId
+      ) {
+        terminalSeen = true;
+      }
     }
   }
 
@@ -1576,22 +1589,41 @@ router.get("/tasks/:taskId/logs/stream", async (req, res) => {
         // The Task-wide sequence is the replay cursor; worker timestamps may move backwards.
         .orderBy(asc(taskLogsTable.sequence), asc(taskLogsTable.timestamp), asc(taskLogsTable.id));
 
-      for (const log of newLogs) {
-        send("log", publicTaskLog(log));
-        if (log.sequence !== null) cursor = Math.max(cursor, log.sequence);
-        if (log.eventType === "terminal") terminalSeen = true;
-      }
-
-      // A terminal task is not enough to close a structured stream: the
-      // terminal progress row must have been persisted and delivered first.
+      // Read the current generation before interpreting terminal rows. A
+      // retry may rotate the Task pointer while this stream is connected.
       const [current] = await db
-        .select({ status: tasksTable.status })
+        .select({
+          status: tasksTable.status,
+          correlationId: tasksTable.correlationId,
+        })
         .from(tasksTable)
         .where(eq(tasksTable.id, taskId))
         .limit(1);
+      if (current && current.correlationId !== activeCorrelationId) {
+        activeCorrelationId = current.correlationId;
+        terminalSeen = false;
+        terminalDeadline = null;
+      }
 
+      for (const log of newLogs) {
+        send("log", publicTaskLog(log));
+        if (log.sequence !== null) cursor = Math.max(cursor, log.sequence);
+        if (
+          log.eventType === "terminal"
+          && activeCorrelationId !== null
+          && log.correlationId === activeCorrelationId
+        ) {
+          terminalSeen = true;
+        }
+      }
+
+      // A terminal task is not enough to close a structured stream: the
+      // terminal progress row for the current execution generation must have
+      // been persisted and delivered first.
       if (current?.status && terminalTaskStatuses.includes(current.status)) {
         terminalDeadline ??= Date.now() + 15_000;
+      } else {
+        terminalDeadline = null;
       }
       const canClose = !current
         || terminalSeen
