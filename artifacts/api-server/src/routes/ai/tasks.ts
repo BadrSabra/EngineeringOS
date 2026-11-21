@@ -15,6 +15,7 @@ import {
 } from "@workspace/db";
 import { eq, and, inArray, or, asc, sql, isNull, ne } from "drizzle-orm";
 import { logger } from "../../lib/logger.js";
+import { getTaskDependencyBlockers } from "../../lib/task-dependencies.js";
 import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
 import { checkProjectRateLimitDb, LLM_RATE_LIMIT } from "../../lib/db-rate-limiter.js";
 import { heavyJobQueue } from "../../lib/job-queue.js";
@@ -598,6 +599,68 @@ async function runAiTaskExecution(
         "AI auto-trigger: task no longer eligible — skipping",
       );
       return;
+    }
+
+    // Dependency admission is cheap compared with provider discovery and rate-limit
+    // work. Use the same bounded graph check early, but keep the locked check in
+    // executeTaskLifecycle as the only authority to create an Execution.
+    if ((task.dependsOn?.length ?? 0) > 0) {
+      const dependencyPreflight = await db.transaction(async (tx) => {
+        const [currentTask] = await tx
+          .select({
+            id: tasksTable.id,
+            projectId: tasksTable.projectId,
+            status: tasksTable.status,
+            prompt: tasksTable.prompt,
+            retryCount: tasksTable.retryCount,
+            correlationId: tasksTable.correlationId,
+            dependsOn: tasksTable.dependsOn,
+          })
+          .from(tasksTable)
+          .where(eq(tasksTable.id, taskId))
+          .for("update")
+          .limit(1);
+
+        if (
+          !currentTask
+          || currentTask.status !== "verifying"
+          || !currentTask.prompt
+          || currentTask.retryCount !== retryCount
+          || currentTask.correlationId !== correlationId
+        ) {
+          return { kind: "stale" as const };
+        }
+
+        const blockers = await getTaskDependencyBlockers(tx, currentTask);
+        return blockers.length > 0
+          ? { kind: "blocked" as const, blockerCount: blockers.length }
+          : { kind: "ready" as const };
+      });
+
+      if (dependencyPreflight.kind === "stale") {
+        await clearDeferredAiTaskExecution(taskId, retryCount, correlationId);
+        logger.info({ taskId }, "AI auto-trigger: Task generation changed before dependency preflight");
+        return;
+      }
+
+      if (dependencyPreflight.kind === "blocked") {
+        await markDeferredAiTaskExecution(
+          taskId,
+          retryCount,
+          correlationId,
+          "task_dependencies_not_completed",
+          TASK_DEPENDENCY_RECHECK_MS,
+        );
+        logger.info(
+          {
+            taskId,
+            blockedDependencyCount: dependencyPreflight.blockerCount,
+            retryAfterMs: TASK_DEPENDENCY_RECHECK_MS,
+          },
+          "AI auto-trigger: dependency preflight deferred provider admission",
+        );
+        return;
+      }
     }
 
     const resolved = await resolveProvider(userId, {
