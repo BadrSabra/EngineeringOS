@@ -744,8 +744,8 @@ async function backfillPendingMissionScheduledWaits(
       eq(aiGoalsTable.status, "waiting_for_event"),
       isNotNull(aiGoalsTable.nextWakeAt),
       lte(aiGoalsTable.nextWakeAt, now),
-      sql.raw("\\"ai_goals\\".\\"next_action\\"->>'kind' = 'wait'"),
-      sql.raw("\\"ai_goals\\".\\"next_action\\"->>'reason' = 'event'"),
+      sql.raw("\"ai_goals\".\"next_action\"->>'kind' = 'wait'"),
+      sql.raw("\"ai_goals\".\"next_action\"->>'reason' = 'event'"),
       // A terminal, deferred, or already-dispatched marker all prove that this
       // timer generation has entered the durable Outbox contract.
       sql.raw(`NOT EXISTS (
