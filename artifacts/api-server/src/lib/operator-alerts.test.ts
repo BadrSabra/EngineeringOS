@@ -1,10 +1,11 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { createHash } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { createHash, randomUUID } from "node:crypto";
+import { eq, inArray } from "drizzle-orm";
 import { db, operatorAlertsTable } from "@workspace/db";
 import {
   recordGroqModelCatalogDrift,
   recordGroqModelCatalogUnavailable,
+  recordRuntimeStartUnresolvedAlert,
   resolveGroqModelCatalogAlerts,
   syncRuntimeStartUnresolvedAlerts,
 } from "./operator-alerts.js";
@@ -18,6 +19,15 @@ const runtimeFingerprint = `runtime_start_unresolved:${createHash("sha256")
   .update(JSON.stringify([runtimeProjectId, runtimeSessionId]))
   .digest("hex")}`;
 
+const extraRuntimeFingerprints: string[] = [];
+
+function fingerprintForRuntimeSession(projectId: string, sessionId: string): string {
+  const identity = createHash("sha256")
+    .update(JSON.stringify([projectId, sessionId]))
+    .digest("hex");
+  return `runtime_start_unresolved:${identity}`;
+}
+
 afterEach(async () => {
   await db.delete(operatorAlertsTable).where(
     eq(operatorAlertsTable.fingerprint, fingerprint),
@@ -28,6 +38,9 @@ afterEach(async () => {
   await db.delete(operatorAlertsTable).where(
     eq(operatorAlertsTable.fingerprint, runtimeFingerprint),
   );
+  for (const extraFingerprint of extraRuntimeFingerprints.splice(0)) {
+    await db.delete(operatorAlertsTable).where(eq(operatorAlertsTable.fingerprint, extraFingerprint));
+  }
 });
 
 describe("Groq operator alert persistence", () => {
@@ -94,6 +107,78 @@ describe("Groq operator alert persistence", () => {
       .where(eq(operatorAlertsTable.fingerprint, unavailableFingerprint));
     expect(rows[0]).toMatchObject({ status: "resolved" });
     expect(rows[0]?.resolvedAt).toBeInstanceOf(Date);
+  });
+
+  it("batches Runtime alert upserts and stale-alert resolution across sessions", async () => {
+    const now = new Date();
+    const startedAt = new Date(now.getTime() - 60_000);
+    const pendingSessions = Array.from({ length: 3 }, () => ({
+      projectId: `runtime-alert-project-${randomUUID()}`,
+      sessionId: `runtime-alert-session-${randomUUID()}`,
+      startedAt,
+    }));
+    const staleSession = {
+      projectId: `runtime-alert-project-${randomUUID()}`,
+      sessionId: `runtime-alert-session-${randomUUID()}`,
+    };
+    const pendingFingerprints = pendingSessions.map((session) => {
+      const value = fingerprintForRuntimeSession(session.projectId, session.sessionId);
+      extraRuntimeFingerprints.push(value);
+      return value;
+    });
+    const staleFingerprint = fingerprintForRuntimeSession(
+      staleSession.projectId,
+      staleSession.sessionId,
+    );
+    extraRuntimeFingerprints.push(staleFingerprint);
+
+    await recordRuntimeStartUnresolvedAlert({
+      projectId: staleSession.projectId,
+      sessionId: staleSession.sessionId,
+      now,
+    });
+
+    const insertSpy = vi.spyOn(db, "insert");
+    const updateSpy = vi.spyOn(db, "update");
+    try {
+      // Duplicate input models overlapping session snapshots. It must not make
+      // PostgreSQL upsert the same unique fingerprint twice in one statement.
+      await syncRuntimeStartUnresolvedAlerts(
+        [...pendingSessions, pendingSessions[0]!],
+        1_000,
+        now,
+      );
+
+      expect(insertSpy).toHaveBeenCalledTimes(1);
+      expect(updateSpy).toHaveBeenCalledTimes(1);
+
+      const rows = await db.select({
+        fingerprint: operatorAlertsTable.fingerprint,
+        status: operatorAlertsTable.status,
+        lastSeenAt: operatorAlertsTable.lastSeenAt,
+        resolvedAt: operatorAlertsTable.resolvedAt,
+      }).from(operatorAlertsTable)
+        .where(inArray(operatorAlertsTable.fingerprint, [
+          ...pendingFingerprints,
+          staleFingerprint,
+        ]));
+
+      expect(rows).toHaveLength(4);
+      for (const fingerprint of pendingFingerprints) {
+        expect(rows.find((row) => row.fingerprint === fingerprint)).toMatchObject({
+          status: "open",
+          lastSeenAt: now,
+          resolvedAt: null,
+        });
+      }
+      expect(rows.find((row) => row.fingerprint === staleFingerprint)).toMatchObject({
+        status: "resolved",
+        resolvedAt: now,
+      });
+    } finally {
+      insertSpy.mockRestore();
+      updateSpy.mockRestore();
+    }
   });
 
   it("records one alert per Runtime session and closes that session's alert on resolution", async () => {

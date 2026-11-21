@@ -80,15 +80,46 @@ export async function syncRuntimeStartUnresolvedAlerts(
   thresholdMs: number,
   now = new Date(),
 ): Promise<void> {
-  const pending = sessions.filter((session) =>
-    session.startedAt !== null
-    && now.getTime() - session.startedAt.getTime() >= thresholdMs);
-  for (const session of pending) {
-    await recordRuntimeStartUnresolvedAlert({
-      projectId: session.projectId,
-      sessionId: session.sessionId,
-      now,
-    });
+  const pendingByFingerprint = new Map(
+    sessions
+      .filter((session) => session.startedAt !== null
+        && now.getTime() - session.startedAt.getTime() >= thresholdMs)
+      .map((session) => {
+        const fingerprint = runtimeStartFingerprint(session.projectId, session.sessionId);
+        return [fingerprint, {
+          id: randomUUID(),
+          fingerprint,
+          kind: RUNTIME_START_UNRESOLVED_KIND as typeof operatorAlertsTable.$inferInsert.kind,
+          status: "open" as const,
+          provider: "runtime",
+          modelRole: "startup",
+          modelId: session.sessionId,
+          title: "Runtime startup is unresolved",
+          message: "Runtime startup has remained unresolved beyond the expected start window.",
+          remediation: "Review the runtime session and retry startup only after its state has been reconciled.",
+          occurrenceCount: 1,
+          firstSeenAt: now,
+          lastSeenAt: now,
+          resolvedAt: null,
+          projectId: session.projectId,
+          severity: "warning",
+        }] as const;
+      }),
+  );
+
+  // One multi-row upsert preserves the per-session fingerprint contract and
+  // avoids a sequential database round trip for every unresolved session.
+  if (pendingByFingerprint.size > 0) {
+    await db.insert(operatorAlertsTable)
+      .values([...pendingByFingerprint.values()])
+      .onConflictDoUpdate({
+        target: operatorAlertsTable.fingerprint,
+        set: {
+          status: "open",
+          lastSeenAt: now,
+          resolvedAt: null,
+        },
+      });
   }
 
   const activeAlerts = await db.select()
@@ -97,13 +128,21 @@ export async function syncRuntimeStartUnresolvedAlerts(
       eq(operatorAlertsTable.kind, RUNTIME_START_UNRESOLVED_KIND),
       inArray(operatorAlertsTable.status, ["open", "acknowledged"]),
     ));
-  const stillStarting = new Set(sessions.map((session) => `${session.projectId}\u0000${session.sessionId}`));
-  for (const alert of activeAlerts) {
-    if (alert.projectId && stillStarting.has(`${alert.projectId}\u0000${alert.modelId}`)) continue;
+  const stillStarting = new Set(sessions.map((session) =>
+    `${session.projectId}\u0000${session.sessionId}`,
+  ));
+  const staleAlertIds = activeAlerts
+    .filter((alert) => !alert.projectId
+      || !stillStarting.has(`${alert.projectId}\u0000${alert.modelId}`))
+    .map((alert) => alert.id);
+
+  // Resolve all stale alerts in one guarded update. Concurrent state changes
+  // remain protected because only still-active rows are affected.
+  if (staleAlertIds.length > 0) {
     await db.update(operatorAlertsTable)
       .set({ status: "resolved", resolvedAt: now })
       .where(and(
-        eq(operatorAlertsTable.id, alert.id),
+        inArray(operatorAlertsTable.id, staleAlertIds),
         inArray(operatorAlertsTable.status, ["open", "acknowledged"]),
       ));
   }
