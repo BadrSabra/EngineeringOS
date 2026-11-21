@@ -432,6 +432,46 @@ function TaskDependencyItem({
   );
 }
 
+function TaskPrerequisiteSummary({
+  task,
+  tasks,
+}: {
+  task: TaskView;
+  tasks: TaskView[];
+}) {
+  const dependencyIds = Array.isArray(task.dependsOn)
+    ? [...new Set(task.dependsOn.filter((id) => typeof id === 'string' && id.trim()))]
+    : [];
+  if (dependencyIds.length === 0) return null;
+
+  const dependencyLabels = dependencyIds.slice(0, 2).map((dependencyId, index) => {
+    const dependencyTask = tasks.find((candidate) =>
+      candidate.id === dependencyId && candidate.projectId === task.projectId);
+    return {
+      id: dependencyId,
+      title: dependencyTask?.title.trim() ? dependencyTask.title : `متطلب ${index + 1}`,
+    };
+  });
+
+  return (
+    <span
+      id={`task-dependency-summary-${task.id}`}
+      data-testid={`summary-task-dependencies-${task.id}`}
+      className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground"
+    >
+      <span className="font-medium">المتطلبات:</span>
+      {dependencyLabels.map((dependency) => (
+        <bdi key={dependency.id} dir="auto" className="max-w-48 truncate">
+          {dependency.title}
+        </bdi>
+      ))}
+      {dependencyIds.length > dependencyLabels.length && (
+        <span>و{dependencyIds.length - dependencyLabels.length} أخرى</span>
+      )}
+    </span>
+  );
+}
+
 function timelineStatusLabel(status: TimelineStep['status']): string {
   const labels: Record<TimelineStep['status'], string> = {
     done: 'اكتملت',
@@ -2424,6 +2464,9 @@ function TasksSession({
                   aria-expanded={expandedTask === task.id}
                   aria-controls={`task-details-${task.id}`}
                   aria-label={`${expandedTask === task.id ? 'طي تفاصيل المهمة' : 'عرض تفاصيل المهمة'}: ${task.title}`}
+                  aria-describedby={task.dependsOn?.some((id) => typeof id === 'string' && id.trim())
+                    ? `task-dependency-summary-${task.id}`
+                    : undefined}
                 >
                   <StatusIcon status={task.status} />
                   <div className="flex-1 min-w-0">
@@ -2462,6 +2505,7 @@ function TasksSession({
                         </>
                       )}
                     </div>
+                    <TaskPrerequisiteSummary task={task} tasks={tasks} />
                   </div>
                 </button>
 
