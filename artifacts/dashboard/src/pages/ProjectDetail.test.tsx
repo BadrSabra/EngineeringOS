@@ -497,4 +497,15 @@ describe('ProjectDetail Arabic presentation', () => {
       'أضف مهمة إلى مشروع مشروع تجريبي',
     );
   });
+  it('opens workflow creation already scoped to this project', () => {
+    render(<ProjectDetail />);
+
+    expect(screen.getByTestId('link-create-project-workflow')).toHaveAttribute(
+      'href',
+      '/workflows?projectId=project-1&create=1',
+    );
+    expect(screen.getByTestId('link-create-project-workflow')).toHaveAccessibleName(
+      'إنشاء مسار عمل للمشروع مشروع تجريبي',
+    );
+  });
 });

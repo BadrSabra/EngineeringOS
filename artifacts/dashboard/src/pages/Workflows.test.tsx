@@ -216,10 +216,33 @@ describe('project-scoped Workflows view', () => {
     expect(screen.getByRole('link', { name: 'ابدأ بوصف هدفك في مساحة العمل' }))
       .toBeInTheDocument();
     expect(screen.queryByText('Release pipeline')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'إنشاء مسار عمل' })).not.toBeInTheDocument();
+    expect(createWorkflowMutation.mutate).not.toHaveBeenCalled();
+  });
+
+  it('offers the project assistant as the simple path while retaining manual workflow setup', () => {
+    vi.mocked(useListWorkflows).mockReturnValue({
+      data: [],
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+      isRefetching: false,
+      dataUpdatedAt: 0,
+    } as ReturnType<typeof useListWorkflows>);
+
+    renderPage();
+
+    expect(screen.getByText('لا توجد مسارات عمل بعد')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'صف هدفك للمساعد في مشروع Test Project' }))
+      .toHaveAttribute('href', '/projects/project-1/workspace#workspace-panel-agent');
+
+    fireEvent.click(screen.getByTestId('button-create-workflow-empty'));
+    expect(screen.getByRole('dialog', { name: 'إنشاء مسار عمل' })).toBeInTheDocument();
   });
 
   it('fails closed when an explicit project target is not in the owned project list', () => {
-    window.history.replaceState({}, '', '/workflows?projectId=not-owned');
+    window.history.replaceState({}, '', '/workflows?projectId=not-owned&create=1');
     renderPage();
 
     expect(useListWorkflows).toHaveBeenCalledWith(
@@ -232,6 +255,45 @@ describe('project-scoped Workflows view', () => {
     expect(screen.queryByText('Release pipeline')).not.toBeInTheDocument();
   });
 
+  it('opens the project-scoped creation form from a deep link without creating or starting a workflow', async () => {
+    window.history.replaceState(
+      {},
+      '',
+      '/workflows?projectId=project-2&create=1&source=project-detail#new-workflow',
+    );
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [
+        { id: 'project-1', name: 'Test Project' },
+        { id: 'project-2', name: 'Second Project' },
+      ],
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    } as ReturnType<typeof useListProjects>);
+
+    renderPage();
+
+    const dialog = await screen.findByRole('dialog', { name: 'إنشاء مسار عمل' });
+    expect(within(dialog).getByLabelText('المشروع')).toHaveValue('project-2');
+    expect(window.location.search).toContain('projectId=project-2');
+    expect(window.location.search).toContain('source=project-detail');
+    expect(window.location.search).toContain('create=1');
+    expect(window.location.hash).toBe('#new-workflow');
+    expect(createWorkflowMutation.mutate).not.toHaveBeenCalled();
+
+    const startMutation = vi.mocked(useStartWorkflow).mock.results[0]?.value as {
+      mutate: ReturnType<typeof vi.fn>;
+    };
+    expect(startMutation.mutate).not.toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'إغلاق نافذة إنشاء مسار العمل' }));
+    expect(screen.queryByRole('dialog', { name: 'إنشاء مسار عمل' })).not.toBeInTheDocument();
+    expect(window.location.search).toContain('projectId=project-2');
+    expect(window.location.search).toContain('source=project-detail');
+    expect(window.location.search).not.toContain('create=1');
+    expect(window.location.hash).toBe('#new-workflow');
+  });
   it('filters any workflow rows that do not belong to the active project', () => {
     vi.mocked(useListWorkflows).mockReturnValue({
       data: [{
