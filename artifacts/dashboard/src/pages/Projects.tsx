@@ -25,11 +25,13 @@ import {
   CheckCircle2,
   AlertTriangle,
   ArrowRight,
+  ChevronDown,
 } from 'lucide-react';
 import { Link } from 'wouter';
 import { DiscoverProjectWizard } from './DiscoverProjectWizard';
 import { readGoalDrafts, storeGoalDraft, updateGoalDraft } from '@/lib/home-goal-handoff';
 import { matchesProjectSearch } from '@/lib/project-search';
+import { projectStatusLabel } from '@/lib/project-detail-copy';
 
 // Display-only labels; the server status values are never changed.
 const bootstrapStatusLabels: Record<string, string> = {
@@ -554,7 +556,7 @@ function ProjectsForAccountSession({
                         : 'bg-muted/50 text-muted-foreground border-border'
                     }`}
                   >
-                    {project.status}
+                    {projectStatusLabel(project.status)}
                   </div>
                 </div>
 
@@ -562,15 +564,44 @@ function ProjectsForAccountSession({
                   <p className="text-xs text-muted-foreground line-clamp-2">{project.description}</p>
                 )}
 
-                <div className="text-sm text-muted-foreground font-mono truncate bg-secondary/50 px-3 py-2 rounded-md border border-border/50">
-                  {project.rootPath}
-                </div>
+                <details
+                  data-testid={`details-project-technical-${project.id}`}
+                  className="group rounded-lg border border-border/50 bg-secondary/30 px-3 py-2"
+                >
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-medium text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+                    <span>تفاصيل تقنية</span>
+                    <ChevronDown
+                      className="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-180"
+                      aria-hidden="true"
+                    />
+                  </summary>
+                  <div className="mt-2 grid gap-2 border-t border-border/50 pt-2 text-xs sm:grid-cols-2">
+                    {project.language && (
+                      <p>
+                        <span className="text-muted-foreground">لغة المشروع: </span>
+                        <bdi dir="ltr" className="font-mono">{project.language}</bdi>
+                      </p>
+                    )}
+                    {project.framework && (
+                      <p>
+                        <span className="text-muted-foreground">إطار العمل: </span>
+                        <bdi dir="ltr" className="font-mono">{project.framework}</bdi>
+                      </p>
+                    )}
+                    <p className="min-w-0 sm:col-span-2">
+                      <span className="text-muted-foreground">مسار الملفات:</span>
+                      <code dir="ltr" className="mt-1 block break-all rounded bg-background/60 px-2 py-1 text-[11px]">
+                        {project.rootPath}
+                      </code>
+                    </p>
+                  </div>
+                </details>
 
                 <div className="mt-auto flex flex-wrap items-end justify-between gap-3 pt-3 border-t border-border/50">
                   <div className="grid min-w-0 flex-1 grid-cols-2 gap-3">
                     <div>
                       <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1 flex items-center gap-1">
-                        <ShieldCheck className="w-3 h-3" /> Quality
+                        <ShieldCheck className="w-3 h-3" /> الجودة
                       </div>
                       <div className="font-mono font-bold text-lg flex items-baseline gap-1">
                         <span
@@ -589,7 +620,7 @@ function ProjectsForAccountSession({
                     </div>
                     <div>
                       <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1">
-                        Last Scan
+                        آخر فحص
                       </div>
                       <div className="text-sm font-medium">
                         {project.lastScanAt

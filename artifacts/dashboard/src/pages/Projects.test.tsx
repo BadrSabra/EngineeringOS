@@ -1,4 +1,4 @@
-import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import axe from 'axe-core';
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import Projects from "./Projects";
@@ -63,9 +63,9 @@ vi.mock("./DiscoverProjectWizard", () => ({
 import { useListProjects, useGetProjectBootstrap } from "@workspace/api-client-react";
 
 const mockProjects = [
-  { id: "1", name: "alpha-service", description: "Customer support tools", status: "active", language: "TypeScript", framework: "React", qualityScore: 0.9, lastScanAt: null },
-  { id: "2", name: "beta-worker", description: "Background job runner", status: "scanning", language: "Python", framework: "FastAPI", qualityScore: null, lastScanAt: null },
-  { id: "3", name: "gamma-lib", description: "Reusable interface widgets", status: "archived", language: "TypeScript", framework: "Vue", qualityScore: 0.7, lastScanAt: null },
+  { id: "1", name: "alpha-service", description: "Customer support tools", status: "active", rootPath: "/workspace/alpha-service", language: "TypeScript", framework: "React", qualityScore: 0.9, lastScanAt: null },
+  { id: "2", name: "beta-worker", description: "Background job runner", status: "scanning", rootPath: "/workspace/beta-worker", language: "Python", framework: "FastAPI", qualityScore: null, lastScanAt: null },
+  { id: "3", name: "gamma-lib", description: "Reusable interface widgets", status: "archived", rootPath: "/workspace/gamma-lib", language: "TypeScript", framework: "Vue", qualityScore: 0.7, lastScanAt: null },
 ];
 
 beforeEach(() => {
@@ -206,6 +206,31 @@ describe("Projects", () => {
     expect(screen.getByText("alpha-service")).toBeInTheDocument();
     expect(screen.getByText("beta-worker")).toBeInTheDocument();
     expect(screen.getByText("gamma-lib")).toBeInTheDocument();
+  });
+
+  it('keeps project cards simple, translates status, and reveals technical details on request', () => {
+    render(<Projects />);
+
+    const activeCard = screen.getByTestId('card-project-1');
+    const scanningCard = screen.getByTestId('card-project-2');
+    const archivedCard = screen.getByTestId('card-project-3');
+    const technicalDetails = screen.getByTestId('details-project-technical-1');
+
+    expect(within(activeCard).getByText('نشط')).toBeInTheDocument();
+    expect(within(scanningCard).getByText('جارٍ الفحص')).toBeInTheDocument();
+    expect(within(archivedCard).getByText('مؤرشف')).toBeInTheDocument();
+    expect(within(activeCard).getByText('الجودة')).toBeInTheDocument();
+    expect(within(activeCard).getByText('آخر فحص')).toBeInTheDocument();
+    expect(technicalDetails).not.toHaveAttribute('open');
+    expect(within(technicalDetails).getByText('TypeScript')).not.toBeVisible();
+    expect(within(technicalDetails).getByText('/workspace/alpha-service')).not.toBeVisible();
+
+    fireEvent.click(within(technicalDetails).getByText('تفاصيل تقنية'));
+
+    expect(technicalDetails).toHaveAttribute('open');
+    expect(within(technicalDetails).getByText('TypeScript')).toBeVisible();
+    expect(within(technicalDetails).getByText('React')).toBeVisible();
+    expect(within(technicalDetails).getByText('/workspace/alpha-service')).toBeVisible();
   });
 
   it('opens the workspace directly from each project card and keeps project details available', () => {
