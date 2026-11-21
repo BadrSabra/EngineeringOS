@@ -42,6 +42,8 @@ function chatCandidate(overrides: Partial<ChatRecoveryCandidate> = {}): ChatReco
     executionProjectId: "project-1",
     executionStatus: "failed",
     executionAttempt: 0,
+    acceptanceId: "acceptance-chat-1",
+    acceptanceFinalizationKey: "finalization-chat-1",
     userId: "user-1",
     action: "RESUME_ALLOWED",
     reasonCode: "MODEL_OUTPUT_INVALID",

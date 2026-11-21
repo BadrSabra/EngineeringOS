@@ -1304,6 +1304,8 @@ describe("durable automatic conversational recovery", () => {
   afterEach(async () => {
     runChatExecutionRecovery.mockClear();
     runChatRecoveryExhaustionFinalization.mockClear();
+    vi.mocked(resolveProvider).mockClear();
+    vi.mocked(checkProjectRateLimitDb).mockClear();
     queuedJobs.length = 0;
     queuedIds.clear();
     await cleanupRecoveryFixtures();
@@ -1337,7 +1339,7 @@ describe("durable automatic conversational recovery", () => {
     }
   });
 
-  it("keeps queued Chat recovery bound to the attempt captured before the queue delay", async () => {
+  it("rejects a queued Chat recovery before provider admission when the execution advances", async () => {
     const fixture = await insertChatFixture();
     try {
       expect(await dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId })).toBe(1);
@@ -1350,18 +1352,61 @@ describe("durable automatic conversational recovery", () => {
         .where(eq(aiExecutionsTable.id, fixture.executionId));
       await queuedJobs[0]!.run();
 
-      expect(runChatExecutionRecovery).toHaveBeenCalledTimes(1);
-      expect(runChatExecutionRecovery).toHaveBeenCalledWith({
-        executionId: fixture.executionId,
-        userId: "recovery-chat-test-user",
-        mode: "resume",
-        expectedAttempt: 0,
-      });
+      expect(resolveProvider).not.toHaveBeenCalled();
+      expect(checkProjectRateLimitDb).not.toHaveBeenCalled();
+      expect(runChatExecutionRecovery).not.toHaveBeenCalled();
       const [execution] = await db.select({ attempt: aiExecutionsTable.attempt })
         .from(aiExecutionsTable)
         .where(eq(aiExecutionsTable.id, fixture.executionId));
       expect(execution?.attempt).toBe(1);
       expect(executeTaskLifecycle).not.toHaveBeenCalled();
+    } finally {
+      await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, fixture.sessionId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
+    }
+  });
+  it("does not resolve a provider before the PostgreSQL retry deadline", async () => {
+    const fixture = await insertProviderFailureChatFixture();
+    try {
+      expect(await dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId })).toBe(1);
+      expect(queuedJobs).toHaveLength(1);
+      await db.update(aiExecutionAcceptancesTable)
+        .set({
+          disposition: {
+            recoveryState: "REQUIRED",
+            nextActionCode: "RETRY_AFTER_TIMEOUT",
+            retryAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+          },
+        })
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      await queuedJobs[0]!.run();
+
+      expect(resolveProvider).not.toHaveBeenCalled();
+      expect(checkProjectRateLimitDb).not.toHaveBeenCalled();
+      expect(runChatExecutionRecovery).not.toHaveBeenCalled();
+    } finally {
+      await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, fixture.sessionId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
+    }
+  });
+
+  it("rejects a queued Chat recovery when its acceptance finalization identity changes", async () => {
+    const fixture = await insertChatFixture();
+    try {
+      expect(await dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId })).toBe(1);
+      expect(queuedJobs).toHaveLength(1);
+      await db.update(aiExecutionAcceptancesTable)
+        .set({ finalizationKey: `replacement:${randomUUID()}` })
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      await queuedJobs[0]!.run();
+
+      expect(resolveProvider).not.toHaveBeenCalled();
+      expect(checkProjectRateLimitDb).not.toHaveBeenCalled();
+      expect(runChatExecutionRecovery).not.toHaveBeenCalled();
     } finally {
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
