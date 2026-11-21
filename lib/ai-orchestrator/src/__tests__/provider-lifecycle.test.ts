@@ -416,6 +416,39 @@ describe("provider lifecycle", () => {
     expect(rejected.reasonCodes).toContain("runtime_request_rejected");
     expect(rejected.reasonCodes).not.toContain("runtime_transient_failure");
     expect(capabilityMismatch.reasonCodes).toContain("runtime_capability_mismatch");
+    expect(capabilityMismatch.selectable).toBe(true);
+    expect(capabilityMismatch.overallStatus).toBe("degraded");
+  });
+
+  it("keeps a runtime authentication failure credential-scoped and non-selectable", async () => {
+    const apiKey = "groq-runtime-auth-failure-key";
+    const healthy = await getProviderLifecycleSnapshot({
+      provider: "groq",
+      apiKey,
+      source: "user",
+      check: true,
+    });
+
+    recordProviderLifecycleOutcome({
+      provider: "groq",
+      apiKey,
+      source: "user",
+      model: healthy.roles[0]!.modelId,
+      code: "AUTH_ERROR",
+    });
+
+    const rejected = await getProviderLifecycleSnapshot({
+      provider: "groq",
+      apiKey,
+      source: "user",
+      check: false,
+    });
+
+    expect(rejected.selectable).toBe(false);
+    expect(rejected.overallStatus).toBe("unavailable");
+    expect(rejected.credentialStatus).toBe("credentials_invalid");
+    expect(rejected.modelStatus).toBe("model_healthy");
+    expect(rejected.reasonCodes).toContain("runtime_auth_failed");
   });
 
   it("keeps transient request failures selectable and degraded", async () => {
