@@ -10,7 +10,7 @@ import {
   type WorldStateFailureDiagnosis,
 } from "./world-state-failure-diagnosis.js";
 
-const POLICY_VERSION = "mission-recovery-strategy-v1";
+const POLICY_VERSION = "mission-recovery-strategy-v2";
 const MAX_STRATEGY_PATHS = 24;
 
 type FailureSummary = {
@@ -320,6 +320,16 @@ function runtimeStrategy(input: StrategyInput): MissionStrategySelection {
   if (input.preview.plan.steps.some((step) => step.id === preflightStepId)) {
     return { status: "blocked", reason: "strategy_step_id_conflict" };
   }
+  const startStepIndex = input.preview.plan.steps.findIndex((step) => step.id === startStep.id);
+  const reusableInspection = input.preview.plan.steps
+    .slice(0, startStepIndex)
+    .reverse()
+    .find((step) =>
+      step.kind === "inspect"
+      && step.readOnly
+      && !step.approvalRequired
+      && !step.dependencies.includes(startStep.id),
+    );
 
   const directStatusReasons = new Set([
     "accepted_execution_missing",
@@ -351,11 +361,11 @@ function runtimeStrategy(input: StrategyInput): MissionStrategySelection {
     {
       strategyId: "runtime.direct-status-first",
       eligible: true,
-      utilityScore: 100 + statusFit * 25 - 5,
+      utilityScore: 100 + statusFit * 25 - (reusableInspection ? 0 : 5),
       criteria: {
         evidenceCoverage: 1,
         diagnosisFit: statusFit,
-        extraReadOnlyGoals: 1,
+        extraReadOnlyGoals: reusableInspection ? 0 : 1,
         mutationRequired: false,
       },
       reasonCode: "read_all_required_observations_status_first",
@@ -363,11 +373,11 @@ function runtimeStrategy(input: StrategyInput): MissionStrategySelection {
     {
       strategyId: "runtime.transition-provenance-first",
       eligible: true,
-      utilityScore: 100 + transitionFit * 25 - 5,
+      utilityScore: 100 + transitionFit * 25 - (reusableInspection ? 0 : 5),
       criteria: {
         evidenceCoverage: 1,
         diagnosisFit: transitionFit,
-        extraReadOnlyGoals: 1,
+        extraReadOnlyGoals: reusableInspection ? 0 : 1,
         mutationRequired: false,
       },
       reasonCode: "read_all_required_observations_provenance_first",
@@ -397,30 +407,57 @@ function runtimeStrategy(input: StrategyInput): MissionStrategySelection {
     const selectedTitle = isDirectStatusFirst
       ? "Refresh direct runtime status before retry"
       : "Reconcile runtime transition identity before retry";
-    const preflightStep: GeneralTaskPlanStep = {
-      id: preflightStepId,
-      title: selectedTitle,
-      objective: `Read only the server-required runtime evidence in this order: ${observationOrder.join(", ")}. Do not start, stop, or otherwise mutate the runtime during this step.`,
-      kind: "inspect",
-      dependencies: [],
-      files: [],
-      readOnly: true,
-      approvalRequired: false,
+    const runtimeEvidenceObjective = `Read only the server-required runtime evidence in this order: ${observationOrder.join(", ")}. Do not start, stop, or otherwise mutate the runtime during this step.`;
+    const preflightStep: GeneralTaskPlanStep = reusableInspection
+      ? {
+          ...reusableInspection,
+          title: selectedTitle,
+          objective: [reusableInspection.objective.trim(), runtimeEvidenceObjective]
+            .filter(Boolean)
+            .join("\n\n"),
+        }
+      : {
+          id: preflightStepId,
+          title: selectedTitle,
+          objective: runtimeEvidenceObjective,
+          kind: "inspect",
+          dependencies: [],
+          files: [],
+          readOnly: true,
+          approvalRequired: false,
+        };
+    const runtimeInspectionStepId = reusableInspection?.id ?? preflightStepId;
+    const steps = input.preview.plan.steps.map((step) => {
+      if (reusableInspection && step.id === reusableInspection.id) return preflightStep;
+      if (step.id === startStep.id) {
+        return {
+          ...step,
+          dependencies: [...new Set([...step.dependencies, runtimeInspectionStepId])],
+        };
+      }
+      return step;
+    });
+    if (!reusableInspection) {
+      const startIndex = steps.findIndex((step) => step.id === startStep.id);
+      steps.splice(startIndex, 0, preflightStep);
+    }
+    return {
+      steps,
+      observationOrder,
+      addedStepIds: reusableInspection ? [] : [preflightStepId],
+      changedStepIds: reusableInspection
+        ? [
+            reusableInspection.id,
+            ...(startStep.dependencies.includes(runtimeInspectionStepId) ? [] : [startStep.id]),
+          ]
+        : [startStep.id],
     };
-    const steps = input.preview.plan.steps.map((step) =>
-      step.id === startStep.id
-        ? { ...step, dependencies: [...new Set([...step.dependencies, preflightStepId])] }
-        : step,
-    );
-    const startIndex = steps.findIndex((step) => step.id === startStep.id);
-    steps.splice(startIndex, 0, preflightStep);
-    return { steps, observationOrder };
   };
   const candidatePlanProjections = candidates.map((candidate) => {
     const candidatePlan = buildRuntimePlan(candidate.strategyId);
     return projectCandidatePlan(candidate, candidatePlan.steps, {
-      addedStepIds: [preflightStepId],
-      changedStepIds: [startStep.id],
+      addedStepIds: candidatePlan.addedStepIds,
+      changedStepIds: candidatePlan.changedStepIds,
       expectedObservationCodes: candidatePlan.observationOrder,
     });
   });
@@ -447,8 +484,8 @@ function runtimeStrategy(input: StrategyInput): MissionStrategySelection {
     selectedStrategyId: selected.strategyId,
     candidates,
     candidatePlanProjections,
-    addedStepIds: [preflightStepId],
-    changedStepIds: [startStep.id],
+    addedStepIds: selectedPlan.addedStepIds,
+    changedStepIds: selectedPlan.changedStepIds,
     reasonCode,
     steps: selectedPlan.steps,
   });
