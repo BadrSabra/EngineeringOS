@@ -1060,14 +1060,26 @@ router.post("/workflows/:workflowId/executions/:executionId/rollback-phase", asy
         throw new WorkflowStateConflictError("Execution state changed before it could be rolled back");
       }
 
-      await tx
+      const [claimedWorkflow] = await tx
         .update(workflowsTable)
         .set({
           status: "running",
           currentPhase: targetPhase,
           updatedAt: now,
         })
-        .where(and(eq(workflowsTable.id, workflowId), workflowCurrentPhasePredicate));
+        .where(
+          and(
+            eq(workflowsTable.id, workflowId),
+            eq(workflowsTable.status, workflow[0].status),
+            workflowCurrentPhasePredicate,
+          ),
+        )
+        .returning({ id: workflowsTable.id });
+      if (!claimedWorkflow) {
+        throw new WorkflowStateConflictError(
+          "Workflow state changed before the execution could be rolled back",
+        );
+      }
 
       await tx.insert(eventsTable).values({
         id: randomUUID(),
