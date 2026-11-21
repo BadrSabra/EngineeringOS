@@ -88,7 +88,7 @@ function nextMissionReplanBackoff(
 }
 
 async function readDatabaseNow(tx: MissionReplanBackoffTransaction): Promise<Date> {
-  const result = await tx.execute(sql\`SELECT clock_timestamp() AS now\`);
+  const result = await tx.execute(sql`SELECT clock_timestamp() AS now`);
   const raw = (result.rows as Array<{ now: Date | string }>)[0]?.now;
   const now = raw instanceof Date ? raw : new Date(String(raw ?? ""));
   if (!raw || !Number.isFinite(now.getTime())) {
@@ -191,7 +191,7 @@ export async function hasNewMissionReplanProgressEvidence(
         ),
         and(
           eq(eventsTable.type, "MissionGoalWakeDispatched"),
-          sql\`\${eventsTable.payload}->>'missionId' = \${input.missionId}\`,
+          sql`${eventsTable.payload}->>'missionId' = ${input.missionId}`,
         ),
       ),
     ))
@@ -204,27 +204,27 @@ export async function hasNewMissionReplanProgressEvidence(
  */
 export function missionReplanBackoffCandidateCondition() {
   const policy = aiMissionsTable.autonomyPolicy;
-  const backoff = sql\`\${policy}->'automaticReplanBackoff'\`;
-  const nextAttemptAt = sql\`\${policy}->'automaticReplanBackoff'->>'nextAttemptAt'\`;
-  const lastAttemptAt = sql\`
+  const backoff = sql`${policy}->'automaticReplanBackoff'`;
+  const nextAttemptAt = sql`${policy}->'automaticReplanBackoff'->>'nextAttemptAt'`;
+  const lastAttemptAt = sql`
     CASE
-      WHEN (\${policy}->'automaticReplanBackoff'->>'lastAttemptAt') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T'
-      THEN (\${policy}->'automaticReplanBackoff'->>'lastAttemptAt')::timestamptz
+      WHEN (${policy}->'automaticReplanBackoff'->>'lastAttemptAt') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T'
+      THEN (${policy}->'automaticReplanBackoff'->>'lastAttemptAt')::timestamptz
       ELSE '-infinity'::timestamptz
     END
-  \`;
+  `;
 
-  return sql\`(
-    \${backoff} IS NULL
-    OR \${backoff}->>'schemaVersion' IS DISTINCT FROM '1'
-    OR \${backoff}->>'attemptCount' !~ '^[1-9][0-9]*$'
-    OR \${policy}->'automaticReplanBackoff'->>'lastAttemptAt' IS NULL
-    OR (\${policy}->'automaticReplanBackoff'->>'lastAttemptAt') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T'
-    OR \${nextAttemptAt} IS NULL
-    OR \${nextAttemptAt} !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T'
+  return sql`(
+    ${backoff} IS NULL
+    OR ${backoff}->>'schemaVersion' IS DISTINCT FROM '1'
+    OR ${backoff}->>'attemptCount' !~ '^[1-9][0-9]*$'
+    OR ${policy}->'automaticReplanBackoff'->>'lastAttemptAt' IS NULL
+    OR (${policy}->'automaticReplanBackoff'->>'lastAttemptAt') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T'
+    OR ${nextAttemptAt} IS NULL
+    OR ${nextAttemptAt} !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T'
     OR (CASE
-      WHEN \${nextAttemptAt} ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T'
-      THEN \${nextAttemptAt}::timestamptz
+      WHEN ${nextAttemptAt} ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T'
+      THEN ${nextAttemptAt}::timestamptz
       ELSE '-infinity'::timestamptz
     END) <= clock_timestamp()
     OR (
@@ -244,7 +244,7 @@ export function missionReplanBackoffCandidateCondition() {
                 AND replan_episode.project_id = ai_missions.project_id
                 AND replan_episode.goal_id = failed_goal.id
                 AND replan_observation.project_id = ai_missions.project_id
-                AND replan_observation.created_at > \${lastAttemptAt}
+                AND replan_observation.created_at > ${lastAttemptAt}
                 AND replan_observation.kind = 'direct_observation'
                 AND replan_observation.provenance = 'DIRECT_OBSERVATION'
                 AND replan_observation.completeness = 'complete'
@@ -254,7 +254,7 @@ export function missionReplanBackoffCandidateCondition() {
               SELECT 1
               FROM events AS replan_signal
               WHERE replan_signal.project_id = ai_missions.project_id
-                AND replan_signal.timestamp > \${lastAttemptAt}
+                AND replan_signal.timestamp > ${lastAttemptAt}
                 AND (
                   (
                     replan_signal.goal_id = failed_goal.id
@@ -272,5 +272,5 @@ export function missionReplanBackoffCandidateCondition() {
           )
       )
     )
-  )\`;
+  )`;
 }
