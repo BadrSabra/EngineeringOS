@@ -763,6 +763,7 @@ async function syncLinkedObjectiveState(
             outcome: acceptance.outcome,
             recoveryState: recordValue(acceptance.disposition).recoveryState,
             nextActionCode: acceptance.nextActionCode,
+            resumable: acceptance.resumable,
             taskStatus: params.taskStatus,
             prompt: params.task.prompt,
             retryCount: params.task.retryCount,
