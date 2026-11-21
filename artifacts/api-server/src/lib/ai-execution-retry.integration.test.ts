@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import {
