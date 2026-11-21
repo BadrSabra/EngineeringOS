@@ -4596,6 +4596,9 @@ export async function wakeScheduledMissionGoal(input: {
       && Boolean(action.data.wakeAt)
       && new Date(action.data.wakeAt!).getTime() === wakeAt.getTime();
     if (!currentWait) return undefined;
+    // Terminal/operator-owned Mission states must not be revived by an old timer.
+    const missionCanReplan = !["blocked", "cancelled", "completed", "failed"].includes(mission.status);
+    if (!missionCanReplan) return undefined;
 
     const clockResult = await tx.execute(
       sql`SELECT clock_timestamp() AT TIME ZONE 'UTC' AS now`,
@@ -4619,15 +4622,12 @@ export async function wakeScheduledMissionGoal(input: {
       })
       .where(eq(aiGoalsTable.id, goal.id));
 
-    const missionCanReplan = !["blocked", "cancelled", "completed", "failed"].includes(mission.status);
-    if (missionCanReplan) {
-      await tx.update(aiMissionsTable)
-        .set({ status: "needs_replan", updatedAt: now })
-        .where(and(
-          eq(aiMissionsTable.id, mission.id),
-          eq(aiMissionsTable.status, mission.status),
-        ));
-    }
+    await tx.update(aiMissionsTable)
+      .set({ status: "needs_replan", updatedAt: now })
+      .where(and(
+        eq(aiMissionsTable.id, mission.id),
+        eq(aiMissionsTable.status, mission.status),
+      ));
 
     const wakeEventId = "mission-goal-wake-due:" +
       createHash("sha256").update(input.intentId).digest("hex");
@@ -4648,7 +4648,7 @@ export async function wakeScheduledMissionGoal(input: {
       },
     }).onConflictDoNothing();
 
-    return missionCanReplan ? mission.id : undefined;
+    return mission.id;
   });
 }
 
