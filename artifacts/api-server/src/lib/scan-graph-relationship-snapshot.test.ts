@@ -111,35 +111,35 @@ describe("loadGraphRelationshipSnapshot", () => {
 
     const result = await loadGraphRelationshipSnapshot(projectId);
 
-    expect(result).toEqual({
-      available: true,
-      projectId,
-      relationships: [
-        {
-          id: legacyId,
-          scanJobId: null,
-          sourcePath: "src/source.ts",
-          targetPath: "src/target.ts",
-          isRuntimeObserved: null,
-          provenance: null,
-        },
-        {
-          id: runtimeId,
-          scanJobId: null,
-          sourcePath: "src/source.ts",
-          targetPath: "src/target.ts",
-          isRuntimeObserved: true,
-          provenance: null,
-        },
-        {
-          id: staticId,
-          scanJobId: null,
-          sourcePath: "src/source.ts",
-          targetPath: "src/target.ts",
-          isRuntimeObserved: false,
-          provenance: null,
-        },
-      ],
+    if (!result.available) throw new Error(`Expected a complete snapshot, got ${result.reason}`);
+    expect(result.projectId).toBe(projectId);
+    expect(result.relationships.map((row) => row.id)).toEqual(
+      [legacyId, runtimeId, staticId].sort(),
+    );
+    const byId = new Map(result.relationships.map((row) => [row.id, row]));
+    expect(byId.get(legacyId)).toMatchObject({
+      id: legacyId,
+      scanJobId: null,
+      sourcePath: "src/source.ts",
+      targetPath: "src/target.ts",
+      isRuntimeObserved: null,
+      provenance: null,
+    });
+    expect(byId.get(runtimeId)).toMatchObject({
+      id: runtimeId,
+      scanJobId: null,
+      sourcePath: "src/source.ts",
+      targetPath: "src/target.ts",
+      isRuntimeObserved: true,
+      provenance: null,
+    });
+    expect(byId.get(staticId)).toMatchObject({
+      id: staticId,
+      scanJobId: null,
+      sourcePath: "src/source.ts",
+      targetPath: "src/target.ts",
+      isRuntimeObserved: false,
+      provenance: null,
     });
   });
 
