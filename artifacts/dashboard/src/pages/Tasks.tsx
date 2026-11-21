@@ -49,6 +49,7 @@ import {
   MessageCircle,
   Pencil,
   Trash2,
+  Copy,
   Plus,
   Sparkles,
 } from 'lucide-react';
@@ -1927,6 +1928,29 @@ function TasksSession({
     navigate(`/tasks?${params.toString()}${window.location.hash}`);
   };
 
+  const copyTaskLink = async (task: TaskView) => {
+    const url = new URL(window.location.href);
+    url.search = '';
+    url.hash = '';
+    url.searchParams.set('projectId', task.projectId);
+    url.searchParams.set('taskId', task.id);
+
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
+      await navigator.clipboard.writeText(url.toString());
+      toast({
+        title: 'نُسخ رابط المهمة',
+        description: 'يفتح الرابط تفاصيل المهمة ضمن مشروعها.',
+      });
+    } catch {
+      toast({
+        title: 'تعذر نسخ رابط المهمة',
+        description: 'تحقق من إذن الحافظة وحاول مرة أخرى.',
+        variant: 'destructive',
+      });
+    }
+  };
+
   const handleCreateTask = (data: CreateTaskInput, source: 'dialog' | 'quick' = 'dialog') => {
     createTask.mutate(
       { data },
@@ -2420,6 +2444,19 @@ function TasksSession({
                       <Activity className="w-4 h-4" aria-hidden="true" />
                     </Link>
                   )}
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void copyTaskLink(task);
+                    }}
+                    aria-label={`نسخ رابط المهمة: ${task.title}`}
+                    title="نسخ رابط المهمة"
+                    data-testid={`button-copy-task-link-${task.id}`}
+                    className="p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  >
+                    <Copy className="w-4 h-4" aria-hidden="true" />
+                  </button>
                   {(task.status === 'pending' || task.status === 'queued') && (
                     <button
                       onClick={(e) => { e.stopPropagation(); handleAction('execute', task.id); }}

@@ -1,7 +1,7 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import axe from 'axe-core';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useLocation } from 'wouter';
 import type { AiExecutionProjection } from '@workspace/api-client-react';
 import { readGoalDrafts, storeHomeGoalDraft } from '@/lib/home-goal-handoff';
@@ -10,6 +10,7 @@ import Tasks from './Tasks';
 const createTaskMutate = vi.hoisted(() => vi.fn());
 const updateTaskMutate = vi.hoisted(() => vi.fn());
 const deleteTaskMutate = vi.hoisted(() => vi.fn());
+const toastMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@clerk/react', () => ({
   useUser: () => ({ isLoaded: true, user: { id: 'owner-a' } }),
@@ -36,7 +37,7 @@ vi.mock('@workspace/api-client-react', () => ({
 }));
 
 vi.mock('@/hooks/use-toast', () => ({
-  useToast: () => ({ toast: vi.fn() }),
+  useToast: () => ({ toast: toastMock }),
 }));
 
 import {
@@ -56,6 +57,7 @@ import {
 } from '@workspace/api-client-react';
 
 const mutation = () => ({ mutate: vi.fn(), isPending: false });
+let originalClipboardDescriptor: PropertyDescriptor | undefined;
 
 const recoveryCases = [
   {
@@ -168,6 +170,7 @@ function taskListFixture(dependencies: Record<string, string[]> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  originalClipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
   window.sessionStorage.clear();
   window.history.replaceState({}, '', '/tasks');
   vi.mocked(useListProjects).mockReturnValue({
@@ -216,6 +219,14 @@ beforeEach(() => {
     isPending: false,
     error: null,
   } as ReturnType<typeof useDeleteTask>);
+});
+
+afterEach(() => {
+  if (originalClipboardDescriptor) {
+    Object.defineProperty(navigator, 'clipboard', originalClipboardDescriptor);
+  } else {
+    Reflect.deleteProperty(navigator, 'clipboard');
+  }
 });
 
 function renderTaskAcceptanceWithRetryAt(retryAt: string) {
@@ -446,6 +457,50 @@ describe('project-scoped task list contracts', () => {
     expect(screen.getByRole('button', {
       name: 'طي تفاصيل المهمة: Repair provider authentication',
     })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('copies a direct task link with project context and without temporary list filters', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    window.history.replaceState(
+      {},
+      '',
+      '/dashboard/tasks?status=failed&priority=p1&search=Repair#task-results',
+    );
+    renderPage();
+
+    fireEvent.click(screen.getByTestId('button-copy-task-link-task-auth'));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    const copiedUrl = new URL(writeText.mock.calls[0]![0] as string);
+    expect(copiedUrl.pathname).toBe('/dashboard/tasks');
+    expect([...copiedUrl.searchParams.entries()]).toEqual([
+      ['projectId', 'project-1'],
+      ['taskId', 'task-auth'],
+    ]);
+    expect(copiedUrl.hash).toBe('');
+    expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'نُسخ رابط المهمة',
+    }));
+  });
+
+  it('shows an error when the browser rejects copying a task link', async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error('Clipboard denied'));
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    renderPage();
+
+    fireEvent.click(screen.getByTestId('button-copy-task-link-task-auth'));
+
+    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'تعذر نسخ رابط المهمة',
+      variant: 'destructive',
+    })));
   });
 
   it('does not guess which task to open when exact task titles are duplicated', () => {
