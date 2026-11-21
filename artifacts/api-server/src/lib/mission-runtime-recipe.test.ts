@@ -1539,6 +1539,118 @@ describe("Mission recipe dispatch", () => {
     expect(recipeRunner).not.toHaveBeenCalled();
   });
 
+  it("filters stale Mission recipe requests before applying the bounded page", async () => {
+    const rootPath = await createTestRoot("recipe-outbox-prefilter");
+    const projectId = randomUUID();
+    const missionId = randomUUID();
+    const staleGoalId = randomUUID();
+    const currentGoalId = randomUUID();
+    const now = new Date();
+    projectIds.push(projectId);
+    const action = {
+      kind: "recipe" as const,
+      recipeId: "candidate.verify",
+      recipeVersion: 1,
+      approvedPaths: ["lib/ai-orchestrator/src/index.ts"],
+      candidateIdentity: null,
+    };
+
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "test-user",
+      name: "mission-recipe-outbox-prefilter",
+      rootPath,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId,
+      userId: "test-user",
+      title: "Recover current Recipe dispatch",
+      intent: "A stale request must not consume the bounded dispatch page.",
+      status: "active",
+      scope: { kind: "project", projectId },
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiGoalsTable).values([
+      {
+        id: staleGoalId,
+        missionId,
+        projectId,
+        title: "Goal with stale Recipe dispatch",
+        status: "running",
+        outcomeContract: { deliveryRequired: true },
+        nextAction: action,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: currentGoalId,
+        missionId,
+        projectId,
+        title: "Current Recipe dispatch",
+        status: "queued",
+        outcomeContract: { deliveryRequired: true },
+        nextAction: action,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await db.insert(eventsTable).values({
+      id: "stale-mission-recipe-request:" + staleGoalId,
+      type: "AiGoalRecipeDispatchRequested",
+      projectId,
+      goalId: staleGoalId,
+      severity: "info",
+      message: "An obsolete Recipe request must not block current work.",
+      timestamp: new Date(now.getTime() - 60_000),
+      payload: {
+        missionId,
+        operationId: "obsolete-recipe-operation",
+        recipeId: "obsolete.recipe",
+        recipeVersion: 1,
+        candidateIdentity: null,
+        trigger: "resume",
+        delegation: {
+          contractVersion: 1,
+          missionId,
+          goalId: staleGoalId,
+          taskId: null,
+          parentExecutionId: null,
+          planRevision: null,
+          userId: "test-user",
+          trigger: "resume",
+        },
+      },
+    });
+
+    const enqueue = vi.spyOn(heavyJobQueue, "enqueueWithIdDetailed")
+      .mockReturnValueOnce("full")
+      .mockReturnValue("enqueued");
+    const result = await runMissionGoal({
+      goalId: currentGoalId,
+      userId: "test-user",
+      trigger: "resume",
+    });
+    expect(result).toMatchObject({
+      status: "scheduled",
+      goalId: currentGoalId,
+      reason: "recipe_dispatch_queued",
+    });
+    expect(enqueue).toHaveBeenCalledOnce();
+    expect(recipeRunner).not.toHaveBeenCalled();
+
+    expect(await dispatchPendingMissionRecipes(1, projectId)).toBe(1);
+    expect(enqueue).toHaveBeenCalledTimes(2);
+    expect(enqueue.mock.calls[1]?.[0]).toMatch(
+      new RegExp("^mission-goal-" + currentGoalId + "-[0-9a-f]{16}$"),
+    );
+  });
+
   it.each([
     { scenario: "queue capacity refusal", enqueueResult: "full" as const },
     { scenario: "process stop before callback", enqueueResult: "enqueued" as const },
