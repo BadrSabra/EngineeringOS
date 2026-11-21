@@ -912,6 +912,7 @@ export {
   resolveOperationalCommand,
   isWriteCapableTurn,
   resolveTurnIntent,
+  toContextIntent,
 } from "./turn-intent.js";
 export type {
   OperationalCommand,
