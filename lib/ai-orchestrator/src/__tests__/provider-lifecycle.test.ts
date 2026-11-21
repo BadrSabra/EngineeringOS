@@ -146,9 +146,10 @@ describe("provider lifecycle", () => {
 
     expect(degraded.selectable).toBe(true);
     expect(degraded.overallStatus).toBe("degraded");
-    expect(degraded.modelStatus).toBe("model_partial");
-    expect(degraded.roles.find((role) => role.modelId === failedModel)?.status).toBe("missing");
-    expect(degraded.roles.some((role) => role.status === "healthy")).toBe(true);
+    // Fast/powerful are representative candidates, not the full free catalog.
+    // A rejected runtime candidate must not rewrite catalog-derived role health.
+    expect(degraded.modelStatus).toBe("model_healthy");
+    expect(degraded.roles.every((role) => role.status === "healthy")).toBe(true);
     expect(degraded.reasonCodes).toContain("runtime_model_not_found");
   });
 
@@ -189,8 +190,8 @@ describe("provider lifecycle", () => {
     expect(degraded.reasonCodes).toContain("runtime_capability_mismatch");
   });
 
-  it("fails closed only after every known OpenRouter role is marked missing", async () => {
-    const apiKey = "openrouter-all-models-missing-key";
+  it("does not infer catalog exhaustion from failures of representative roles", async () => {
+    const apiKey = "openrouter-representative-model-failures-key";
     setDynamicCatalogSnapshotForTest([
       "nvidia/nemotron-3.5-lightning:free",
       "cohere/north-mini-code:free",
@@ -214,7 +215,7 @@ describe("provider lifecycle", () => {
       });
     }
 
-    const unavailable = await getProviderLifecycleSnapshot({
+    const stillEligible = await getProviderLifecycleSnapshot({
       provider: "openrouter",
       apiKey,
       source: "user",
@@ -222,12 +223,11 @@ describe("provider lifecycle", () => {
       requirements: { requireTools: true },
     });
 
-    expect(unavailable.selectable).toBe(false);
-    expect(unavailable.overallStatus).toBe("unavailable");
-    expect(unavailable.modelStatus).toBe("model_missing");
-    expect(unavailable.roles.every((role) => role.status === "missing")).toBe(true);
+    expect(stillEligible.selectable).toBe(true);
+    expect(stillEligible.overallStatus).toBe("degraded");
+    expect(stillEligible.modelStatus).toBe("model_healthy");
+    expect(stillEligible.roles.every((role) => role.status === "healthy")).toBe(true);
   });
-
   it("deduplicates checks and refreshes after the TTL", async () => {
     const first = await getProviderLifecycleSnapshot({
       provider: "groq",
