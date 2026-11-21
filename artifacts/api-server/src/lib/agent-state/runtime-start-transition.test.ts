@@ -45,6 +45,7 @@ import {
   finalizeApplyChangesTransition,
   finalizeRuntimeStartTransition,
   dispatchPendingMaterializedMissionTransitionWakes,
+  dispatchMissionWorldTransitionWakeIntent,
   retryPendingRuntimeStartTransitions,
 } from "./runtime-start-transition.js";
 import { wakeApplyChangesMissionGoals, wakeRuntimeTransitionMissionGoals } from "../mission-runtime.js";
