@@ -2479,13 +2479,41 @@ describe('Task creation', () => {
     const dialog = screen.getByRole('dialog', { name: 'إضافة مهمة' });
     expect(dialog).toHaveAttribute('dir', 'rtl');
     expect(screen.getByTestId('input-create-task-title')).toHaveAttribute('dir', 'auto');
+    expect(screen.getByTestId('button-toggle-create-task-advanced')).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByTestId('section-create-task-advanced-options')).not.toBeInTheDocument();
     fireEvent.change(screen.getByTestId('input-create-task-title'), { target: { value: 'مسودة لا تُرسل' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'إلغاء' }));
     expect(createTaskMutate).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'مهمة جديدة' }));
     expect(screen.getByTestId('input-create-task-title')).toHaveValue('');
+    expect(screen.getByTestId('button-toggle-create-task-advanced')).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(screen.getByTestId('button-toggle-create-task-advanced'));
     expect(screen.getByTestId('select-create-task-priority')).toHaveValue('p2');
     expect(createTaskMutate).not.toHaveBeenCalled();
+  });
+
+  it('creates a basic task with the existing default priority while keeping advanced options collapsed', () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'مهمة جديدة' }));
+
+    expect(screen.queryByTestId('section-create-task-advanced-options')).not.toBeInTheDocument();
+    expect(screen.getByTestId('checkbox-create-task-execute-immediately')).not.toBeChecked();
+    fireEvent.change(screen.getByTestId('input-create-task-title'), {
+      target: { value: 'رتّب صفحة البداية' },
+    });
+    fireEvent.click(screen.getByTestId('button-submit-create-task'));
+
+    expect(createTaskMutate).toHaveBeenCalledWith(
+      {
+        data: {
+          projectId: 'project-1',
+          title: 'رتّب صفحة البداية',
+          description: undefined,
+          priority: 'p2',
+        },
+      },
+      expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
+    );
   });
 
   it('defaults new task creation to the currently active project', () => {
@@ -2550,6 +2578,7 @@ describe('Task creation', () => {
     fireEvent.change(screen.getByTestId('input-create-task-description'), {
       target: { value: 'Expose the endpoint in the dashboard.' },
     });
+    fireEvent.click(screen.getByTestId('button-toggle-create-task-advanced'));
     fireEvent.change(screen.getByTestId('select-create-task-priority'), {
       target: { value: 'p1' },
     });
@@ -2574,6 +2603,7 @@ describe('Task creation', () => {
   it('sends selected same-project prerequisites with the new task', () => {
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: 'مهمة جديدة' }));
+    fireEvent.click(screen.getByTestId('button-toggle-create-task-advanced'));
     fireEvent.click(screen.getByTestId('checkbox-task-dependency-task-auth'));
     fireEvent.change(screen.getByTestId('input-create-task-title'), {
       target: { value: 'Publish the verified release' },
@@ -2680,6 +2710,7 @@ describe('Task creation', () => {
     } as ReturnType<typeof useListTasks>);
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: 'مهمة جديدة' }));
+    fireEvent.click(screen.getByTestId('button-toggle-create-task-advanced'));
     fireEvent.click(screen.getByTestId('checkbox-task-dependency-task-auth'));
 
     fireEvent.change(screen.getByTestId('select-create-task-project'), {
