@@ -14,7 +14,11 @@ import {
   projectsTable,
 } from "@workspace/db";
 import { heavyJobQueue } from "./job-queue.js";
-import { autoReplanMission, buildReplanContext } from "./mission-auto-replan.js";
+import {
+  autoReplanMission,
+  buildReplanContext,
+  reconcileAutomaticMissionReplans,
+} from "./mission-auto-replan.js";
 import {
   receiveMissionEvent,
   runMissionGoal,
@@ -92,6 +96,64 @@ async function createEventDrivenReplanFixture(waiting: boolean) {
 }
 
 describe("automatic Mission replanning", () => {
+  it("continues the bounded batch after one Mission replan throws", async () => {
+    const projectId = randomUUID();
+    const missionIds = [randomUUID(), randomUUID(), randomUUID()];
+    const now = new Date();
+    projectIds.push(projectId);
+
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "test-user",
+      name: `mission-replan-batch-${projectId.slice(0, 8)}`,
+      rootPath: process.cwd(),
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiMissionsTable).values(missionIds.map((id, index) => ({
+      id,
+      projectId,
+      userId: "test-user",
+      title: `Mission ${index + 1}`,
+      intent: "Continue the project from its current evidence.",
+      status: "needs_replan" as const,
+      scope: { kind: "project" as const, projectId },
+      autonomyPolicy: { mode: "autonomous" as const, maxAutoReplans: 3 },
+      createdAt: now,
+      updatedAt: new Date(now.getTime() + index),
+    })));
+
+    const attempted: string[] = [];
+    const replanMission: typeof autoReplanMission = async (missionId) => {
+      attempted.push(missionId);
+      if (missionId === missionIds[0]) {
+        throw new Error("simulated transient planner failure");
+      }
+      if (missionId === missionIds[1]) {
+        return {
+          status: "replanned",
+          missionId,
+          revision: "test-replan-revision",
+          plan: {} as never,
+          runs: [],
+        };
+      }
+      return { status: "skipped", missionId, reason: "already_handled" };
+    };
+
+    const replanned = await reconcileAutomaticMissionReplans(
+      missionIds.length,
+      projectId,
+      replanMission,
+    );
+
+    expect(attempted).toEqual(missionIds);
+    expect(replanned).toBe(1);
+  });
+
+
   it("runs new plan roots through the production Goal gate and keeps old revisions stale", async () => {
     const projectId = crypto.randomUUID();
     const missionId = crypto.randomUUID();
