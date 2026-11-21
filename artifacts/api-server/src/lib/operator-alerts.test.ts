@@ -5,6 +5,7 @@ import { db, operatorAlertsTable } from "@workspace/db";
 import {
   recordGroqModelCatalogDrift,
   recordGroqModelCatalogUnavailable,
+  recordRuntimeStartUnresolvedAlert,
   resolveGroqModelCatalogAlerts,
   syncRuntimeStartUnresolvedAlerts,
 } from "./operator-alerts.js";
