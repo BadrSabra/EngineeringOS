@@ -37,6 +37,24 @@ describe("operational readiness gate", () => {
     expect(campaign.blockers).toContain("campaign:scope-escape");
   });
 
+  it("does not prove readiness when any required node lacks its own evidence reference", () => {
+    const missingReference = evaluateOperationalReadiness(base({
+      requiredNodes: [
+        { id: "compile", status: "passed", evidenceRefs: ["compile:receipt"] },
+        { id: "test", status: "passed" },
+      ],
+    }));
+    expect(missingReference.status).toBe("blocked");
+    expect(missingReference.releaseRecommendation).toBe("not-ready");
+    expect(missingReference.blockers).toContain("required-node-evidence");
+
+    const blankReference = evaluateOperationalReadiness(base({
+      requiredNodes: [{ id: "test", status: "passed", evidenceRefs: ["  "] }],
+    }));
+    expect(blankReference.status).toBe("blocked");
+    expect(blankReference.blockers).toContain("required-node-evidence");
+  });
+
   it("is deterministic and idempotent for repeated evaluation", () => {
     const first = evaluateOperationalReadiness(base(), { evaluatedAt: "fixed" });
     const second = evaluateOperationalReadiness(base(), { evaluatedAt: "fixed" });
