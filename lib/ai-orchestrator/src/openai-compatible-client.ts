@@ -723,10 +723,11 @@ export function classifyOpenRouterFailure(
 
 /**
  * PR-003 / PR-004 / PR-008: true for errors that indicate the model itself is
- * unusable and the fallback engine should advance to the next candidate.
- * Includes MODEL_NOT_FOUND (removed), PLAN_RESTRICTED (free-tier),
- * MODEL_UNAVAILABLE (temporarily offline — 422/410), and EMPTY_RESPONSE
- * (a model-specific silent completion).
+ * unavailable and should be cooled across requests.
+ * Includes MODEL_NOT_FOUND (removed), PLAN_RESTRICTED (free-tier), and
+ * MODEL_UNAVAILABLE (temporarily offline — 422/410). EMPTY_RESPONSE remains
+ * fallback-worthy within the current request, but is task-contract scoped and
+ * must not suppress the model for unrelated contracts across later requests.
  */
 async function recordUnavailableOpenRouterModelCooldown(
   error: unknown,
@@ -737,8 +738,7 @@ async function recordUnavailableOpenRouterModelCooldown(
   const candidateUnavailable =
     error.code === "MODEL_NOT_FOUND"
     || error.code === "MODEL_UNAVAILABLE"
-    || error.code === "PLAN_RESTRICTED"
-    || error.code === "EMPTY_RESPONSE";
+    || error.code === "PLAN_RESTRICTED";
   if (!candidateUnavailable) return;
 
   const cooldown = await recordLocalAdaptiveModelCooldown(
